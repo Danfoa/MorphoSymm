@@ -33,6 +33,7 @@ import isaacgym
 
 import os
 import hydra
+import numpy as np
 from omegaconf import DictConfig, OmegaConf
 from hydra.utils import to_absolute_path, get_original_cwd
 
@@ -51,6 +52,7 @@ import yaml
 # Resolvers used in hydra configs (see https://omegaconf.readthedocs.io/en/2.1_branch/usage.html#resolvers)
 from rl_algorithms.sac_agent import SACAgent
 
+OmegaConf.register_new_resolver('randInt', lambda lower, upper: np.random.randint(lower, upper))
 OmegaConf.register_new_resolver('eq', lambda x, y: x.lower()==y.lower())
 OmegaConf.register_new_resolver('contains', lambda x, y: x.lower() in y.lower())
 # allows us to resolve default arguments which are copied in multiple places in the config. used primarily for num_envs

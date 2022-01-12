@@ -18,20 +18,20 @@ params:
         mu_init:
           name: default
         sigma_init:
-          name: const_initializer
+          name: orthogonal_initializer
           val: 0
         fixed_sigma: True
 
     mlp:
       units: [32, 32]
-      activation: elu
+      activation: elu #swish
 
       initializer:
         name: default
       regularizer:
         name: None
 
-    log_std_bounds: [-5, 2]
+    log_std_bounds: [-20, 0]
 
 
   load_checkpoint: ${if:${...checkpoint},True,False} # flag which sets whether to load the checkpoint
@@ -41,42 +41,32 @@ params:
     name: ${resolve_default:Cartpole,${....experiment}}
     full_experiment_name: ${.name}
     env_name: rlgpu
+    num_envs: ${....task.env.numEnvs} # Number of envs running in parallel
+    total_steps: 4e6  # Max number of experience samples
+    batch_size: 2048  # Batch size for training critic and actor networks from replay buffer data
     device: cuda
+    score_to_win: 20000
+    print_stats: True
+
+    # Algorithmic parameters
     init_alpha: 1
-    num_seed_steps: 100 # Number of sim steps with random policy actions.
-    alpha_lr: 0.0002
-    actor_lr: 0.0003
-    critic_lr: 0.0003
-    critic_tau: 0.005
-    batch_size: 2048
-    learnable_temperature: true
+    num_seed_steps: 5000     # Number of sim steps with random policy actions.
+    max_episode_steps: inf   # Episodes never end on timeout
     replay_buffer_size: 1000000
     reward_shaper:
       scale_value: 1.0
-    mixed_precision: False
-    normalize_input: True
-    normalize_value: True
-    value_bootstrap: True
-    num_actors: ${....task.env.numEnvs}
-    normalize_advantage: True
-    gamma: 0.99
-    tau: 0.95
-    e_clip: 0.2
-    entropy_coef: 0.0
-    learning_rate: 3.e-4 # overwritten by adaptive lr_schedule
-    lr_schedule: adaptive
-    kl_threshold: 0.008 # target kl for adaptive lr
-    truncate_grads: True
-    grad_norm: 1.
-    minibatch_size: 8192
-    mini_epochs: 5
-    critic_coef: 2
-    clip_value: True
-    seq_len: 4 # only for rnn
-    bounds_loss_coef: 0.001
+    mixed_precision: true
+    normalize_input: False
+    target_entropy_coef: 1.0   # Leave at 1.0 to comply with Arnoha
+    # Optimization parameters
+    alpha_lr: 3e-4
+    actor_lr: 3e-4
+    critic_lr: 3e-4
+    critic_tau: 5e-3  # Double Q network weight update rate
+    learnable_temperature: true
+    gamma: 0.990
 
-    max_epochs: ${resolve_default:100,${....max_iterations}}
-    save_best_after: 200
-    score_to_win: 20000
-    save_frequency: 50
-    print_stats: True
+    # Logging parameters
+    log_frequency: 5e4    # Experience samples
+    save_frequency: 1e6  # Experience samples
+    save_best_after_n_steps: 1e6  # Experience samples

@@ -1,0 +1,5 @@
+/experiments/
+/media/
+*.pyc
+*.__pycache__
+/.idea

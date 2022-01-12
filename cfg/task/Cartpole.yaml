@@ -10,6 +10,7 @@ env:
   resetDist: 3.0
   maxEffort: 400.0
 
+  maxEpisodeTime: inf  #[s]
   clipObservations: 5.0
   clipActions: 1.0
 

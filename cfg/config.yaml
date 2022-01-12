@@ -8,7 +8,7 @@ experiment: ''
 num_envs: ''
 
 # seed - set to -1 to choose random seed
-seed: 42
+seed: ${randInt:0,100}
 # set to True for deterministic performance
 torch_deterministic: False
 
@@ -46,7 +46,9 @@ headless: False
 defaults:
   - task: Ant
   - train: ${task}PPO
-  - hydra/job_logging: disabled
+#  - hydra/job_logging: disabled
+  - override hydra/job_logging: custom_logger
+
 
 # set the directory where the output files get saved
 hydra:
