@@ -1,33 +1,19 @@
-import numpy as np
-from sympy import symbols, Symbol
 from sympy.interactive.printing import init_printing
+
+from robot_kinematic_symmetries import JointSpaceSymmetry, SemiDirectProduct, is_equivariant_invariant
+
 init_printing(use_unicode=False, wrap_line=False)
-from sympy.matrices import Matrix, eye, zeros, ones, diag, GramSchmidt
 
+from emlp.reps import Vector
 
-def symbolic_matrix(base_name, rows, cols):
-    w = np.empty((rows, cols), dtype=object)
-    for r in range(rows):
-        for c in range(cols):
-            w[r, c] = Symbol("w_%d%d" % (r+1, c+1))
-    return w
-
-
-def permutation_matrix(oneline_notation):
-    d = len(oneline_notation)
-    assert np.unique(oneline_notation) == d
-
-    p = np.zeros((d, d))
-    p[range(d), np.abs(oneline_notation)] = 1
-    return p
-
+from utils.emlp_visualization import *
+from utils.utils import *
+import torch
+torch.set_default_dtype(torch.float32)
 
 if __name__ == "__main__":
+    np.random.seed(1)
 
-    H1 = [(2, 3, 0, 1), (0, 1, 2, 3), (0, 2, 1, 3)]
-    H2 = [(2, 0, 1), (0, 1, 2), (1, 0, 2)]
-
-    N1 = 4
-    N2 = 3
-    W = symbolic_matrix(base_name="w", rows=N2, cols=N1)
+    permutations_in = [(3, 2, 1, 0),]
+    permutations_out = [(2, 1, 0),]
 

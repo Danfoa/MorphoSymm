@@ -73,11 +73,11 @@ class SACBuilder(NetworkBuilder):
             for m in self.modules():
                 if self.has_cnn and (isinstance(m, nn.Conv2d) or isinstance(m, nn.Conv1d)):
                     cnn_init(m.weight)
-                    if getattr(m, "bias", None) is not None:
+                    if getattr(m, "b", None) is not None:
                         torch.nn.init.zeros_(m.bias)
                 if isinstance(m, nn.Linear):
                     mlp_init(m.weight)
-                    if getattr(m, "bias", None) is not None:
+                    if getattr(m, "b", None) is not None:
                         torch.nn.init.zeros_(m.bias)
 
 

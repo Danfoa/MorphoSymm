@@ -194,7 +194,7 @@ class SACAgent:
         self.play_time = 0.
         self.epoch_num = 0.
 
-        self.writer = SummaryWriter(self.experiment_dir.joinpath('tb_log' + datetime.now().strftime("_%d-%H-%M-%S")))
+        self.writer = SummaryWriter(self.experiment_dir.joinpath('tb_log' + datetime.now().strftime("_%d-%H_solo-%M-%S")))
         log.info(f"Tensorboard log dir {self.writer.log_dir}")
 
         self.is_tensor_obses = None
@@ -285,7 +285,7 @@ class SACAgent:
             target_Q = reward + (not_done * self.gamma * (target_Q - self.alpha * log_prob))
             target_Q = target_Q.detach()
 
-        # get current Q estimates
+        # get current basis estimates
         current_Q1, current_Q2 = self.model.critic(obs, action)
 
         critic1_loss = self.c_loss(current_Q1, target_Q)
@@ -448,7 +448,7 @@ class SACAgent:
             # If episodes have finite step lengths, terminate them.
             if np.isfinite(self.max_episode_steps):
                 dones = dones * (self.episode_lengths != self.max_episode_steps)
-                # TODO: Episodes terminated with max_steps should not be stored with Q or V values as rewards estimates.
+                # TODO: Episodes terminated with max_steps should not be stored with basis or V values as rewards estimates.
             # TODO: Check for infinite obs values -> terminate those episodes
             # no_finite = torch.all(torch.isfinite(next_obs), dim=-1)
 
