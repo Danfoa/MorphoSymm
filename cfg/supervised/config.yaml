@@ -1,16 +1,19 @@
-
 robot_name: 'bolt'
 
 model_type: 'emlp'
 with_augmentation: False
-num_layers: 2
+num_layers: 10
 num_channels: 64
 seed: -1
-batch_size: 256
+batch_size: 512
+
+device: 9
+max_epoch: 300
 
 dataset:
   name: 'com_momentum'
   num_samples: 10000
+  val_samples: 5000
   angular_momentum: False
 
 # Hydra configuration _________
@@ -27,6 +30,8 @@ hydra:
         item_sep: " "
         exclude_keys:
           - seed
+          - batch_size
+          - model_type
 
   sweep:
     dir: ./experiments/${hydra.job.name}/${hydra.job.override_dirname}

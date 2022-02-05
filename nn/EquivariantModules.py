@@ -4,18 +4,26 @@
 # @Author  : Daniel Ordonez 
 # @email   : daniels.ordonez@gmail.com
 # Some code was adapted from https://github.com/ElisevanderPol/symmetrizer/blob/master/symmetrizer/nn/modules.py
+import math
+import os
+import pathlib
+import warnings
+
+import jax
 import numpy as np
 import torch
 import torch.nn.functional as F
 from jax import jit
 from emlp.nn.pytorch import torchify_fn
-from emlp.reps import Rep
+from emlp.reps.representation import Rep
 from emlp import Group
 from emlp.reps.representation import Vector
 from emlp.reps.linear_operators import densify
+import pickle
 
-from robot_kinematic_symmetries import SemiDirectProduct
+from groups.SemiDirectProduct import SemiDirectProduct
 import logging
+from utils.utils import slugify
 
 log = logging.getLogger(__name__)
 
@@ -25,17 +33,17 @@ class BasisLinear(torch.nn.Module):
     Group-equivariant linear layer
     """
 
-    def __init__(self, rep_in: Rep, rep_out: Rep, with_bias=True):
+    def __init__(self, rep_in: Rep, rep_out: Rep, with_bias=True, cache_dir=None):
         super().__init__()
 
         # TODO: Add parameter for direct/whreat product
         self.G = SemiDirectProduct(Gin=rep_in.G, Gout=rep_out.G)
         self.repW = Vector(self.G)
-
         self.rep_in = rep_in
         self.rep_out = rep_out
-
         self.with_bias = with_bias
+
+        self.cache_dir = cache_dir
 
         # Compute the nullspace
         self.basis = torch.nn.Parameter(torch.tensor(np.array(densify(self.repW.equivariant_basis()))),
@@ -49,7 +57,7 @@ class BasisLinear(torch.nn.Module):
 
         # TODO: Check if necessary
         self.proj_b = torchify_fn(jit(lambda b: self.P_bias @ b))
-
+        self.reset_parameters()
         log.info(str(self))
 
     def forward(self, x):
@@ -67,6 +75,28 @@ class BasisLinear(torch.nn.Module):
         if self.with_bias:
             return torch.sum(self.bias_basis * self.bias_basis_coeff, dim=-1).reshape((self.rep_out.G.d,))
         return None
+
+    def reset_parameters(self, weights_initializer=torch.nn.init.kaiming_uniform):
+        # TODO: Compute initialization considering weight sharing distribution
+        # Estimate the gain value considering the equivariance.
+        # For now use Glorot initialization, must check later:
+        gain = 1  # np.sqrt(2)
+
+        fan_in, fan_out = self.W.shape
+        if weights_initializer == torch.nn.init.xavier_uniform:
+            # Xavier cannot find the in out dimensions because the tensor is not 2D
+            std = gain * math.sqrt(2.0 / float(fan_in + fan_out))
+            bound = math.sqrt(3.0) * std  # Calculate uniform bounds from standard deviation
+            return torch.nn.init._no_grad_uniform_(self.basis_coeff, -bound, bound)
+        elif weights_initializer == torch.nn.init.kaiming_uniform:
+            std = gain / math.sqrt(fan_out)
+            bound = math.sqrt(3.0) * std  # Calculate uniform bounds from standard deviation
+            with torch.no_grad():
+                return self.basis_coeff.uniform_(-bound, bound)
+        else:
+            weights_initializer(self.basis_coeff)
+        if self.with_bias:
+            self.bias_basis_coeff.zero_()
 
     def __repr__(self):
         string = f"G[{self.G}]-W{self.rep_out.size() * self.rep_in.size()}-" \
@@ -88,6 +118,7 @@ class EBlock(torch.nn.Module):
         return self.activation(preact)
 
 
+
 class EMLP(torch.nn.Module):
     """ Equivariant MultiLayer Perceptron.
         If the input channels argument is an int, uses the hands off uniform_rep heuristic.
@@ -105,13 +136,22 @@ class EMLP(torch.nn.Module):
         Returns:
             Module: the EMLP objax module."""
 
-    def __init__(self, rep_in, rep_out, group, ch=128, num_layers=3, with_bias=True, activation=torch.nn.SiLU):
+    def __init__(self, rep_in, rep_out, group, ch=128, num_layers=3, with_bias=True, activation=torch.nn.SiLU,
+                 cache_dir=None):
         super().__init__()
         logging.info("Initing EMLP (PyTorch)")
         self.rep_in = rep_in(group)
         self.rep_out = rep_out(group)
         self.activations = activation
         self.G = group
+
+        self.hidden_channels = ch
+        self.n_layers = num_layers
+
+        # Cache dir
+        self.cache_dir = cache_dir if cache_dir is None else pathlib.Path(cache_dir).resolve(strict=True)
+        self.load_cache_file()
+
         # Parse channels as a single int, a sequence of ints, a single Rep, a sequence of Reps
         rep_inter_in = rep_in
         rep_inter_out = rep_out
@@ -128,11 +168,36 @@ class EMLP(torch.nn.Module):
         layers.append(linear_out)
 
         # logging.info(f"Reps: {reps}")
-        self.network = torch.nn.Sequential(*layers)
+        self.net = torch.nn.Sequential(*layers)
 
     def forward(self, x):
-        return self.network(x)
+        return self.net(x)
 
+    @property
+    def _cache_file_name(self) -> str:
+        EXTENSION = ".emlp_cache"
+        model_rep = f'{self.rep_in.G}-{self.rep_out.G}'
+        return slugify(model_rep) + EXTENSION
+
+    def load_cache_file(self):
+        if self.cache_dir is None:
+            return
+        model_cache_file = self.cache_dir.joinpath(self._cache_file_name)
+        if not model_cache_file.exists():
+            warnings.warn(f"Model cache {model_cache_file.stem} not found")
+            return
+        with open(model_cache_file, 'rb') as handle:
+            self.rep_in.solcache.update(pickle.load(handle))
+            log.info(f"Model Cache found with Reps: {[k for k in self.rep_in.solcache.keys()]}")
+            for k, v in self.rep_in.solcache.items():
+                self.rep_in.solcache[k] = jax.device_put(v)
+
+
+    def save_cache_file(self):
+        if self.cache_dir is None:
+            warnings.warn("No cache directory provided. Nothing will be saved")
+        with open(self.cache_dir.joinpath(self._cache_file_name), 'wb') as handle:
+            pickle.dump(self.rep_in.solcache, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
 
 class MLP(torch.nn.Module):

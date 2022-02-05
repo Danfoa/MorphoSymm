@@ -1,5 +1,7 @@
 import math
 import os
+import time
+
 import torch
 from torch import nn
 import torch.nn.functional as F
@@ -8,10 +10,11 @@ from torchvision.datasets import MNIST
 from torch.utils.data import DataLoader, random_split
 import pytorch_lightning as pl
 
-from nn.EquivariantModules import BasisLinear
+from nn.EquivariantModules import BasisLinear, EBlock
 
 
 class EquivariantModel(pl.LightningModule):
+
     def __init__(self, model, model_type, lr):
         super().__init__()
         self.model_type = model_type
@@ -63,3 +66,36 @@ class EquivariantModel(pl.LightningModule):
                 weights_initializer(module.basis_coeff)
             if module.with_bias:
                 bias_initializer(module.bias_basis_coeff)
+
+    def on_train_epoch_start(self) -> None:
+        self.epoch_start_time = time.time()
+
+    def training_epoch_end(self, outputs):
+        tb_logger = self.logger.experiment
+        self.log('time_per_epoch', time.time() - self.epoch_start_time)
+        self.log_weights(tb_logger)
+        print(outputs)
+
+    def log_weights(self, tb_logger):
+        tb_logger = self.logger.experiment
+        for layer_index, layer in enumerate(self.model.net):
+            layer_name = f"Layer{layer_index:02d}"
+            if isinstance(layer, torch.nn.Linear):
+                for name, param in layer.named_parameters():
+                    if name.endswith(".bias"):
+                        continue
+                    tab = layer_name + ".W"
+                    tb_logger.add_histogram(tag=tab, values=param.detach().view(-1), global_step=self.current_epoch)
+            elif isinstance(layer, EBlock):
+                W = layer.linear.W.view(-1).detach()
+                basis_coeff = layer.linear.basis_coeff.view(-1).detach()
+                tb_logger.add_histogram(tag=f"{layer_name}.c", values=basis_coeff, global_step=self.current_epoch)
+                tb_logger.add_histogram(tag=f"{layer_name}.W", values=W, global_step=self.current_epoch)
+            elif isinstance(layer, BasisLinear):
+                W = layer.W.view(-1).detach()
+                basis_coeff = layer.basis_coeff.view(-1).detach()
+                tb_logger.add_histogram(tag=f"{layer_name}.c", values=basis_coeff, global_step=self.current_epoch)
+                tb_logger.add_histogram(tag=f"{layer_name}.W", values=W, global_step=self.current_epoch)
+
+
+
