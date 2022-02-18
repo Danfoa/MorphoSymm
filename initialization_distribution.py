@@ -1,10 +1,12 @@
 import math
 import os
 import pathlib
+import warnings
 
 import hydra
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
 import seaborn as sns
 import torch
 import torch.nn.functional as F
@@ -17,7 +19,7 @@ from torch.utils.data import DataLoader
 from com_momentum import get_robot_params
 from groups.SymmetricGroups import C2
 from nn.EquivariantModel import EquivariantModel
-from nn.EquivariantModules import EMLP, MLP, BasisLinear, EBlock
+from nn.EquivariantModules import EMLP, MLP, BasisLinear, EBlock, LinearBlock
 from nn.datasets import COMMomentum
 from utils.utils import slugify
 
@@ -26,70 +28,55 @@ class Identity(torch.nn.Module):
     def forward(self, x):
         return x
 
-def plot_dists(val_dict, color="C0", xlabel=None, stat="count", use_kde=True, ax=None):
-    columns = len(val_dict)
-    if ax is None:
-        fig, ax = plt.subplots(1, columns, figsize=(columns * 3, 2.5))
-    else:
-        assert len(ax) == columns, "Ups"
-        fig = ax[0].get_figure()
 
-    fig_index = 0
-    for key in sorted(val_dict.keys()):
-        key_ax = ax[fig_index % columns]
-        sns.histplot(
-            val_dict[key],
-            ax=key_ax,
-            color=color,
-            bins=50,
-            legend=True,
-            stat=stat,
-            kde=use_kde and ((val_dict[key].max() - val_dict[key].min()) > 1e-8),
-        )  # Only plot kde if there is variance
-        hidden_dim_str = (
-            r"(%i $\to$ %i)" % (val_dict[key].shape[1], val_dict[key].shape[0]) if len(val_dict[key].shape) > 1 else ""
-        )
-        key_ax.set_title(f"{key} {hidden_dim_str}")
-        if xlabel is not None:
-            key_ax.set_xlabel(xlabel)
-        fig_index += 1
-    fig.subplots_adjust(wspace=0.4, hspace=0.4, top=0.85)
-    return ax
+def extract_weight_distribution(model):
+    weights, basis_coeff_w, basis = {}, {}, {}
 
-
-def visualize_weight_distribution(model, color="C0", ax=None):
-    weights = {}
-
-    # Plot resultant W
     for layer_index, layer in enumerate(model.net):
         if isinstance(layer, torch.nn.Linear):
             for name, param in layer.named_parameters():
                 if name.endswith(".bias"):
                     continue
-                s = name.split('.')
-                key_name = f"Layer{layer_index}.{s[-1]}"
+                key_name = layer_index
                 weights[key_name] = param.detach().view(-1).cpu().numpy()
+        elif isinstance(layer, LinearBlock):
+            W = layer.linear.weight.view(-1).detach().cpu().numpy()
+            weights[layer_index] = W
         elif isinstance(layer, EBlock):
-            W = layer.linear.W.view(-1).detach().cpu().numpy()
+            W = layer.linear.weight.view(-1).detach().cpu().numpy()
+            weights[layer_index] = W
             basis_coeff = layer.linear.basis_coeff.view(-1).detach().cpu().numpy()
-            weights[f"Layer{layer_index}.c"] = basis_coeff
-            weights[f"Layer{layer_index}.W"] = W
+            basis_coeff_w[layer_index] = basis_coeff
+            base = torch.sum(layer.linear.basis, dim=-1).view(-1).detach().cpu().numpy()
+            basis[layer_index] = base
         elif isinstance(layer, BasisLinear):
-            W = layer.W.view(-1).detach().cpu().numpy()
+            W = layer.weight.view(-1).detach().cpu().numpy()
+            weights[layer_index] = W
             basis_coeff = layer.basis_coeff.view(-1).detach().cpu().numpy()
-            weights[f"Layer{layer_index}.c"] = basis_coeff
-            weights[f"Layer{layer_index}.W"] = W
+            basis_coeff_w[layer_index] = basis_coeff
+            base = torch.sum(layer.basis, dim=-1).view(-1).detach().cpu().numpy()
+            basis[layer_index] = base
 
-    # Plotting
-    ax = plot_dists(weights, color=color, xlabel="Weight vals", ax=ax)
-    # fig.suptitle("Weight distribution", fontsize=14, y=0.97)
-    # plt.show()
-    # plt.close()
-    return ax[0].get_figure(), ax
+    df_weights = pd.concat([pd.DataFrame.from_dict({k: v}) for k, v in weights.items()], axis=1)
+    df_weights = df_weights.melt(id_vars=None, value_vars=df_weights.columns, var_name="Layer", value_name="Param_Value").dropna()
+    df_weights["Param"] = "W"
+    if len(basis_coeff_w) > 0:
+        df_basis_coeff = pd.concat([pd.DataFrame.from_dict({k: v}) for k, v in basis_coeff_w.items()], axis=1)
+        df_basis_coeff = df_basis_coeff.melt(id_vars=None, value_vars=df_basis_coeff.columns,
+                                             var_name="Layer", value_name="Param_Value").dropna()
+        df_basis_coeff["Param"] = "c"
+        df_weights = pd.concat((df_weights, df_basis_coeff), axis=0)
+
+        df_basis = pd.concat([pd.DataFrame.from_dict({k: v}) for k, v in basis.items()], axis=1)
+        df_basis = df_basis.melt(id_vars=None, value_vars=df_basis.columns, var_name="Layer",
+                                       value_name="Param_Value").dropna()
+        df_basis["Param"] = "basis"
+        df_weights = pd.concat((df_weights, df_basis), axis=0)
+
+    return df_weights
 
 
-def visualize_gradients(model, data_loader, color="C0", print_variance=False, grad_keyword="weight", loss_fn=F.mse_loss,
-                        ax=None):
+def extract_gradients(model, data_loader, loss_fn=F.mse_loss):
     """
     Args:
         net: Object of class BaseNetwork
@@ -100,31 +87,56 @@ def visualize_gradients(model, data_loader, color="C0", print_variance=False, gr
 
     # Pass one batch through the network, and calculate the gradients for the weights
     model.zero_grad()
+
     preds = model(x)
+
+    # Store gradients of layer weights in Equivariant module
+    for layer_index, layer in enumerate(model.net):
+        if isinstance(layer, EBlock):
+            layer.linear._weight.retain_grad()
+        elif isinstance(layer, BasisLinear):
+            layer._weight.retain_grad()
+
+
     loss = loss_fn(preds, y)
     loss.backward()
-    # We limit our visualization to the weight parameters and exclude the bias to reduce the number of plots
-    params = dict(model.named_parameters())
-    grads = {
-        name: params.grad.view(-1).cpu().clone().numpy()
-        for name, params in model.named_parameters()
-        if params.grad is not None
-    }
+
+    layer_grads, layer_basis_coeff_grads = {}, {}
+    for layer_index, layer in enumerate(model.net):
+        if isinstance(layer, torch.nn.Linear):
+            for name, param in layer.named_parameters():
+                if name.endswith(".bias"):
+                    continue
+                layer_grads[layer_index] = param.grad.view(-1).cpu().clone().numpy()
+        elif isinstance(layer, LinearBlock):
+            grad = layer.linear.weight.grad.view(-1).detach().cpu().clone().numpy()
+            layer_grads[layer_index] = grad
+        elif isinstance(layer, EBlock):
+            grad = layer.linear._weight.grad.view(-1).detach().cpu().clone().numpy()
+            basis_coeff_grad = layer.linear.basis_coeff.grad.view(-1).detach().cpu().clone().numpy()
+            layer_basis_coeff_grads[layer_index] = basis_coeff_grad
+            layer_grads[layer_index] = grad
+        elif isinstance(layer, BasisLinear):
+            grad = layer._weight.grad.view(-1).detach().cpu().clone().numpy()
+            basis_coeff_grad = layer.basis_coeff.grad.view(-1).detach().cpu().clone().numpy()
+            layer_basis_coeff_grads[layer_index] = basis_coeff_grad
+            layer_grads[layer_index] = grad
+
+    df_grads = pd.concat([pd.DataFrame.from_dict({k: v}) for k, v in layer_grads.items()], axis=1)
+    df_grads = df_grads.melt(id_vars=None, value_vars=df_grads.columns, var_name="Layer", value_name="Grad").dropna()
+    df_grads["Param"] = "W"
+    if len(layer_basis_coeff_grads) > 0:
+        df_basis_coeff_grads = pd.concat([pd.DataFrame.from_dict({k: v}) for k, v in layer_basis_coeff_grads.items()], axis=1)
+        df_basis_coeff_grads = df_basis_coeff_grads.melt(id_vars=None, value_vars=df_basis_coeff_grads.columns,
+                                                         var_name="Layer", value_name="Grad").dropna()
+        df_basis_coeff_grads["Param"] = "c"
+        df_grads = pd.concat((df_grads, df_basis_coeff_grads), axis=0)
+
     model.zero_grad()
+    return df_grads
 
-    # Plotting
-    ax = plot_dists(grads, color=color, xlabel="Grad magnitude", ax=ax)
-    # fig.suptitle("Gradient distribution", fontsize=14, y=0.97)
-    # plt.show()
-    # plt.close()
 
-    if print_variance:
-        for key in sorted(grads.keys()):
-            print(f"{key} - Variance: {np.var(grads[key])}")
-
-    return ax[0].get_figure(), ax
-
-def visualize_activations(model, data_loader, color="C0", print_variance=False, ax=None):
+def extract_activations(model, data_loader):
     model.eval()
     x, y = next(iter(data_loader))
 
@@ -133,28 +145,35 @@ def visualize_activations(model, data_loader, color="C0", print_variance=False, 
     activations = {}
     with torch.no_grad():
         for layer_index, layer in enumerate(model.net):
+            print(f"-{layer_index}: {layer}")
             if isinstance(layer, EBlock):
                 feats = layer.linear(feats)
-                activations[f"Layer {layer_index}"] = feats.view(-1).detach().cpu().numpy()
+                activations[layer_index] = feats.view(-1).detach().cpu().numpy()
                 feats = layer.activation(feats)
-            else:
+            elif isinstance(layer, LinearBlock):
+                feats = layer.linear(feats)
+                activations[layer_index] = feats.view(-1).detach().cpu().numpy()
+                feats = layer.activation(feats)
+            elif isinstance(layer, torch.nn.Linear) or isinstance(layer, BasisLinear):
                 feats = layer(feats)
-            if isinstance(layer, torch.nn.Linear) or isinstance(layer, BasisLinear) :
-                activations[f"Layer {layer_index}"] = feats.view(-1).detach().cpu().numpy()
+                activations[layer_index] = feats.view(-1).detach().cpu().numpy()
+            else:
+                raise NotImplementedError(type(layer))
+            print(f"\t Activations: {feats.shape}")
 
+    df = pd.concat([pd.DataFrame.from_dict({k:v}) for k,v in activations.items()], axis=1)
+    df = df.melt(id_vars=None, value_vars=df.columns, var_name="Layer", value_name="Activation").dropna()
     # Plotting
-    ax = plot_dists(activations, color=color, stat="density", xlabel="Activation vals", ax=ax)
-    # fig.suptitle("Activation distribution", fontsize=14, y=0.97)
-    # plt.show()
-    # plt.close()
+    # ax = plot_dists(activations, color=color, stat="density", xlabel="Activation vals", ax=ax)
+    # if print_variance:
+    #     for key in sorted(activations.keys()):
+    #         print(f"{key} - Variance: {np.var(activations[key])}")
 
-    if print_variance:
-        for key in sorted(activations.keys()):
-            print(f"{key} - Variance: {np.var(activations[key])}")
+    # return ax[0].get_figure(), ax
+    return df
 
-    return ax[0].get_figure(), ax
 
-def weights_initialization(module,
+def weights_initialization(module, activation,
                            weights_initializer=torch.nn.init.kaiming_uniform,
                            bias_initializer=torch.nn.init.zeros_):
     # TODO: Place default initializer
@@ -162,9 +181,9 @@ def weights_initialization(module,
     # For now use Glorot initialization, must check later:
     if isinstance(module, EBlock):
         basis_layer = module.linear
-        gain = 1 # np.sqrt(2) if isinstance(module.activation, torch.nn.SiLU) else 1
+        gain = 1  # np.sqrt(2) if isinstance(module.activation, torch.nn.SiLU) else 1
 
-        fan_in, fan_out = basis_layer.W.shape
+        fan_in, fan_out = basis_layer.weight.shape
         if weights_initializer == torch.nn.init.xavier_uniform:
             # Xavier cannot find the in out dimensions because the tensor is not 2D
             # TODO: Check this
@@ -180,6 +199,15 @@ def weights_initialization(module,
             weights_initializer(basis_layer.basis_coeff)
         if basis_layer.with_bias:
             bias_initializer(basis_layer.bias_basis_coeff)
+    elif isinstance(module, torch.nn.Linear):
+        try:
+            weights_initializer(module.weight, gain=torch.nn.init.calculate_gain(nonlinearity=activation))
+        except Exception as e:
+            try:
+                weights_initializer(module.weight, nonlinearity=activation)
+            except Exception as e:
+                warnings.warn(e.__str__())
+                weights_initializer(module.weight)
 
 
 @hydra.main(config_path='cfg/supervised', config_name='config')
@@ -193,59 +221,97 @@ def main(cfg: DictConfig):
     cache_dir.mkdir(exist_ok=True)
 
     robot_name = "bolt"
-    robot, G_in, GC = get_robot_params(robot_name)
+    robot, G_in, G_out, G = get_robot_params(robot_name)
 
+    # cfg.num_channels = 32
+    # cfg.num_layers = 1
     # Parameters
-    activations = [Identity, torch.nn.SiLU, torch.nn.ReLU]
-    activations_names = ["Identity", "Swish", "ReLU"]
-    initializers = [torch.nn.init.kaiming_uniform, torch.nn.init.xavier_uniform, torch.nn.init.normal]
+    # activations = [Identity, torch.nn.SiLU, torch.nn.ReLU]
+    # activations_names = ["Identity", "ReLU"]
+    activations = [torch.nn.ReLU]
+    activations_names = ["ReLU"]
+    init_modes = ["fan_in", "fan_out", "arithmetic_mean", "harmonic_mean"]
 
     for activation, act_name in zip(activations, activations_names):
-        fig_ac, ax_ac = plt.subplots(nrows=len(initializers), ncols=cfg.num_layers + 1,
-                                     figsize=((cfg.num_layers + 1) * 3, len(initializers) * 3))
-        fig_gr, ax_gr = plt.subplots(nrows=len(initializers), ncols=cfg.num_layers + 1,
-                                     figsize=((cfg.num_layers + 1) * 3, len(initializers) * 3))
-        fig_w, ax_w = plt.subplots(nrows=len(initializers), ncols=(cfg.num_layers + 1) * 2,
-                                   figsize=((cfg.num_layers + 1) * 2 * 3, len(initializers) * 3))
+        df_activations, df_gradients, df_weights = None, None, None
 
-        for i, initializer in enumerate(initializers):
-            # Define output group for linear momentum
-            G_out = GC.canonical_group(3)
-            activation = torch.nn.SiLU #Identity
-            model_type = cfg.model_type.lower()
-            if model_type == "emlp":
-                network = EMLP(rep_in=Vector(G_in), rep_out=Vector(G_out),
-                               group=C2, num_layers=cfg.num_layers, ch=cfg.num_channels,
-                               with_bias=False, activation=activation,
-                               cache_dir=cache_dir).to(dtype=torch.float32)
-                network.save_cache_file()
-                network.apply(lambda x: weights_initialization(x, initializer))
-                weights_kw = "basis"
-            elif model_type == 'mlp':
-                network = MLP(d_in=G_in.d, d_out=G_out.d, num_layers=cfg.num_layers,
-                              ch=cfg.num_channels).to(dtype=torch.float32)
-                weights_kw = "weight"
+        model_types = ['mlp', 'emlp']
+        model_colors = plt.cm.get_cmap('inferno')([1.0, 0.0])
+        alpha = 0.2
+        for color, model_type in zip(model_colors, model_types):
+            color[3] = alpha
+            for i, init_mode in enumerate(init_modes):
+                # Define output group for linear momentum
+                if model_type == "emlp":
+                    network = EMLP(rep_in=Vector(G_in), rep_out=Vector(G_out), group=G_in, num_layers=cfg.num_layers,
+                                   ch=cfg.num_channels, with_bias=False, activation=activation, init_mode=init_mode,
+                                   cache_dir=cache_dir).to(dtype=torch.float32)
+                    network.save_cache_file()
+                elif model_type == 'mlp':
+                    if "mean" in init_mode: continue
+                    network = MLP(d_in=G_in.d, d_out=G_out.d, num_layers=cfg.num_layers, ch=cfg.num_channels,
+                                  with_bias=False, activation=activation, init_mode=init_mode).to(dtype=torch.float32)
+                else:
+                    raise NotImplementedError(model_type)
+
+                dataset = COMMomentum(robot, cfg.dataset.num_samples, angular_momentum=cfg.dataset.angular_momentum,
+                                      Gin=G_in, Gout=G_out, augment=False)
+                data_loader = DataLoader(dataset, batch_size=cfg.batch_size)
+
+                df_act = extract_activations(network, data_loader=data_loader)
+                df_grad = extract_gradients(network, data_loader=data_loader)
+                df_w = extract_weight_distribution(network)
+                df_act["Model Type"] = model_type
+                df_act["Initialization Mode"] = init_mode
+                df_grad["Model Type"] = model_type
+                df_grad["Initialization Mode"] = init_mode
+                df_w["Model Type"] = model_type
+                df_w["Initialization Mode"] = init_mode
+
+                if df_activations is None:
+                    df_activations, df_gradients, df_weights = df_act, df_grad, df_w
+                else:
+                    df_activations = pd.concat((df_activations, df_act), axis=0)
+                    df_gradients = pd.concat((df_gradients, df_grad), axis=0)
+                    df_weights = pd.concat((df_weights, df_w), axis=0)
+
+        def plot_layers_distributions(df, value_kw, title=None, save=False):
+            if "Param" in df.columns:
+                df["hue"] = df["Model Type"] + "." + df["Param"]
             else:
-                raise NotImplementedError(model_type)
+                df["hue"] = df["Model Type"]
+            g = sns.catplot(x="Layer", y=value_kw, hue="hue",
+                            row="Initialization Mode", kind="violin", data=df,
+                            sharey=False, sharex="col", aspect=(cfg.num_layers+2)/1.5, ci="sd",
+                            scale='count', bw=.3, inner="box", scale_hue=True, pallete="Set3", leyend_out=False)
+            if title:
+                g.figure.suptitle(title)
+                g.figure.subplots_adjust(top=0.92)
+                if save:
+                    g.figure.savefig(os.path.join(get_original_cwd(), "media", title), dpi=90)
+            return g.figure
 
-            dataset = COMMomentum(robot, cfg.dataset.num_samples, angular_momentum=cfg.dataset.angular_momentum)
-            data_loader = DataLoader(dataset, batch_size=cfg.batch_size)
-
-            visualize_activations(network, data_loader=data_loader, ax=ax_ac[i,:], color=f"C{i}")
-            visualize_gradients(network, data_loader=data_loader, grad_keyword=weights_kw, ax=ax_gr[i,:], color=f"C{i}")
-            visualize_weight_distribution(network, ax=ax_w[i,:], color=f"C{i}")
-
-        title = act_name
-        initializer_names = [f"{slugify(init.__name__)}" for init in initializers]
-        fig_ac.suptitle(f"[{title}]Activation distribution \n{initializer_names}", fontsize=12, y=0.97)
-        fig_ac.savefig(root_path.joinpath(f"media/{title}_l{cfg.num_layers}_act.png"), dpi=120)
-        fig_ac.show()
-        fig_gr.suptitle(f"[{title}] Gradient distribution \n{initializer_names}", fontsize=12, y=0.97)
-        fig_gr.savefig(root_path.joinpath(f"media/{title}_l{cfg.num_layers}_grad.png"), dpi=120)
-        fig_gr.show()
-        fig_w.suptitle(f"[{title}] W distribution \n{initializer_names}", fontsize=12, y=0.97)
-        fig_w.savefig(root_path.joinpath(f"media/{title}_l{cfg.num_layers}_W.png"), dpi=120)
+        main_title = f"Layers={cfg.num_layers + 2}-Hidden_channels={cfg.num_channels}-Act={activation.__name__}"
+        fig_grad = plot_layers_distributions(df=df_gradients, value_kw="Grad",
+                                             title=f"Gradients Distributions " + main_title, save=True)
+        fig_act = plot_layers_distributions(df=df_activations, value_kw="Activation",
+                                            title=f"Activations Distributions " + main_title, save=True)
+        fig_w = plot_layers_distributions(df=df_weights, value_kw="Param_Value",
+                                          title=f"Params Distributions " + main_title, save=True)
+        fig_grad.show()
+        fig_act.show()
         fig_w.show()
+
+        for model_type in model_types:
+            main_title =f"{model_type}-Layers={cfg.num_layers+2}-Hidden_channels={cfg.num_channels}-Act={activation.__name__}"
+            fig_grad = plot_layers_distributions(df=df_gradients[df_gradients["Model Type"] == model_type], value_kw="Grad",
+                                                 title=f"Gradients Distributions " + main_title, save=True)
+            fig_act = plot_layers_distributions(df=df_activations[df_activations["Model Type"] == model_type], value_kw="Activation",
+                                                title=f"Activations Distributions " + main_title, save=True)
+            fig_grad.show()
+            fig_act.show()
+
+
 
 if __name__ == "__main__":
     main()

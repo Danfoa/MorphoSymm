@@ -131,7 +131,7 @@ class PinBulletWrapper(ABC):
         self._pb = bullet_client
         self.world = world
         self.robot_id = self.load_bullet_robot(base_pos, base_ori)
-        assert self.robot_id is not None and self.robot_id > 0
+        assert self.robot_id is not None
         log.debug("Configuring Bullet Robot")
         bullet_joint_map = {}  # Key: joint name - Value: joint id
         for bullet_joint_id in range(self.bullet_client.getNumJoints(self.robot_id)):

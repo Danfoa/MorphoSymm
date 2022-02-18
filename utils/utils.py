@@ -4,10 +4,38 @@
 # @Author  : Daniel Ordonez 
 # @email   : daniels.ordonez@gmail.com
 import numpy as np
-from sympy import Symbol
+import pybullet_data
+from pybullet import GUI, DIRECT, COV_ENABLE_GUI, COV_ENABLE_SEGMENTATION_MARK_PREVIEW, COV_ENABLE_DEPTH_BUFFER_PREVIEW, \
+    COV_ENABLE_MOUSE_PICKING
+from pybullet_utils import bullet_client
 
+def test_model_equivariance():
+    pass
+
+
+def configure_bullet_simulation(gui=True):
+    BACKGROUND_COLOR = '--background_color_red=%.2f --background_color_green=%.2f --background_color_blue=%.2f' % \
+                       (0.960, 0.960, 0.960)
+
+    if gui:
+        pb = bullet_client.BulletClient(connection_mode=GUI, options=BACKGROUND_COLOR)
+    else:
+        pb = bullet_client.BulletClient(connection_mode=DIRECT)
+    pb.configureDebugVisualizer(COV_ENABLE_GUI, 0)
+    pb.configureDebugVisualizer(COV_ENABLE_SEGMENTATION_MARK_PREVIEW, 0)
+    pb.configureDebugVisualizer(COV_ENABLE_DEPTH_BUFFER_PREVIEW, 0)
+    pb.configureDebugVisualizer(COV_ENABLE_MOUSE_PICKING, 0)
+
+    pb.resetSimulation()
+    pb.setPhysicsEngineParameter(deterministicOverlappingPairs=1)
+    pb.setAdditionalSearchPath(pybullet_data.getDataPath())
+    # Load floor
+    # floor_id = pb.loadURDF("plane.urdf", basePosition=[0, 0, 0.0], useFixedBase=1)
+    return pb
 
 def symbolic_matrix(base_name, rows, cols):
+    from sympy import Symbol
+
     SUB = str.maketrans("0123456789", "₀₁₂₃₄₅₆₇₈₉")
     w = np.empty((rows, cols), dtype=object)
     for r in range(rows):

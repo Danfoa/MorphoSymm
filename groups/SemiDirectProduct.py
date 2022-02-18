@@ -40,6 +40,10 @@ class SemiDirectProduct(Group):
         self.discrete_generators = np.array(self.discrete_generators)
         super().__init__()
 
+    def get_inout_generators(self):
+        return np.array(self.G1.discrete_generators, dtype=np.float32), \
+               np.array(self.G2.discrete_generators, dtype=np.float32)
+
     def __hash__(self):
         return hash(repr(self))
 

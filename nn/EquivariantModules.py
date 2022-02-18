@@ -4,12 +4,15 @@
 # @Author  : Daniel Ordonez 
 # @email   : daniels.ordonez@gmail.com
 # Some code was adapted from https://github.com/ElisevanderPol/symmetrizer/blob/master/symmetrizer/nn/modules.py
+import functools
+import itertools
 import math
 import os
 import pathlib
 import warnings
 
 import jax
+import jax.numpy as jnp
 import numpy as np
 import torch
 import torch.nn.functional as F
@@ -19,7 +22,7 @@ from emlp.reps.representation import Rep
 from emlp import Group
 from emlp.reps.representation import Vector
 from emlp.reps.linear_operators import densify
-import pickle
+import pickle5 as pickle
 
 from groups.SemiDirectProduct import SemiDirectProduct
 import logging
@@ -50,7 +53,10 @@ class BasisLinear(torch.nn.Module):
                                         requires_grad=False)
         # Create the network parameters. Coefficients for each base and a b
         self.basis_coeff = torch.nn.Parameter(torch.randn((self.basis.shape[-1])))
+        self._weight = self.weight
+
         if self.with_bias:
+            self._bias = self.bias
             self.bias_basis = torch.nn.Parameter(torch.tensor(np.array(rep_out.equivariant_basis()))
                                                  , requires_grad=False)
             self.bias_basis_coeff = torch.nn.Parameter(torch.randn((self.bias_basis.shape[-1])))
@@ -64,39 +70,42 @@ class BasisLinear(torch.nn.Module):
         """
         Normal forward pass, using weights formed by the basis and corresponding coefficients
         """
-        return F.linear(x, weight=self.W, bias=self.bias)
+        return F.linear(x, weight=self.weight, bias=self.bias)
 
     @property
-    def W(self):
-        return torch.sum(self.basis * self.basis_coeff, dim=-1).reshape((self.rep_out.G.d, self.rep_in.G.d))
+    def weight(self):
+        self._weight = torch.sum(self.basis * self.basis_coeff, dim=-1).reshape((self.rep_out.G.d, self.rep_in.G.d))
+        return self._weight
 
     @property
     def bias(self):
         if self.with_bias:
-            return torch.sum(self.bias_basis * self.bias_basis_coeff, dim=-1).reshape((self.rep_out.G.d,))
+            self._bias = torch.sum(self.bias_basis * self.bias_basis_coeff, dim=-1).reshape((self.rep_out.G.d,))
+            return self._bias
         return None
 
-    def reset_parameters(self, weights_initializer=torch.nn.init.kaiming_uniform):
-        # TODO: Compute initialization considering weight sharing distribution
-        # Estimate the gain value considering the equivariance.
-        # For now use Glorot initialization, must check later:
-        gain = 1  # np.sqrt(2)
-
-        fan_in, fan_out = self.W.shape
-        if weights_initializer == torch.nn.init.xavier_uniform:
-            # Xavier cannot find the in out dimensions because the tensor is not 2D
-            std = gain * math.sqrt(2.0 / float(fan_in + fan_out))
-            bound = math.sqrt(3.0) * std  # Calculate uniform bounds from standard deviation
-            return torch.nn.init._no_grad_uniform_(self.basis_coeff, -bound, bound)
-        elif weights_initializer == torch.nn.init.kaiming_uniform:
-            std = gain / math.sqrt(fan_out)
-            bound = math.sqrt(3.0) * std  # Calculate uniform bounds from standard deviation
-            with torch.no_grad():
-                return self.basis_coeff.uniform_(-bound, bound)
+    def reset_parameters(self, mode="fan_in", activation="ReLU"):
+        # Compute the constant coming from the derivative of the activation. Torch return the square root of this value
+        gain = torch.nn.init.calculate_gain(nonlinearity=activation.lower())
+        # Get input out dimensions.
+        dim_in, dim_out = self.rep_in.G.d, self.rep_out.G.d
+        # Gain due to parameter sharing scheme from equivariance constrain
+        lambd = torch.sum(torch.sum(self.basis**2, dim=1))
+        if mode.lower() == "fan_in":
+            basis_coeff_variance = dim_out / lambd
+        elif mode.lower() == "fan_out":
+            basis_coeff_variance = dim_in / lambd
+        elif mode.lower() == "arithmetic_mean":
+            basis_coeff_variance = ((dim_in + dim_out) / 2.) / lambd
+        elif mode.lower() == "harmonic_mean":
+            basis_coeff_variance = lambd * ((1./dim_out) + (1./dim_in)) / 2.
         else:
-            weights_initializer(self.basis_coeff)
-        if self.with_bias:
-            self.bias_basis_coeff.zero_()
+            raise NotImplementedError(f"{mode} is not a recognized mode for Kaiming initialization")
+
+        std = gain * math.sqrt(basis_coeff_variance)
+        bound = math.sqrt(3.0) * std
+
+        torch.nn.init.uniform_(self.basis_coeff, -bound, bound)
 
     def __repr__(self):
         string = f"G[{self.G}]-W{self.rep_out.size() * self.rep_in.size()}-" \
@@ -112,11 +121,29 @@ class EBlock(torch.nn.Module):
         # TODO: Optional Batch Normalization
         self.linear = BasisLinear(rep_in, rep_out, with_bias)
         self.activation = activation()
+        self.test_equivariance()
+
+    def test_equivariance(self):
+        G = self.linear.G
+        H_in, H_out = G.get_inout_generators()
+        x = torch.randn((self.linear.rep_in.G.d,))
+
+        # TODO: Test all combinations of generators
+        for g_in, g_out in zip(H_in, H_out):
+            g_in = torch.tensor(g_in)
+            g_out = torch.tensor(g_out)
+            # y  f(x)  --   g·y = f(g·x)
+            y = self(x)
+            g_y_pred = self((g_in @ x))
+            g_y_true = (g_out @ y)
+            if not torch.allclose(g_y_true, g_y_pred, atol=1e-4, rtol=1e-4):
+                error = g_y_true - g_y_pred
+                raise RuntimeError(f"Block is not equivariant to in/out group generators mean(f(g·x), g·y):{error}")
+
 
     def forward(self, x, **kwargs):
         preact = self.linear(x)
         return self.activation(preact)
-
 
 
 class EMLP(torch.nn.Module):
@@ -136,8 +163,8 @@ class EMLP(torch.nn.Module):
         Returns:
             Module: the EMLP objax module."""
 
-    def __init__(self, rep_in, rep_out, group, ch=128, num_layers=3, with_bias=True, activation=torch.nn.SiLU,
-                 cache_dir=None):
+    def __init__(self, rep_in, rep_out, group, ch=128, num_layers=3, with_bias=True, activation=torch.nn.ReLU,
+                 cache_dir=None, init_mode="fan_in"):
         super().__init__()
         logging.info("Initing EMLP (PyTorch)")
         self.rep_in = rep_in(group)
@@ -157,21 +184,43 @@ class EMLP(torch.nn.Module):
         rep_inter_out = rep_out
 
         layers = []
-        for n in range(num_layers):
+        for n in range(num_layers + 1):
             rep_inter_out = Vector(group.canonical_group(ch))
             layer = EBlock(rep_in=rep_inter_in, rep_out=rep_inter_out, with_bias=with_bias,
                            activation=self.activations)
+            # Init
+            layer.linear.reset_parameters(mode=init_mode, activation=self.activations.__name__.lower())
             layers.append(layer)
             rep_inter_in = rep_inter_out
         # Add last layer
         linear_out = BasisLinear(rep_in=rep_inter_in, rep_out=rep_out, with_bias=with_bias)
+        # Init
+        linear_out.reset_parameters(mode=init_mode, activation="linear")
         layers.append(linear_out)
 
         # logging.info(f"Reps: {reps}")
         self.net = torch.nn.Sequential(*layers)
+        self.save_cache_file()
 
     def forward(self, x):
         return self.net(x)
+
+    def test_equivariance(self):
+        H_in, H_out = self.rep_in.G.discrete_generators, self.rep_out.G.discrete_generators
+        H_in, H_out = np.asarray(H_in, dtype=np.float32), np.asarray(H_out, dtype=np.float32)
+        x = torch.randn((self.linear.rep_in.G.d,))
+
+        # TODO: Test all combinations of generators
+        for g_in, g_out in zip(H_in, H_out):
+            g_in = torch.tensor(g_in)
+            g_out = torch.tensor(g_out)
+            # y = f(x)  <-->  g·y = f(g·x)
+            y = self(x)
+            g_y_pred = self((g_in @ x))
+            g_y_true = (g_out @ y)
+            if not torch.allclose(g_y_true, g_y_pred, atol=1e-4, rtol=1e-4):
+                error = g_y_true - g_y_pred
+                raise RuntimeError(f"EMLP is not equivariant to in/out group generators g·y - f(g·x)={error}")
 
     @property
     def _cache_file_name(self) -> str:
@@ -184,38 +233,71 @@ class EMLP(torch.nn.Module):
             return
         model_cache_file = self.cache_dir.joinpath(self._cache_file_name)
         if not model_cache_file.exists():
-            warnings.warn(f"Model cache {model_cache_file.stem} not found")
+            log.warning(f"Model cache {model_cache_file.stem} not found")
             return
         with open(model_cache_file, 'rb') as handle:
-            self.rep_in.solcache.update(pickle.load(handle))
-            log.info(f"Model Cache found with Reps: {[k for k in self.rep_in.solcache.keys()]}")
-            for k, v in self.rep_in.solcache.items():
-                self.rep_in.solcache[k] = jax.device_put(v)
-
+            try:
+                self.rep_in.solcache.update(pickle.load(handle))
+                log.info(f"Model Cache found with Reps: {[k for k in self.rep_in.solcache.keys()]}")
+                for k, v in self.rep_in.solcache.items():
+                    self.rep_in.solcache[k] = jax.device_put(v)
+            except Exception as e:
+                log.warning("Could not load cache file \n" + str(e))
+        # TODO: Avoid recomputing basis.
 
     def save_cache_file(self):
         if self.cache_dir is None:
             warnings.warn("No cache directory provided. Nothing will be saved")
-        with open(self.cache_dir.joinpath(self._cache_file_name), 'wb') as handle:
-            pickle.dump(self.rep_in.solcache, handle, protocol=pickle.HIGHEST_PROTOCOL)
+            return
+
+        path = self.cache_dir.joinpath(self._cache_file_name)
+        with open(path, 'wb') as handle:
+            cache = self.rep_in.solcache
+            # cache = {k: v for k, v in cache.items() if v.shape[0] > 32*3}
+            pickle.dump(cache, handle, protocol=pickle.HIGHEST_PROTOCOL)
+        log.info(f"Saved cache from {[k for k in self.rep_in.solcache.keys()]} to {path}")
+
+
+class LinearBlock(torch.nn.Module):
+
+    def __init__(self, dim_in, dim_out, with_bias=True, activation=torch.nn.Identity):
+        super(LinearBlock, self).__init__()
+
+        # TODO: Optional Batch Normalization
+        self.linear = torch.nn.Linear(in_features=dim_in, out_features=dim_out, bias=with_bias)
+        self.activation = activation()
+
+    def forward(self, x, **kwargs):
+        preact = self.linear(x)
+        return self.activation(preact)
 
 
 class MLP(torch.nn.Module):
     """ Standard baseline MLP. Representations and group are used for shapes only. """
 
-    def __init__(self, d_in, d_out, ch=384, num_layers=3, activation=torch.nn.SiLU):
+    def __init__(self, d_in, d_out, ch=128, num_layers=3, activation=torch.nn.ReLU, with_bias=True, init_mode="fan_in"):
         super().__init__()
         self.d_in = d_in
         self.d_out = d_out
-        chs = [self.d_in] + num_layers * [ch]
-        cout = self.d_out
+
         logging.info("Initing MLP")
 
+        dim_in = self.d_in
+        dim_out = ch
         layers = []
-        for cin, cout in zip(chs, chs[1:]):
-            layers.append(torch.nn.Linear(cin, cout))
-            layers.append(activation())
-        layers.append(torch.nn.Linear(chs[-1], self.d_out))
+        for n in range(num_layers + 1):
+            dim_out = ch
+            layer = LinearBlock(dim_in=dim_in, dim_out=dim_out, with_bias=with_bias, activation=activation)
+            # init
+            torch.nn.init.kaiming_uniform_(layer.linear.weight, mode=init_mode,
+                                           nonlinearity=activation.__name__.lower())
+            dim_in = dim_out
+            layers.append(layer)
+        # Add last layer
+        linear_out = torch.nn.Linear(in_features=dim_out, out_features=self.d_out, bias=with_bias)
+        # init.
+        torch.nn.init.kaiming_uniform_(linear_out.weight, mode=init_mode, nonlinearity="linear")
+        layers.append(linear_out)
 
         self.net = torch.nn.Sequential(*layers)
 

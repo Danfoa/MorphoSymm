@@ -17,7 +17,10 @@ from nn.EquivariantModel import EquivariantModel
 from nn.EquivariantModules import EMLP, MLP
 from nn.datasets import COMMomentum
 from robots.bolt.BoltBullet import BoltBullet
+import utils.utils
 
+import logging
+log = logging.getLogger(__name__)
 
 def get_robot_params(robot_name):
     if robot_name.lower() == 'bolt':
@@ -26,8 +29,10 @@ def get_robot_params(robot_name):
         pq.extend((np.array(pq) + len(pq)).tolist())
         rq = [-1, 1, 1, -1, 1, 1]
         rq.extend(rq)
-        h = C2.oneline2matrix(oneline_notation=pq, reflexions=rq)
-        G = C2(h)
+        h_in = C2.oneline2matrix(oneline_notation=pq, reflexions=rq)
+        Gin = C2(h_in)
+        h_out = C2.oneline2matrix(oneline_notation=[0, 1, 2], reflexions=[1, -1, 1])
+        Gout = C2(h_out)
     else:
         # robot_solo = Solo12Bullet()
         # pq = [(6, 7, 8, 9, 10, 11, 0, 1, 2, 3, 4, 5), (3, 4, 5, 0, 1, 2, 9, 10, 11, 6, 7, 8)]
@@ -38,50 +43,64 @@ def get_robot_params(robot_name):
         # robot = robot_solo
         raise NotImplementedError()
 
-    return robot, G, C2
+    return robot, Gin, Gout, C2
 
 
 @hydra.main(config_path='cfg/supervised', config_name='config')
 def main(cfg: DictConfig):
-    os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
-    os.environ["CUDA_VISIBLE_DEVICES"] = str(cfg.device)
-
+    print(f"XLA_PYTHON_CLIENT_PREALLOCATE: {os.environ['XLA_PYTHON_CLIENT_PREALLOCATE']}")
     torch.set_default_dtype(torch.float32)
     cfg.seed = cfg.seed if cfg.seed > 0 else np.random.randint(0, 1000)
     seed_everything(seed=np.random.randint(0, 1000))
     print(f"Current working directory : {os.getcwd()}")
+
     # Avoid repeating to compute basis at each experiment.
     root_path = pathlib.Path(get_original_cwd()).resolve()
     cache_dir = root_path.joinpath(".empl_cache")
     cache_dir.mkdir(exist_ok=True)
 
-    robot, G_in, GC = get_robot_params(cfg.robot_name)
+    robot, Gin, Gout, GC = get_robot_params(cfg.robot_name)
 
-    # Define output group for linear momentum
-    G_out = GC.canonical_group(3)
-
+    # Prepare model ____________________________________________________________________________
     model_type = cfg.model_type.lower()
     if model_type == "emlp":
-        network = EMLP(rep_in=Vector(G_in), rep_out=Vector(G_out),
-                       group=C2, num_layers=cfg.num_layers, ch=cfg.num_channels,
-                       with_bias=True, cache_dir=cache_dir).to(dtype=torch.float32)
+        network = EMLP(rep_in=Vector(Gin), rep_out=Vector(Gout), group=C2, num_layers=cfg.num_layers,
+                       ch=cfg.num_channels, init_mode=cfg.init_mode, activation=torch.nn.ReLU,
+                       with_bias=cfg.bias, cache_dir=cache_dir).to(dtype=torch.float32)
     elif model_type == 'mlp':
-        network = MLP(d_in=G_in.d, d_out=G_out.d, num_layers=cfg.num_layers,
-                      ch=cfg.num_channels).to(dtype=torch.float32)
+        network = MLP(d_in=Gin.d, d_out=Gout.d, num_layers=cfg.num_layers, init_mode=cfg.init_mode,
+                      ch=cfg.num_channels, with_bias=cfg.bias, activation=torch.nn.ReLU).to(dtype=torch.float32)
     else:
         raise NotImplementedError(model_type)
 
-    model = EquivariantModel(model=network, model_type=model_type, lr=1e-2)
+    log.info(f"Network:\n{network}")
+    model = EquivariantModel(model=network, model_type=model_type, lr=cfg.lr)
 
-    dataset = COMMomentum(robot, cfg.dataset.num_samples, angular_momentum=cfg.dataset.angular_momentum)
-    val_dataset = COMMomentum(robot, int(cfg.dataset.val_samples), angular_momentum=cfg.dataset.angular_momentum)
+    # Prepare data _____________________________________________________________________________
+    dataset = COMMomentum(robot, cfg.dataset.num_samples, angular_momentum=cfg.dataset.angular_momentum,
+                          augment=cfg.with_augmentation, Gin=Gin, Gout=Gout)
+    val_dataset = COMMomentum(robot, int(cfg.dataset.val_samples), angular_momentum=cfg.dataset.angular_momentum,
+                              augment=False, Gin=Gin, Gout=Gout)
     train_dataloader, val_dataloader = DataLoader(dataset, batch_size=cfg.batch_size), \
                                        DataLoader(val_dataset, batch_size=cfg.batch_size)
 
-    # Configure Logger
+    # Configure Logger _________________________________________________________________________
     tb_logger = pl_loggers.TensorBoardLogger(".", name=f'seed={cfg.seed}', version=cfg.seed)
+    # Configure GPU
+    gpu_available = torch.cuda.is_available()
+    log.warning(f"CUDA GPU available {torch.cuda.get_device_name(0) if gpu_available else 'False'}")
 
-    trainer = Trainer(logger=tb_logger, track_grad_norm=2, max_epochs=cfg.max_epochs, callbacks=[DeviceStatsMonitor()])
+    os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
+    os.environ["CUDA_VISIBLE_DEVICES"] = str(cfg.device)
+    trainer = Trainer(logger=tb_logger,
+                      gpus=1 if gpu_available else 0,
+                      # auto_select_gpus=True,
+                      track_grad_norm=2,
+                      log_every_n_steps=cfg.batch_size*10,
+                      max_epochs=cfg.max_epochs,
+                      callbacks=[DeviceStatsMonitor()],
+                      check_val_every_n_epoch=1,
+                      benchmark=True)
     trainer.fit(model, train_dataloaders=train_dataloader, val_dataloaders=val_dataloader)
 
 

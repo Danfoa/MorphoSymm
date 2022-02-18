@@ -1,29 +1,38 @@
 robot_name: 'bolt'
 
 model_type: 'emlp'
+init_mode: 'fan_in'   # Forward constant activation variance or cnst gradient backward variance.
+bias: false
+lr: 1e-3
 with_augmentation: False
-num_layers: 10
-num_channels: 64
+num_layers: 1
+num_channels: 10
 seed: -1
 batch_size: 512
 
-device: 9
-max_epoch: 300
+exp_name: 'tests'
+device: 0
+max_epochs: 300
 
 dataset:
   name: 'com_momentum'
-  num_samples: 10000
+  num_samples: 5000
   val_samples: 5000
   angular_momentum: False
 
 # Hydra configuration _________
+#defaults:
+#  - override hydra/launcher: joblib
+
 hydra:
   run:
     dir: ./experiments/${hydra.job.name}/${hydra.job.override_dirname}
 
   job:
-    name: ${robot_name}_${model_type}_n-ch${num_channels}_n-layers${num_layers}_batch${batch_size}_A${with_augmentation}
+    name: ${exp_name}_${robot_name}/train=${dataset.num_samples}-val=${dataset.val_samples}/n-ch${num_channels}_n-layers${num_layers}/model=${model_type}
     num: ${seed}
+    env_set:
+      XLA_PYTHON_CLIENT_PREALLOCATE: 'false'
     config:
       override_dirname:
         kv_sep: "="
@@ -32,6 +41,14 @@ hydra:
           - seed
           - batch_size
           - model_type
+          - num_channels
+          - num_layers
+          - device
+          - robot_name
+          - exp_name
+          - max_epochs
+          - dataset.num_samples
+          - dataset.val_samples
 
   sweep:
     dir: ./experiments/${hydra.job.name}/${hydra.job.override_dirname}
@@ -39,6 +56,7 @@ hydra:
 
   job_logging:
     version: 1
+    colorlog: True
     formatters:
       simple:
         format: '[%(levelname)s][%(name)s] %(message)s'

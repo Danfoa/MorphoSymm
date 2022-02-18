@@ -1,5 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
+import pandas as pd
 import seaborn as sns
 import sympy
 from emlp import Group
@@ -9,6 +10,21 @@ from sympy import Matrix
 
 from .utils import symbolic_matrix
 
+
+def visualize_basis_stats(basis):
+
+    Q = np.asarray(basis)
+    u_vals_Q = [np.unique(np.round(q, 3), return_counts=True) for q in Q.T]
+
+    u_vals = [len(u_vals_q) for u_vals_q, count in u_vals_Q]
+
+    # Plot a histogram showing the distribution of free parameters per basis.
+    data = pd.DataFrame.from_dict({"Unique w per basis": np.array(u_vals, dtype=np.int)})
+    plt.figure()
+    ax = sns.histplot(data=data, x="Unique w per basis", discrete=True,
+                      element="bars", stat="probability")
+    ax.get_figure().show()
+    print("Hey")
 
 def visualize_basis(repin, repout, cluster=True):
     """ A function to visualize the basis of equivariant maps repin>>repout
