@@ -1,14 +1,14 @@
 robot_name: 'bolt'
 
 model_type: 'emlp'
-init_mode: 'fan_in'   # Forward constant activation variance or cnst gradient backward variance.
+init_mode: 'fan_out'   # Forward constant activation variance or cnst gradient backward variance.
 bias: false
 lr: 1e-3
 with_augmentation: False
 num_layers: 1
 num_channels: 10
 seed: -1
-batch_size: 512
+batch_size: 256
 
 exp_name: 'tests'
 device: 0

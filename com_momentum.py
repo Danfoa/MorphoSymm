@@ -68,6 +68,7 @@ def main(cfg: DictConfig):
                        ch=cfg.num_channels, init_mode=cfg.init_mode, activation=torch.nn.ReLU,
                        with_bias=cfg.bias, cache_dir=cache_dir).to(dtype=torch.float32)
     elif model_type == 'mlp':
+        if 'mean' in cfg.init_mode.lower(): return
         network = MLP(d_in=Gin.d, d_out=Gout.d, num_layers=cfg.num_layers, init_mode=cfg.init_mode,
                       ch=cfg.num_channels, with_bias=cfg.bias, activation=torch.nn.ReLU).to(dtype=torch.float32)
     else:

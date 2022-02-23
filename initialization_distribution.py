@@ -163,13 +163,6 @@ def extract_activations(model, data_loader):
 
     df = pd.concat([pd.DataFrame.from_dict({k:v}) for k,v in activations.items()], axis=1)
     df = df.melt(id_vars=None, value_vars=df.columns, var_name="Layer", value_name="Activation").dropna()
-    # Plotting
-    # ax = plot_dists(activations, color=color, stat="density", xlabel="Activation vals", ax=ax)
-    # if print_variance:
-    #     for key in sorted(activations.keys()):
-    #         print(f"{key} - Variance: {np.var(activations[key])}")
-
-    # return ax[0].get_figure(), ax
     return df
 
 
@@ -223,8 +216,6 @@ def main(cfg: DictConfig):
     robot_name = "bolt"
     robot, G_in, G_out, G = get_robot_params(robot_name)
 
-    # cfg.num_channels = 32
-    # cfg.num_layers = 1
     # Parameters
     # activations = [Identity, torch.nn.SiLU, torch.nn.ReLU]
     # activations_names = ["Identity", "ReLU"]
@@ -289,15 +280,17 @@ def main(cfg: DictConfig):
                 g.figure.subplots_adjust(top=0.92)
                 if save:
                     g.figure.savefig(os.path.join(get_original_cwd(), "media", title), dpi=90)
+                    print(f"Saving {title}")
             return g.figure
 
+        save = cfg.num_layers > 7
         main_title = f"Layers={cfg.num_layers + 2}-Hidden_channels={cfg.num_channels}-Act={activation.__name__}"
         fig_grad = plot_layers_distributions(df=df_gradients, value_kw="Grad",
-                                             title=f"Gradients Distributions " + main_title, save=True)
+                                             title=f"Gradients Distributions " + main_title, save=save)
         fig_act = plot_layers_distributions(df=df_activations, value_kw="Activation",
-                                            title=f"Activations Distributions " + main_title, save=True)
+                                            title=f"Activations Distributions " + main_title, save=save)
         fig_w = plot_layers_distributions(df=df_weights, value_kw="Param_Value",
-                                          title=f"Params Distributions " + main_title, save=True)
+                                          title=f"Params Distributions " + main_title, save=save)
         fig_grad.show()
         fig_act.show()
         fig_w.show()
@@ -305,11 +298,14 @@ def main(cfg: DictConfig):
         for model_type in model_types:
             main_title =f"{model_type}-Layers={cfg.num_layers+2}-Hidden_channels={cfg.num_channels}-Act={activation.__name__}"
             fig_grad = plot_layers_distributions(df=df_gradients[df_gradients["Model Type"] == model_type], value_kw="Grad",
-                                                 title=f"Gradients Distributions " + main_title, save=True)
+                                                 title=f"Gradients Distributions " + main_title, save=save)
             fig_act = plot_layers_distributions(df=df_activations[df_activations["Model Type"] == model_type], value_kw="Activation",
-                                                title=f"Activations Distributions " + main_title, save=True)
+                                                title=f"Activations Distributions " + main_title, save=save)
             fig_grad.show()
             fig_act.show()
+
+        for fig in [fig_w, fig_act, fig_grad]:
+            plt.close(fig)
 
 
 

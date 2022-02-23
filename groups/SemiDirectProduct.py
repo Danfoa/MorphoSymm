@@ -36,8 +36,7 @@ class SemiDirectProduct(Group):
         self.discrete_generators = []
         for h_in, h_out in zip(Gin.discrete_generators, Gout.discrete_generators):
             a = LazyKron([h_out, h_in])
-            self.discrete_generators.append(densify(a))
-        self.discrete_generators = np.array(self.discrete_generators)
+            self.discrete_generators.append(a)
         super().__init__()
 
     def get_inout_generators(self):

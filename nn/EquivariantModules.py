@@ -98,7 +98,7 @@ class BasisLinear(torch.nn.Module):
         elif mode.lower() == "arithmetic_mean":
             basis_coeff_variance = ((dim_in + dim_out) / 2.) / lambd
         elif mode.lower() == "harmonic_mean":
-            basis_coeff_variance = lambd * ((1./dim_out) + (1./dim_in)) / 2.
+            basis_coeff_variance = 2. / ((lambd/dim_out) + (lambd/dim_in))
         else:
             raise NotImplementedError(f"{mode} is not a recognized mode for Kaiming initialization")
 
@@ -174,6 +174,7 @@ class EMLP(torch.nn.Module):
 
         self.hidden_channels = ch
         self.n_layers = num_layers
+        self.init_mode = init_mode
 
         # Cache dir
         self.cache_dir = cache_dir if cache_dir is None else pathlib.Path(cache_dir).resolve(strict=True)
@@ -257,6 +258,13 @@ class EMLP(torch.nn.Module):
             pickle.dump(cache, handle, protocol=pickle.HIGHEST_PROTOCOL)
         log.info(f"Saved cache from {[k for k in self.rep_in.solcache.keys()]} to {path}")
 
+    def get_hparams(self):
+        return {'num_layers': len(self.net),
+                'hidden_ch': self.hidden_channels,
+                'Repin': str(self.rep_in),
+                'Repout': str(self.rep_in),
+                'init_mode': str(self.init_mode),
+                }
 
 class LinearBlock(torch.nn.Module):
 
@@ -279,6 +287,8 @@ class MLP(torch.nn.Module):
         super().__init__()
         self.d_in = d_in
         self.d_out = d_out
+        self.init_mode = init_mode
+        self.hidden_channels = ch
 
         logging.info("Initing MLP")
 
@@ -304,3 +314,9 @@ class MLP(torch.nn.Module):
     def forward(self, x):
         y = self.net(x)
         return y
+
+    def get_hparams(self):
+        return {'num_layers': len(self.net),
+                'hidden_ch': self.hidden_channels,
+                'init_mode': self.init_mode,
+                }
