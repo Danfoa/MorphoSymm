@@ -4,3 +4,4 @@
 *.__pycache__
 /.idea
 /.empl_cache/
+/_tests/

@@ -5,6 +5,7 @@
 # @email   : daniels.ordonez@gmail.com
 import numpy as np
 import pybullet_data
+import torch
 from pybullet import GUI, DIRECT, COV_ENABLE_GUI, COV_ENABLE_SEGMENTATION_MARK_PREVIEW, COV_ENABLE_DEPTH_BUFFER_PREVIEW, \
     COV_ENABLE_MOUSE_PICKING
 from pybullet_utils import bullet_client
@@ -57,9 +58,23 @@ def is_canonical_permutation(ph):
     return np.allclose(ph @ ph, np.eye(ph.shape[0]))
 
 
+def append_dictionaries(dict1, dict2, recursive=True):
+    result = {}
+    for k in set(dict1) | set(dict2):
+        item1, item2 = dict1.get(k, 0), dict2.get(k, 0)
+        if isinstance(item1, list) and (isinstance(item2, int) or isinstance(item2, float)):
+            result[k] = item1 + [item2]
+        elif isinstance(item1, int) or isinstance(item1, float):
+            result[k] = [item1, item2]
+        elif isinstance(item1, torch.Tensor) and isinstance(item2, torch.Tensor):
+            result[k] = torch.cat((item1, item2))
+        elif isinstance(item1, dict) and isinstance(item2, dict) and recursive:
+            result[k] = append_dictionaries(item1, item2)
+    return result
+
+
 import unicodedata
 import re
-
 def slugify(value, allow_unicode=False):
     """
     Taken from https://github.com/django/django/blob/master/django/utils/text.py

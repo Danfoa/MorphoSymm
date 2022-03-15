@@ -171,7 +171,7 @@ def plot_system_of_equations(A, x, b):
     Asym = Matrix(A)
     Arref = np.array(Asym.rref()[0].tolist(), dtype=np.float)
     Null_A = Asym.nullspace(simplify=True)
-    Null_A_sym = Null_A * x.T
+    # Null_A_sym = Null_A * x.T
 
     fig, ax = plt.subplots(nrows=1, ncols=2, figsize=(10,5))
     var_names = [r'%s' % str(s) for s in x.flatten()]

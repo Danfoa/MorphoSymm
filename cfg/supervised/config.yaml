@@ -1,24 +1,29 @@
 robot_name: 'bolt'
 
 model_type: 'emlp'
-init_mode: 'fan_out'   # Forward constant activation variance or cnst gradient backward variance.
+init_mode: 'fan_in'   # Forward constant activation variance or cnst gradient backward variance.
 bias: false
 lr: 1e-3
-with_augmentation: False
 num_layers: 1
-num_channels: 10
+num_channels: 32
 seed: -1
-batch_size: 256
+batch_size: 512
 
 exp_name: 'tests'
 device: 0
-max_epochs: 300
+max_epochs: 600
+
+# Run parameters
+run_type: single_run
+kfolds: 5
 
 dataset:
   name: 'com_momentum'
-  num_samples: 5000
-  val_samples: 5000
-  angular_momentum: False
+  train_samples: 5000
+  test_samples: 10000
+  angular_momentum: True
+  normalize: True
+  augmentation: False
 
 # Hydra configuration _________
 #defaults:
@@ -29,10 +34,12 @@ hydra:
     dir: ./experiments/${hydra.job.name}/${hydra.job.override_dirname}
 
   job:
-    name: ${exp_name}_${robot_name}/train=${dataset.num_samples}-val=${dataset.val_samples}/n-ch${num_channels}_n-layers${num_layers}/model=${model_type}
+    # TODO: Reorganize output dir
+    name: ${exp_name}_${robot_name}/train=${dataset.train_samples}-test=${dataset.test_samples}/n-ch${num_channels}_n-layers${num_layers}/model=${model_type}
     num: ${seed}
     env_set:
       XLA_PYTHON_CLIENT_PREALLOCATE: 'false'
+      HYDRA_FULL_ERROR: '1'
     config:
       override_dirname:
         kv_sep: "="
@@ -47,8 +54,10 @@ hydra:
           - robot_name
           - exp_name
           - max_epochs
-          - dataset.num_samples
+          - dataset.train_samples
           - dataset.val_samples
+          - run_type
+          - kfolds
 
   sweep:
     dir: ./experiments/${hydra.job.name}/${hydra.job.override_dirname}

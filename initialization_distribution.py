@@ -16,10 +16,10 @@ from omegaconf import DictConfig
 from pytorch_lightning import seed_everything
 from torch.utils.data import DataLoader
 
-from com_momentum import get_robot_params
+from utils.robot_utils import get_robot_params
 from groups.SymmetricGroups import C2
-from nn.EquivariantModel import EquivariantModel
-from nn.EquivariantModules import EMLP, MLP, BasisLinear, EBlock, LinearBlock
+from nn.LightningModel import LightningModel
+from nn.EquivariantModules import EMLP, MLP, BasisLinear, EquivariantBlock, LinearBlock
 from nn.datasets import COMMomentum
 from utils.utils import slugify
 
@@ -42,7 +42,7 @@ def extract_weight_distribution(model):
         elif isinstance(layer, LinearBlock):
             W = layer.linear.weight.view(-1).detach().cpu().numpy()
             weights[layer_index] = W
-        elif isinstance(layer, EBlock):
+        elif isinstance(layer, EquivariantBlock):
             W = layer.linear.weight.view(-1).detach().cpu().numpy()
             weights[layer_index] = W
             basis_coeff = layer.linear.basis_coeff.view(-1).detach().cpu().numpy()
@@ -92,7 +92,7 @@ def extract_gradients(model, data_loader, loss_fn=F.mse_loss):
 
     # Store gradients of layer weights in Equivariant module
     for layer_index, layer in enumerate(model.net):
-        if isinstance(layer, EBlock):
+        if isinstance(layer, EquivariantBlock):
             layer.linear._weight.retain_grad()
         elif isinstance(layer, BasisLinear):
             layer._weight.retain_grad()
@@ -111,7 +111,7 @@ def extract_gradients(model, data_loader, loss_fn=F.mse_loss):
         elif isinstance(layer, LinearBlock):
             grad = layer.linear.weight.grad.view(-1).detach().cpu().clone().numpy()
             layer_grads[layer_index] = grad
-        elif isinstance(layer, EBlock):
+        elif isinstance(layer, EquivariantBlock):
             grad = layer.linear._weight.grad.view(-1).detach().cpu().clone().numpy()
             basis_coeff_grad = layer.linear.basis_coeff.grad.view(-1).detach().cpu().clone().numpy()
             layer_basis_coeff_grads[layer_index] = basis_coeff_grad
@@ -146,7 +146,7 @@ def extract_activations(model, data_loader):
     with torch.no_grad():
         for layer_index, layer in enumerate(model.net):
             print(f"-{layer_index}: {layer}")
-            if isinstance(layer, EBlock):
+            if isinstance(layer, EquivariantBlock):
                 feats = layer.linear(feats)
                 activations[layer_index] = feats.view(-1).detach().cpu().numpy()
                 feats = layer.activation(feats)
@@ -166,43 +166,6 @@ def extract_activations(model, data_loader):
     return df
 
 
-def weights_initialization(module, activation,
-                           weights_initializer=torch.nn.init.kaiming_uniform,
-                           bias_initializer=torch.nn.init.zeros_):
-    # TODO: Place default initializer
-    # TODO: Compute initialization considering weight sharing distribution
-    # For now use Glorot initialization, must check later:
-    if isinstance(module, EBlock):
-        basis_layer = module.linear
-        gain = 1  # np.sqrt(2) if isinstance(module.activation, torch.nn.SiLU) else 1
-
-        fan_in, fan_out = basis_layer.weight.shape
-        if weights_initializer == torch.nn.init.xavier_uniform:
-            # Xavier cannot find the in out dimensions because the tensor is not 2D
-            # TODO: Check this
-            std = gain * math.sqrt(2.0 / float(fan_in + fan_out))
-            bound = math.sqrt(3.0) * std  # Calculate uniform bounds from standard deviation
-            return torch.nn.init._no_grad_uniform_(basis_layer.basis_coeff, -bound, bound)
-        elif weights_initializer == torch.nn.init.kaiming_uniform:
-            std = gain / math.sqrt(fan_out)
-            bound = math.sqrt(3.0) * std  # Calculate uniform bounds from standard deviation
-            with torch.no_grad():
-                return basis_layer.basis_coeff.uniform_(-bound, bound)
-        else:
-            weights_initializer(basis_layer.basis_coeff)
-        if basis_layer.with_bias:
-            bias_initializer(basis_layer.bias_basis_coeff)
-    elif isinstance(module, torch.nn.Linear):
-        try:
-            weights_initializer(module.weight, gain=torch.nn.init.calculate_gain(nonlinearity=activation))
-        except Exception as e:
-            try:
-                weights_initializer(module.weight, nonlinearity=activation)
-            except Exception as e:
-                warnings.warn(e.__str__())
-                weights_initializer(module.weight)
-
-
 @hydra.main(config_path='cfg/supervised', config_name='config')
 def main(cfg: DictConfig):
     torch.set_default_dtype(torch.float32)
@@ -213,17 +176,14 @@ def main(cfg: DictConfig):
     cache_dir = root_path.joinpath(".empl_cache")
     cache_dir.mkdir(exist_ok=True)
 
-    robot_name = "bolt"
-    robot, G_in, G_out, G = get_robot_params(robot_name)
+
+    robot, G_in, G_out, G = get_robot_params(cfg.robot_name)
 
     # Parameters
-    # activations = [Identity, torch.nn.SiLU, torch.nn.ReLU]
-    # activations_names = ["Identity", "ReLU"]
     activations = [torch.nn.ReLU]
-    activations_names = ["ReLU"]
-    init_modes = ["fan_in", "fan_out", "arithmetic_mean", "harmonic_mean"]
+    init_modes = ["fan_in", "fan_out", 'normal0.1', 'normal1.0', "arithmetic_mean",]
 
-    for activation, act_name in zip(activations, activations_names):
+    for activation in activations:
         df_activations, df_gradients, df_weights = None, None, None
 
         model_types = ['mlp', 'emlp']
@@ -234,7 +194,7 @@ def main(cfg: DictConfig):
             for i, init_mode in enumerate(init_modes):
                 # Define output group for linear momentum
                 if model_type == "emlp":
-                    network = EMLP(rep_in=Vector(G_in), rep_out=Vector(G_out), group=G_in, num_layers=cfg.num_layers,
+                    network = EMLP(rep_in=Vector(G_in), rep_out=Vector(G_out), hidden_group=G_in, num_layers=cfg.num_layers,
                                    ch=cfg.num_channels, with_bias=False, activation=activation, init_mode=init_mode,
                                    cache_dir=cache_dir).to(dtype=torch.float32)
                     network.save_cache_file()
@@ -245,7 +205,7 @@ def main(cfg: DictConfig):
                 else:
                     raise NotImplementedError(model_type)
 
-                dataset = COMMomentum(robot, cfg.dataset.num_samples, angular_momentum=cfg.dataset.angular_momentum,
+                dataset = COMMomentum(robot, cfg.dataset.train_samples, angular_momentum=cfg.dataset.angular_momentum,
                                       Gin=G_in, Gout=G_out, augment=False)
                 data_loader = DataLoader(dataset, batch_size=cfg.batch_size)
 
@@ -268,9 +228,9 @@ def main(cfg: DictConfig):
 
         def plot_layers_distributions(df, value_kw, title=None, save=False):
             if "Param" in df.columns:
-                df["hue"] = df["Model Type"] + "." + df["Param"]
+                df.loc[:, "hue"] = df["Model Type"] + "." + df["Param"]
             else:
-                df["hue"] = df["Model Type"]
+                df.loc[:, "hue"] = df["Model Type"]
             g = sns.catplot(x="Layer", y=value_kw, hue="hue",
                             row="Initialization Mode", kind="violin", data=df,
                             sharey=False, sharex="col", aspect=(cfg.num_layers+2)/1.5, ci="sd",
@@ -284,23 +244,23 @@ def main(cfg: DictConfig):
             return g.figure
 
         save = cfg.num_layers > 7
-        main_title = f"Layers={cfg.num_layers + 2}-Hidden_channels={cfg.num_channels}-Act={activation.__name__}"
+        main_title = f"{G_in}--{G_out}_Layers={cfg.num_layers + 2}-Hidden_channels={cfg.num_channels}-Act={activation.__name__}"
         fig_grad = plot_layers_distributions(df=df_gradients, value_kw="Grad",
-                                             title=f"Gradients Distributions " + main_title, save=save)
+                                             title=f"{main_title}- Gradients Distributions ", save=save)
         fig_act = plot_layers_distributions(df=df_activations, value_kw="Activation",
-                                            title=f"Activations Distributions " + main_title, save=save)
+                                            title=f"{main_title}- Activations Distributions ", save=save)
         fig_w = plot_layers_distributions(df=df_weights, value_kw="Param_Value",
-                                          title=f"Params Distributions " + main_title, save=save)
+                                          title=f"{main_title}- Params Distributions ", save=save)
         fig_grad.show()
         fig_act.show()
         fig_w.show()
 
         for model_type in model_types:
-            main_title =f"{model_type}-Layers={cfg.num_layers+2}-Hidden_channels={cfg.num_channels}-Act={activation.__name__}"
+            main_title =f"{G_in}--{G_out}_{model_type}-Layers={cfg.num_layers+2}-Hidden_channels={cfg.num_channels}-Act={activation.__name__}"
             fig_grad = plot_layers_distributions(df=df_gradients[df_gradients["Model Type"] == model_type], value_kw="Grad",
-                                                 title=f"Gradients Distributions " + main_title, save=save)
+                                                 title=f"{main_title}- Gradients Distributions ", save=save)
             fig_act = plot_layers_distributions(df=df_activations[df_activations["Model Type"] == model_type], value_kw="Activation",
-                                                title=f"Activations Distributions " + main_title, save=save)
+                                                title=f"{main_title}- Activations Distributions ", save=save)
             fig_grad.show()
             fig_act.show()
 

@@ -5,18 +5,19 @@ from math import pi
 from typing import Collection, Tuple, Union, Optional, List
 
 import numpy as np  # Numpy library
+import scipy.spatial.transform
 from pinocchio import Quaternion, Force, JointModelFreeFlyer
 from pinocchio.robot_wrapper import RobotWrapper
 from pybullet_utils.bullet_client import BulletClient
 
 from .SoloBullet import Solo8Bullet
 from ..PinBulletWrapper import PinBulletWrapper
-from robot_properties_solo.utils import find_paths
+from robot_properties_solo.resources import Resources
 
 
 class Solo12Bullet(Solo8Bullet):
     # URDF and meshes paths
-    PATHS = find_paths(robot_name="solo12", robot_family="solo")
+    resources = Resources(robot_name="solo12", robot_family="solo")
 
     max_joint_acc = np.array([500, 570, 4000, 500, 570, 4000, 500, 570, 4000, 500, 570, 4000])  # [rad/s^2]
 
@@ -73,8 +74,8 @@ class Solo12Bullet(Solo8Bullet):
         if base_ori is None: base_ori = [0, 0, 0, 1]
         if base_pos is None: base_pos = [0, 0, 0.35]
 
-        urdf_path = self.PATHS['urdf']
-        meshes_path = self.PATHS["package"]
+        urdf_path = self.resources.urdf_path
+        meshes_path = self.resources.meshes_path
 
         # Load the robot for PyBullet
         self.bullet_client.setAdditionalSearchPath(meshes_path)
@@ -102,7 +103,7 @@ class Solo12Bullet(Solo8Bullet):
         if random:
             pitch = np.random.uniform(low=-np.deg2rad(5), high=np.deg2rad(5))
             roll = np.random.uniform(low=-np.deg2rad(5), high=np.deg2rad(5))
-            base_ori = self.bullet_client.getQuaternionFromEuler([roll, pitch, 0])
+            base_ori = scipy.spatial.transform.Rotation.from_euler("xyz", [roll, pitch, 0]).as_quat()
 
         q_legs = np.concatenate((leg_pos + leg_pos_offset1,
                                  leg_pos + leg_pos_offset2 * [-1, 1, 1],

@@ -3,6 +3,8 @@
 # @Time    : 28/1/22
 # @Author  : Daniel Ordonez 
 # @email   : daniels.ordonez@gmail.com
+from typing import Optional, Sequence
+
 import numpy as np
 from emlp.groups import Group
 
@@ -23,7 +25,7 @@ class Sym(Group):
             # Ensure its orthogonal matrix
             assert np.allclose(np.linalg.norm(h, axis=0), 1), f"Generator {i} is not orthogonal: \n{h} "
             if np.any(h < 0): self.is_permutation = False
-
+        # TODO: Make everything Sparse and Lazy. Avoid memory and runtime excess
         self.discrete_generators = np.array(generators).astype(np.int)
         super().__init__()
 
@@ -40,10 +42,11 @@ class Sym(Group):
         return characters
 
     @staticmethod
-    def oneline2matrix(oneline_notation, reflexions=1):
+    def oneline2matrix(oneline_notation, reflexions: Optional[Sequence] = None):
         d = len(oneline_notation)
         P = np.zeros((d, d))
         assert d == len(np.unique(oneline_notation)), np.unique(oneline_notation, return_counts=True)
+        reflexions = 1 if not reflexions else reflexions
         P[range(d), np.abs(oneline_notation)] = 1 * np.array(reflexions)
         return P
 
@@ -80,7 +83,7 @@ class C2(Sym):
         return G
 
 
-class Sym3(Sym):
+class Klein4(Sym):
 
     def __init__(self, generators):
         """
@@ -90,30 +93,43 @@ class Sym3(Sym):
         assert len(generators) == 2, "Provide only the non-trivial generators (2)"
         super().__init__(generators)
 
-        for h in self.discrete_generators:
-            assert np.allclose(h @ h, np.eye(self.d)), f"Generator is not cyclic:\n{h @ h}"
-
+        # Assert generators and their composition is cylic. That is, assert generators produce an abelian group
+        a, b = self.discrete_generators
+        # assert not np.allclose(a, np.eye(self.d)) and not np.allclose(b, np.eye(self.d)), f"Provide only two non-trivial generators"
+        assert np.allclose(a @ a, np.eye(self.d)), f"Generator is not cyclic:\n{a @ a}"
+        assert np.allclose(b @ b, np.eye(self.d)), f"Generator is not cyclic:\n{b @ b}"
+        assert np.allclose((a@b) @ (a@b), np.eye(self.d)), f"Generators composition a·b is not cyclic:\n{a@b}"
+        assert not np.allclose(a@b, np.eye(self.d)), f"Third action must be non-trivial: a·b != e"
 
     def __hash__(self):
         return hash(str(self.discrete_generators))
 
     def __repr__(self):
-        return f"Sym3[d:{self.d}]"
+        return f"V4[d:{self.d}]"
 
     @staticmethod
-    def canonical_group(d) -> 'Sym3':
+    def canonical_group(d) -> 'Klein4':
         """
         @param d: Vector Space dimension
         """
         assert d > 0, "Vector space dimension must be greater than 0"
-        h1 = list(reversed(range(d)))
-        p = np.array(np.split(np.arange(d), 4))[[1, 0, 3, 2]]
-        # h2p =
-        h2 = np.concatenate(p)
-        H1 = C2.oneline2matrix(h1)
-        H2 = C2.oneline2matrix(h2)
-        G = Sym3(generators=[H1, H2])
-        assert G.is_canonical()
+        a = list(reversed(range(d)))
+
+        #
+        mod = d % 4
+        idx = np.array_split(range(d - mod), indices_or_sections=4)
+        b_r = np.ones((d,))
+        if mod > 0:
+            r_idx = np.array(range(d-mod, d))
+            b = np.concatenate((idx[2], idx[3], idx[0], idx[1], r_idx)).tolist()
+            b_r[-mod:] = -1
+            raise NotImplementedError("TODO: Deal with case where impossible to get all representations irreducible")
+        else:
+            b = np.concatenate((idx[2], idx[3], idx[0], idx[1])).tolist()
+
+        rep_a = C2.oneline2matrix(a)
+        rep_b = C2.oneline2matrix(b, reflexions=b_r.tolist())
+        G = Klein4(generators=[rep_a, rep_b])
         return G
 
     def is_canonical(self):

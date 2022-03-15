@@ -6,6 +6,7 @@ from math import pi
 from typing import Collection, Tuple, Union, Optional, List
 
 import numpy as np  # Numpy library
+import scipy.spatial.transform
 import torch
 from pinocchio import Quaternion, Force, JointModelFreeFlyer
 from pinocchio.robot_wrapper import RobotWrapper
@@ -13,12 +14,12 @@ from pybullet_utils.bullet_client import BulletClient
 
 from ..AccelerationBounds import BatchedContraintAccelerationBound
 from ..PinBulletWrapper import PinBulletWrapper, ControlMode
-from robot_properties_solo.utils import find_paths
+from robot_properties_solo.resources import Resources
 
 
 class Solo8Bullet(PinBulletWrapper):
     # URDF and meshes paths
-    PATHS = find_paths(robot_name="solo8", robot_family="solo")
+    resources = Resources(robot_name="solo8", robot_family="solo")
 
     # Servo variables.
     # tau = I * Kt * N
@@ -44,7 +45,7 @@ class Solo8Bullet(PinBulletWrapper):
         self.power_coeff = power_coeff
         if gen_xacro:
             import robot_properties_bolt.utils
-            robot_properties_bolt.utils.build_xacro_files(self.PATHS['resources'])
+            robot_properties_bolt.utils.build_xacro_files(self.resources.resources_dir)
         # Super initialization: will call load_bullet_robot and load_pinocchio_robot
         super(Solo8Bullet, self).__init__(control_mode=control_mode, useFixedBase=useFixedBase,
                                           reference_robot=reference_robot, **kwargs)
@@ -71,9 +72,9 @@ class Solo8Bullet(PinBulletWrapper):
             assert sys.getrefcount(pin_robot.data) <= 2
         else:
             # time.sleep(np.random.rand() * 5)
-            urdf_path = self.PATHS['urdf']
-            meshes_path = self.PATHS["package"]
-            pin_robot = RobotWrapper.BuildFromURDF(urdf_path, meshes_path, JointModelFreeFlyer())
+            urdf_path = self.resources.urdf_path
+            meshes_path = self.resources.meshes_path
+            pin_robot = RobotWrapper.BuildFromURDF(urdf_path, meshes_path, JointModelFreeFlyer(), verbose=True)
             pin_robot.model.rotorInertia[6:] = self.MOTOR_INERTIA
             pin_robot.model.rotorGearRatio[6:] = self.MOTOR_GEAR_REDUCTION
             print(" -- Done")
@@ -86,8 +87,8 @@ class Solo8Bullet(PinBulletWrapper):
         # if base_pos is None: base_pos = [0, 0, 0.35]
         if base_pos is None: base_pos = [0, 0, 0.95]
 
-        urdf_path = self.PATHS['urdf']
-        meshes_path = self.PATHS["package"]
+        urdf_path = self.resources.urdf_path
+        meshes_path = self.resources.package_path
 
         # Load the robot for PyBullet
         self.bullet_client.setAdditionalSearchPath(meshes_path)
@@ -195,7 +196,7 @@ class Solo8Bullet(PinBulletWrapper):
         if random:
             pitch = np.random.uniform(low=-np.deg2rad(5), high=np.deg2rad(5))
             roll = np.random.uniform(low=-np.deg2rad(5), high=np.deg2rad(5))
-            base_ori = self.bullet_client.getQuaternionFromEuler([roll, pitch, 0])
+            base_ori = scipy.spatial.transform.Rotation.from_euler("xyz", [roll, pitch, 0]).as_quat()
 
         q_legs = np.concatenate((leg_pos + leg_pos_offset1, leg_pos + leg_pos_offset2, leg_pos + leg_pos_offset2,
                                  leg_pos + leg_pos_offset1))

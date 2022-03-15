@@ -5,17 +5,18 @@ from math import pi
 from typing import Collection, Tuple, Union, Optional, List
 
 import numpy as np  # Numpy library
+import scipy.spatial.transform
 from pinocchio import Quaternion, Force, JointModelFreeFlyer
 from pinocchio.robot_wrapper import RobotWrapper
 from pybullet_utils.bullet_client import BulletClient
 
 from ..PinBulletWrapper import PinBulletWrapper, ControlMode
-from robot_properties_bolt.utils import find_paths
+from robot_properties_bolt.resources import Resources
 
 
 class BoltBullet(PinBulletWrapper):
     # URDF and meshes paths
-    PATHS = find_paths(robot_name="bolt", robot_family="bolt")
+    resources = Resources(robot_name="bolt", robot_family="bolt")
 
     # Servo variables.
     # tau = I * Kt * N
@@ -39,7 +40,7 @@ class BoltBullet(PinBulletWrapper):
         self.power_coeff = power_coeff
         if gen_xacro:
             import robot_properties_bolt.utils
-            robot_properties_bolt.utils.build_xacro_files(self.PATHS['resources'])
+            robot_properties_bolt.utils.build_xacro_files(self.resources['resources'])
             # Super initialization: will call load_bullet_robot and load_pinocchio_robot
         super(BoltBullet, self).__init__(control_mode=control_mode, useFixedBase=useFixedBase,
                                          reference_robot=reference_robot, **kwargs)
@@ -64,8 +65,8 @@ class BoltBullet(PinBulletWrapper):
             pin_robot.data = copy.deepcopy(reference_robot.pinocchio_robot.data)
             assert sys.getrefcount(pin_robot.data) <= 2
         else:
-            urdf_path = self.PATHS['urdf']
-            meshes_path = self.PATHS["package"]
+            urdf_path = self.resources.urdf_path
+            meshes_path = self.resources.meshes_path
             pin_robot = RobotWrapper.BuildFromURDF(urdf_path, meshes_path, JointModelFreeFlyer())
             pin_robot.model.rotorInertia[6:] = self.MOTOR_INERTIA
             pin_robot.model.rotorGearRatio[6:] = self.MOTOR_GEAR_REDUCTION
@@ -77,8 +78,8 @@ class BoltBullet(PinBulletWrapper):
         if base_ori is None: base_ori = [0, 0, 0, 1]
         if base_pos is None: base_pos = [0, 0, 0.35]
         if self.useFixedBase: base_pos[2] += self.hip_height
-        urdf_path = self.PATHS['urdf']
-        meshes_path = self.PATHS["package"]
+        urdf_path = self.resources.urdf_path
+        meshes_path = self.resources.meshes_path
 
         # Load the robot for PyBullet
         self.bullet_client.setAdditionalSearchPath(meshes_path)
@@ -190,7 +191,8 @@ class BoltBullet(PinBulletWrapper):
         base_ori = [0, 0, 0, 1]
         if random:
             pitch = np.random.uniform(low=-np.deg2rad(7), high=np.deg2rad(0))
-            base_ori = self.bullet_client.getQuaternionFromEuler([0, pitch, 0])
+            base_ori = scipy.spatial.transform.Rotation.from_euler("xyz", [0, pitch, 0]).as_quat()
+            # base_ori = self.bullet_client.getQuaternionFromEuler([0, pitch, 0])
 
         q_legs = np.concatenate((left_leg_pos + left_leg_pos_offset, right_leg_pos + right_leg_pos_offset))
         dq_legs = np.concatenate((leg_vel + leg_vel_offset1, leg_vel + leg_vel_offset2))
@@ -214,7 +216,7 @@ class BoltBullet(PinBulletWrapper):
 
 class BoltAnkleBullet(BoltBullet):
     # URDF and meshes paths
-    PATHS = find_paths(robot_name="bolt_passive_ankle", robot_family="bolt")
+    resources = Resources(robot_name="bolt_passive_ankle", robot_family="bolt")
 
     # Robot model variables
     BASE_LINK_NAME = "base_link"
@@ -251,7 +253,8 @@ class BoltAnkleBullet(BoltBullet):
         base_ori = [0, 0, 0, 1]
         if random:
             pitch = np.random.uniform(low=-np.deg2rad(7), high=np.deg2rad(0))
-            base_ori = self.bullet_client.getQuaternionFromEuler([0, pitch, 0])
+            roll = np.random.uniform(low=-np.deg2rad(2), high=np.deg2rad(2))
+            base_ori = scipy.spatial.transform.Rotation.from_euler("xyz", [roll, pitch, 0]).as_quat()
 
         q_legs = np.concatenate((left_leg_pos + left_leg_pos_offset, right_leg_pos + right_leg_pos_offset))
         dq_legs = np.concatenate((leg_vel + leg_vel_offset1,
