@@ -22,7 +22,7 @@ from typing import Any, Dict, List, Optional, Type
 import pytorch_lightning as pl
 import torch
 import torchvision.transforms as T
-from pytorch_lightning.callbacks import ModelCheckpoint
+from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping
 from pytorch_lightning.loggers import TensorBoardLogger
 from sklearn.model_selection import KFold
 from torch.nn import functional as F
@@ -236,15 +236,16 @@ class KFoldValidation:
     def advance(self, *args: Any, **kwargs: Any) -> None:
         """Used to the run a fitting and testing on the current hold."""
         # TODO: Almost impossible to reset trainer without reading 900 pages of documentation.
-        tb_logger = TensorBoardLogger(".", name=f'{self.run_name}', version=self.current_fold)
+        tb_logger = TensorBoardLogger(save_dir=".", name=f'{self.run_name}', version=self.current_fold)
         ckpt_callback = ModelCheckpoint(monitor="hp/val_loss", mode='min', dirpath=f'{self.run_name}', 
-                                        filename=f"best_model_of_fold_{self.current_fold}",
-                                        save_weights_only=True)
+                                        filename=f"best_model_of_fold_{self.current_fold}", save_weights_only=True)
+        early_stop_callback = EarlyStopping(monitor="hp/val_loss",
+                                            patience=int(self.trainer_kwargs['max_epochs'] * 0.2), mode='min')
         self.trainer_kwargs["logger"] = tb_logger
-        self.trainer_kwargs["callbacks"] = ckpt_callback
+        self.trainer_kwargs["callbacks"] = [ckpt_callback, early_stop_callback]
         self.trainer_kwargs["deterministic"] = True
         self.trainer_kwargs['enable_progress_bar'] = False
-        self.trainer_kwargs['enable_model_summary'] = False
+        # self.trainer_kwargs['enable_model_summary'] = False
 
         self.trainer = Trainer(**self.trainer_kwargs)
 

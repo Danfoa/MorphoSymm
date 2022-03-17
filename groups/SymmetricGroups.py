@@ -6,6 +6,7 @@
 from typing import Optional, Sequence
 
 import numpy as np
+import jax.numpy as jnp
 from emlp.groups import Group
 
 
@@ -28,6 +29,10 @@ class Sym(Group):
         # TODO: Make everything Sparse and Lazy. Avoid memory and runtime excess
         self.discrete_generators = np.array(generators).astype(np.int)
         super().__init__()
+
+    @property
+    def discrete_actions(self) -> list:
+        raise NotImplementedError()
 
     def __hash__(self):
         return hash(str(self.discrete_generators))
@@ -68,6 +73,10 @@ class C2(Sym):
         assert not np.allclose(h, np.eye(self.d)), "Generator must not be the identity"
         assert np.allclose(h @ h, np.eye(self.d)), "Generator is not cyclic"
 
+    @property
+    def discrete_actions(self) -> list:
+        return [jnp.eye(self.d, dtype=jnp.int32), self.discrete_generators[0]]
+
     def __repr__(self):
         return f"C2[d:{self.d}]"
 
@@ -100,6 +109,11 @@ class Klein4(Sym):
         assert np.allclose(b @ b, np.eye(self.d)), f"Generator is not cyclic:\n{b @ b}"
         assert np.allclose((a@b) @ (a@b), np.eye(self.d)), f"Generators composition a·b is not cyclic:\n{a@b}"
         assert not np.allclose(a@b, np.eye(self.d)), f"Third action must be non-trivial: a·b != e"
+
+    @property
+    def discrete_actions(self) -> list:
+        a, b = self.discrete_generators
+        return [jnp.eye(self.d, dtype=jnp.int32), a, b, a@b]
 
     def __hash__(self):
         return hash(str(self.discrete_generators))

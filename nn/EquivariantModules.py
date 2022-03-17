@@ -51,15 +51,14 @@ class BasisLinear(torch.nn.Module):
         self.cache_dir = cache_dir
 
         # Compute the nullspace
-        self.basis = torch.nn.Parameter(torch.tensor(np.array(densify(self.repW.equivariant_basis()))),
-                                        requires_grad=False)
+        self.basis = torch.nn.Parameter(torch.tensor(np.asarray(self.repW.equivariant_basis())), requires_grad=False)
         # Create the network parameters. Coefficients for each base and a b
         self.basis_coeff = torch.nn.Parameter(torch.randn((self.basis.shape[-1])))
         self._weight = self.weight
 
         if self.with_bias:
             self._bias = self.bias
-            self.bias_basis = torch.nn.Parameter(torch.tensor(np.array(rep_out.equivariant_basis()))
+            self.bias_basis = torch.nn.Parameter(torch.tensor(np.asarray(rep_out.equivariant_basis()))
                                                  , requires_grad=False)
             self.bias_basis_coeff = torch.nn.Parameter(torch.randn((self.bias_basis.shape[-1])))
 

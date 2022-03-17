@@ -10,7 +10,7 @@ import torch
 from torch.utils.data import DataLoader, random_split
 from emlp.reps import Vector
 from hydra.utils import get_original_cwd
-from omegaconf import DictConfig
+from omegaconf import DictConfig, ListConfig
 from pytorch_lightning import Trainer, seed_everything
 from pytorch_lightning import loggers as pl_loggers
 from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint
@@ -77,7 +77,7 @@ def get_network(model_type, Gin, Gout, num_layers, init_mode, ch, bias):
         network = EMLP(rep_in=Vector(Gin), rep_out=Vector(Gout), hidden_group=Gout, num_layers=num_layers,
                        ch=ch, init_mode=init_mode, activation=torch.nn.ReLU,
                        with_bias=bias, cache_dir=cache_dir).to(dtype=torch.float32)
-    elif model_type == 'mlp':
+    elif 'mlp' in model_type:
         if 'mean' in init_mode.lower(): return
         network = MLP(d_in=Gin.d, d_out=Gout.d, num_layers=num_layers, init_mode=init_mode,
                       ch=ch, with_bias=bias, activation=torch.nn.ReLU).to(dtype=torch.float32)
@@ -101,16 +101,15 @@ def main(cfg: DictConfig):
 
     robot, Gin, Gout, GC = get_robot_params(cfg.robot_name)
 
-
     # Prepare data _____________________________________________________________________________
-    dataset = COMMomentum(robot, cfg.dataset.train_samples + cfg.dataset.test_samples,
+    dataset = COMMomentum(robot, Gin=Gin, Gout=Gout, size=cfg.dataset.train_samples + cfg.dataset.test_samples,
                           angular_momentum=cfg.dataset.angular_momentum, normalize=cfg.dataset.normalize,
-                          augment=cfg.dataset.augmentation, Gin=Gin, Gout=Gout, dtype=np.float32)
+                          augment=cfg.dataset.augmentation, dtype=np.float32)
 
     # Configure base trainer parameters ________________________________________________________
     chkp_callback = ModelCheckpoint(monitor="hp/val_loss", mode='min', dirpath='.', #f'trial_{trial.number}_lr={lr:.5f}',
                                     filename=f"best_model")
-    early_stop_callback = EarlyStopping(monitor="hp/val_loss", patience=int(cfg.max_epochs * 0.5), mode='min')
+    early_stop_callback = EarlyStopping(monitor="hp/val_loss", patience=int(cfg.max_epochs * 0.2), mode='min')
     callbacks = [chkp_callback, early_stop_callback]
 
     trainer_kwargs = {'gpus': 1 if torch.cuda.is_available() else 0,
@@ -132,41 +131,64 @@ def main(cfg: DictConfig):
 
         # TODO: Process results.
     elif "cross_val" in cfg.run_type:
-        init_modes = ['fan_in', 'fan_out', 'normal0.1', 'normal1.0']
+        # init_modes = ['fan_in', 'fan_out', 'normal0.1', 'normal1.0']
+        init_modes = cfg.init_mode
+        # model_types = ['emlp', 'mlp', 'mlp-aug']
+        model_types = cfg.model_type
+        hidden_layers = cfg.num_layers
         results = {}
-        model_types = ['emlp', 'mlp']
         for model_type in model_types:
             for init_mode in init_modes:
-                run_name = model_type + "-" + init_mode
-                network = get_network(model_type=model_type, Gin=Gin, Gout=Gout, num_layers=cfg.num_layers,
-                                      init_mode=init_mode, ch=cfg.num_channels, bias=cfg.bias)
+                for hd in hidden_layers:
+                    run_name = {"model": model_type, "hidden_layers": hd, "init_mode": init_mode}
+                    if 'mean' in init_mode and 'mlp' in model_type: continue
+                    if 'aug' in model_type:
+                        dataset.augment = True
+                    else:
+                        dataset.augment = False
+                    network = get_network(model_type=model_type, Gin=Gin, Gout=Gout, num_layers=hd,
+                                          init_mode=init_mode, ch=cfg.num_channels, bias=cfg.bias)
+                    # Build Lightning Module
+                    model = LightningModel(model=network, lr=cfg.lr, loss_fn=dataset.loss_fn,
+                                           metrics_fn=dataset.compute_metrics)
 
-                # Build Lightning Module
-                model = LightningModel(model=network, lr=cfg.lr, loss_fn=dataset.loss_fn,
-                                       metrics_fn=dataset.compute_metrics)
+                    datamodule = KFoldDataModule(dataset, test_samples=cfg.dataset.test_samples,
+                                                 batch_size=cfg.batch_size)
+                    kfold_val = KFoldValidation(model=model, trainer_kwargs=trainer_kwargs, reinitialize=True,
+                                                kfold_data_module=datamodule, num_folds=cfg.kfolds,
+                                                export_path="kfold", run_name=run_name)
 
-                datamodule = KFoldDataModule(dataset, test_samples=cfg.dataset.test_samples, batch_size=cfg.batch_size)
-                kfold_val = KFoldValidation(model=model, trainer_kwargs=trainer_kwargs, reinitialize=True,
-                                            kfold_data_module=datamodule, num_folds=cfg.kfolds, export_path="kfold",
-                                            run_name=run_name)
+                    results[str(run_name)] = kfold_val.run()
 
-                results[run_name] = kfold_val.run()
         summaries = KFoldValidation.summarize_results(results)
+        test_pds, train_pds, val_pds = [], [], []
+        for run_name, summary in summaries.items():
+            test_pds.append(pd.DataFrame(summary['test']).assign(**eval(run_name)))
+            train_pds.append(pd.DataFrame(summary['train']).assign(**eval(run_name)))
+            val_pds.append(pd.DataFrame(summary['val']).assign(**eval(run_name)))
 
-        test_pd = pd.concat([pd.DataFrame(v['test']).assign(init=k.split('-')[1], model=k.split('-')[0]) for k, v in summaries.items()], axis=0, join='inner')
-        test_pd_long = pd.melt(test_pd, id_vars=["init", "model"], var_name="metric")
-        g = sns.catplot(x='model', y='value', data=test_pd_long, kind="violin",
-                        inner="box", pallete=sns.color_palette("mako", as_cmap=True), scale='count',
-                        scale_hue=True, split=False, col='metric', row='init', sharey=False)
+        test_pd = pd.concat(test_pds, axis=0, join='inner')
+        train_pd = pd.concat(train_pds, axis=0, join='inner')
+        val_pd = pd.concat(val_pds, axis=0, join='inner')
+
+        file_name = f"{model_types}-{init_modes}-hd{hidden_layers}"
+        test_pd.to_csv(f"TEST-{file_name}")
+        train_pd.to_csv(f"TRAIN-{file_name}")
+        val_pd.to_csv(f"VAL-{file_name}")
+
+        # Plot.
+        test_pd_long = pd.melt(test_pd, id_vars=["init_mode", "model", "hidden_layers"], var_name="metric")
+        metric_names = np.unique(test_pd_long['metric']).tolist()
+        g = sns.catplot(x='hidden_layers', y='value', col='metric', row='init_mode', hue='model',
+                        col_order=reversed(metric_names), row_order=init_modes,
+                        data=test_pd_long, kind="violin", inner="box", palette='PuBuGn',
+                        scale='count', scale_hue=True, split=False, sharey=False, sharex=False)
+        g.figure.savefig(file_name + ".png", dpi=90)
         g.figure.show()
-        g.figure.savefig("-".join(model_types) + "--" + "-".join(init_modes)+".png", dpi=90)
-        g.figure.show()
-        print(summaries)
+        # print(summaries)
 
     elif cfg.run_type == "single_run":
         pass
-
-    print("5")
     #
     # # Build Lightning Module
     # model = LightningModel(model=network, lr=cfg.lr, loss_fn=dataset.loss_fn,

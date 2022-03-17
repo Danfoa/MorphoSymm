@@ -12,40 +12,75 @@ from torch.utils.data import Dataset
 import torch.nn.functional as F
 
 import logging
+
+from groups.SymmetricGroups import Sym
+
 log = logging.getLogger(__name__)
 
 np.set_printoptions(precision=4)
 
+class Standarizer:
+
+    def __init__(self, X_mean, X_std, Y_mean, Y_std):
+        self.X_mean, self.X_std = torch.tensor(X_mean), torch.tensor(X_std)
+        self.Y_mean, self.Y_std = torch.tensor(Y_mean), torch.tensor(Y_std)
+
+    def normalize(self, x=None, y=None):
+        if isinstance(x, np.ndarray):
+            X_mean, X_std = self.X_mean.cpu().numpy(), self.X_std.cpu().numpy()
+            Y_mean, Y_std = self.Y_mean.cpu().numpy(), self.Y_std.cpu().numpy()
+        else:
+            X_mean, X_std = self.X_mean, self.X_std
+            Y_mean, Y_std = self.Y_mean, self.Y_std
+
+        if x is not None and y is not None:
+            return (x - X_mean) / X_std, (y - Y_mean) / Y_std
+        elif x is not None:
+            return (x - X_mean) / X_std
+        elif y is not None:
+            return (y - Y_mean) / Y_std
+
+    def unstandarize(self, xn=None, yn=None):
+        if isinstance(xn, np.ndarray):
+            X_mean, X_std = self.X_mean.cpu().numpy(), self.X_std.cpu().numpy()
+            Y_mean, Y_std = self.Y_mean.cpu().numpy(), self.Y_std.cpu().numpy()
+        else:
+            X_mean, X_std = self.X_mean, self.X_std
+            Y_mean, Y_std = self.Y_mean, self.Y_std
+
+        if xn is not None and yn is not None:
+            return xn * X_std + X_mean, yn * Y_std + Y_mean
+        elif xn is not None:
+            return xn * X_std + X_mean
+        elif yn is not None:
+            return yn * Y_std + Y_mean
+
 
 class COMMomentum(Dataset):
 
-    def __init__(self, robot, size=5000, angular_momentum=False, Gin: Optional[Group] = None,
-                 Gout: Optional[Group] = None, normalize=True,
-                 augment=False, dtype=np.float32):
+    def __init__(self, robot, Gin: Sym, Gout: Sym, size=5000, angular_momentum=False, normalize=True, augment=False,
+                 dtype=np.float32):
 
-        # self.robot = robot
         self.size = size
         self.dtype = dtype
         self.angular_momentum = angular_momentum
         self.robot = robot
-        self._normalize = normalize
+        self.normalize = normalize
 
-        self.augment = augment
         self.Gin = Gin
         self.Gout = Gout
-        self.H = [(np.array(gin, dtype=self.dtype), np.array(gout, dtype=self.dtype)) for gin, gout in
-                  zip(Gin.discrete_generators, Gout.discrete_generators)]
+        self.group_actions = [(np.asarray(gin), np.asarray(gout)) for gin, gout in zip(self.Gin.discrete_actions,
+                                                                                       self.Gout.discrete_actions)]
         self._pb = None  # GUI debug
+        self.augment = augment
 
         dq_max = robot.velocity_limits
         q_min, q_max = robot.joint_pos_limits
         q, dq = robot.get_init_config(random=False)
-        # TODO: Temporal for debugging
-        # base_ori = [0.0871557, 0, 0, 0.9961947]
-        # q[3:7] = base_ori
-        # We will assume base is fixed at initial config position for the entire dataset.
         self.base_q = q[:7]
         self.base_dq = dq[:6]
+
+        self.test_equivariance()
 
         Y = np.zeros((size, 6), dtype=self.dtype)
         X = np.zeros((size, robot.nj * 2), dtype=self.dtype)
@@ -57,9 +92,11 @@ class COMMomentum(Dataset):
             Y[i, :] = hg
             X[i, :] = np.concatenate((q[7:], dq[6:]))
 
-        self.test_equivariance()
-        X, Y = self.compute_normalization(X, Y)
-
+        X, Y = X.astype(dtype), Y.astype(dtype)
+        # Normalize D
+        X_mean, X_std, Y_mean, Y_std = self.compute_normalization(X, Y)
+        self.standarizer = Standarizer(X_mean, X_std, Y_mean, Y_std)
+        X, Y = self.standarizer.normalize(X, Y)
         self.X = X
         self.Y = Y[:, :(6 if angular_momentum else 3)]
 
@@ -70,49 +107,19 @@ class COMMomentum(Dataset):
 
     def compute_normalization(self, X, Y):
         idx = 6 if self.angular_momentum else 3
-        self._X_mean, self._Y_mean, self._X_std, self._Y_std = 0., 0., 1., 1.
-        if self._normalize:
-            X_aug = np.vstack([X] + [np.asarray(g @ X.T).T for g in self.Gin.discrete_generators])
-            Y_aug = np.vstack(
-                [Y[:, :idx]] + [np.asarray(g @ Y[:, :idx].T).T for g in self.Gout.discrete_generators])
-            self._X_mean = np.mean(X_aug, axis=0)
-            self._Y_mean = np.mean(Y_aug[:, :idx], axis=0)
+        X_mean, Y_mean, X_std, Y_std = 0., 0., 1., 1.
+        if self.normalize:
+            # TODO: Obtain analytic formula for mean and std along orbit of discrete and continuous groups.
+            X_aug = np.vstack([X] + [np.asarray(g @ X.T).T for g in self.Gin.discrete_actions])
+            Y_aug = np.vstack([Y[:, :idx]] + [np.asarray(g @ Y[:, :idx].T).T for g in self.Gout.discrete_actions])
+            X_mean = np.mean(X_aug, axis=0)
+            Y_mean = np.mean(Y_aug[:, :idx], axis=0)
+            X_std = np.std(X_aug, axis=0)
+            Y_std = np.std(Y_aug, axis=0)
 
-            self._X_std = np.std(X_aug, axis=0)
-            self._Y_std = np.std(Y_aug, axis=0)
-
-            X, Y = self.normalize(X, Y[:, :idx])
-        return X, Y
-        # X_mean = np.mean(self.X, axis=0)
-        # Y_mean = np.mean(self.Y[:, :idx], axis=0)
-
-        # X_std = np.std(self.X, axis=0)
-        # Y_std = np.std(self.Y[:, :idx], axis=0)
-        #
-        # # TODO: Change for orbit
-        # gX_mean = [np.asarray(g @ X_mean) for g in self.Gin.discrete_generators]
-        # gX_mean.append(X_mean)
-        # gY_mean = [np.asarray(g @ Y_mean) for g in self.Gout.discrete_generators]
-        # gY_mean.append(Y_mean)
-        #
-        # gX_std = [np.asarray(g @ X_std) for g in self.Gin.discrete_generators]
-        # gX_std.append(X_std)
-        # gY_std = [np.asarray(g @ Y_std) for g in self.Gout.discrete_generators]
-        # gY_std.append(Y_std)
-        #
-        # GX_mean, GY_mean = np.mean(np.asarray(gX_mean), axis=0), np.mean(np.asarray(gY_mean), axis=0)
-        # GX_std, GY_std = np.mean(np.asarray(gX_std), axis=0), np.mean(np.asarray(gY_std), axis=0)
-
-    def normalize(self, x, y):
-        return (x - self._X_mean) / self._X_std, (y - self._Y_mean) / self._Y_std
-
-    def denormalize(self, xn, yn):
-        return xn*self._X_std + self._X_mean, yn*self._Y_std + self._Y_mean
+        return X_mean, X_std, Y_mean, Y_std
 
     def test_equivariance(self):
-        augment = copy.copy(self.augment)
-
-        self.augment = False  # Temporarily
         decimals = 15
         q, dq = self.robot.get_init_config(random=True)
         x = np.concatenate((q[7:]*1.4, dq[6:] * 10))
@@ -120,15 +127,8 @@ class COMMomentum(Dataset):
         y = self.get_hg(*np.split(x, 2))
         y = np.round(y, decimals).astype(np.float64)
 
-        # TODO: Should be replaced by a correct Group representation and the `sample` method
         # Get all possible group actions
-        samples_g_sequences = self.H # itertools.combinations_with_replacement(self.H, len(self.H))
-        for g_sequence in [[h] for h in self.H]:
-            g_sequence = np.array(g_sequence, dtype=np.object)
-            g_in_sequence, g_out_sequence = g_sequence[:, 0], g_sequence[:, 1]
-            g_in = functools.reduce(np.dot, g_in_sequence).astype(int)
-            g_in_q = g_in[:12,:12].astype(np.int)
-            g_out = functools.reduce(np.dot, g_out_sequence).astype(int)
+        for g_in, g_out in zip(self.Gin.discrete_actions, self.Gout.discrete_actions):
             gx, gy = np.round(g_in @ x, decimals), np.round(g_out @ y, decimals)
             gy_true = self.get_hg(*np.split(gx, 2))
             error = gy_true - gy
@@ -141,17 +141,21 @@ class COMMomentum(Dataset):
                                      f"x:{x}\ng*x:{gx}\ny:{y} \ng*y:{gy}\n" +
                                      f"Aq(g*q)g*dq:{gy_true}\nError:{error}")
 
-        self.augment = augment  # Restore agumentation flag
-
     def compute_metrics(self, y, y_pred) -> dict:
         with torch.no_grad():
             metrics = {}
-            # eps = 1e-9
-            metrics["lin_cos_sim"] = F.cosine_similarity(y[:, :3], y_pred[:, :3], dim=-1)
-            metrics["lin_err"] = torch.linalg.norm((y[:, :3] - y_pred[:, :3]) * y.new(self._Y_std[:3]), dim=-1)
+
+            y_dn = self.standarizer.unstandarize(yn=y.cpu())
+            y_pred_dn = self.standarizer.unstandarize(yn=y_pred.cpu())
+
+            lin, lin_pred = y_dn[:, :3], y_pred_dn[:, :3]
+            metrics["lin_cos_sim"] = F.cosine_similarity(lin, lin_pred, dim=-1)
+            metrics["lin_err"] = torch.linalg.norm(lin - lin_pred, dim=-1)
+
             if self.angular_momentum:
-                metrics["ang_cos_sim"] = F.cosine_similarity(y[:, 3:], y_pred[:, 3:], dim=-1)
-                metrics["ang_err"] = torch.linalg.norm((y[:, 3:] - y_pred[:, 3:]) * y.new(self._Y_std[3:]), dim=-1)
+                ang, ang_pred = y_dn[:, 3:], y_pred_dn[:, 3:]
+                metrics["ang_cos_sim"] = F.cosine_similarity(ang, ang_pred, dim=-1)
+                metrics["ang_err"] = torch.linalg.norm(ang - ang_pred, dim=-1)
         return metrics
 
     def __len__(self):
@@ -163,11 +167,20 @@ class COMMomentum(Dataset):
         else:
             x, y = self.X[i, :], self.Y[i, :3],
 
-        if self.augment:
-            if random.random() < 0.5:
-                g_in, g_out = random.choice(self.H)
-                x, y = g_in @ x, g_out @ y
+        if self.augment:  # Sample uniformly among symmetry actions including identity
+            g_in, g_out = random.choice(self.group_actions)
+            x, y = (g_in @ x).astype(self.dtype), (g_out @ y).astype(self.dtype)
         return x, y
+
+    @property
+    def augment(self):
+        return self._augment
+
+    @augment.setter
+    def augment(self, new_normalize):
+        assert isinstance(new_normalize, bool)
+        self._augment = new_normalize
+        log.info(f"Dataset Group Augmentation {'ACTIVATED' if self.augment else 'DEACTIVATED'}")
 
     def get_hg(self, q, dq):
         hg = self.robot.pinocchio_robot.centroidalMomentum(q=np.concatenate((self.base_q, q)),
@@ -234,3 +247,4 @@ class COMMomentum(Dataset):
         draw_momentum_vector(base_q2[:3], ghg2[:3], v_color=(0.125, 0.709, 0.811), scale=5.0,
                              text=f"g*hg(q, dq)={ghg2}", show_axes=False, offset=0.2)
         print("a")
+
