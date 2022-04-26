@@ -10,6 +10,7 @@ import torch
 from emlp import Group
 from torch.utils.data import Dataset
 import torch.nn.functional as F
+from torch.utils.data._utils.collate import default_collate
 
 import logging
 
@@ -25,7 +26,7 @@ class Standarizer:
         self.X_mean, self.X_std = torch.tensor(X_mean), torch.tensor(X_std)
         self.Y_mean, self.Y_std = torch.tensor(Y_mean), torch.tensor(Y_std)
 
-    def normalize(self, x=None, y=None):
+    def transform(self, x=None, y=None):
         if isinstance(x, np.ndarray):
             X_mean, X_std = self.X_mean.cpu().numpy(), self.X_std.cpu().numpy()
             Y_mean, Y_std = self.Y_mean.cpu().numpy(), self.Y_std.cpu().numpy()
@@ -58,52 +59,52 @@ class Standarizer:
 
 class COMMomentum(Dataset):
 
-    def __init__(self, robot, Gin: Sym, Gout: Sym, size=5000, angular_momentum=False, normalize=True, augment=False,
-                 dtype=np.float32):
+    def __init__(self, robot, Gin: Sym, Gout: Sym, size=5000, angular_momentum=False, standarize=True, augment=False,
+                 dtype=torch.float32):
 
-        self.size = size
         self.dtype = dtype
         self.angular_momentum = angular_momentum
         self.robot = robot
-        self.normalize = normalize
+        self.normalize = standarize
 
         self.Gin = Gin
         self.Gout = Gout
         self.group_actions = [(np.asarray(gin), np.asarray(gout)) for gin, gout in zip(self.Gin.discrete_actions,
                                                                                        self.Gout.discrete_actions)]
+        self.t_group_actions = [(torch.tensor(np.asarray(gin)), torch.tensor(np.asarray(gout))) for gin, gout in
+                                zip(self.Gin.discrete_actions, self.Gout.discrete_actions)]
         self._pb = None  # GUI debug
         self.augment = augment
 
-        dq_max = robot.velocity_limits
-        q_min, q_max = robot.joint_pos_limits
+        dq_max = np.asarray(robot.velocity_limits)
+        q_min, q_max = (np.asarray(lim) for lim in robot.joint_pos_limits)
         q, dq = robot.get_init_config(random=False)
         self.base_q = q[:7]
         self.base_dq = dq[:6]
 
         self.test_equivariance()
 
-        Y = np.zeros((size, 6), dtype=self.dtype)
-        X = np.zeros((size, robot.nj * 2), dtype=self.dtype)
+        Y = np.zeros((size, 6))
+        X = np.zeros((size, robot.nj * 2))
         for i in range(size):
-            q[7:] = np.random.uniform(q_min, q_max, robot.nj).astype(dtype=self.dtype)
-            dq[6:] = np.random.uniform(-dq_max, dq_max, robot.nj).astype(dtype=self.dtype)
-            hg = robot.pinocchio_robot.centroidalMomentum(q, dq).np.astype(dtype=self.dtype)
+            q[7:] = np.random.uniform(q_min, q_max, size=None)
+            dq[6:] = np.random.uniform(-dq_max, dq_max, size=None)
+            hg = robot.pinocchio_robot.centroidalMomentum(q, dq)
 
-            Y[i, :] = hg
+            Y[i, :] = hg.np
             X[i, :] = np.concatenate((q[7:], dq[6:]))
 
-        X, Y = X.astype(dtype), Y.astype(dtype)
         # Normalize D
         X_mean, X_std, Y_mean, Y_std = self.compute_normalization(X, Y)
         self.standarizer = Standarizer(X_mean, X_std, Y_mean, Y_std)
-        X, Y = self.standarizer.normalize(X, Y)
+        X, Y = self.standarizer.transform(X, Y)
         self.X = X
-        self.Y = Y[:, :(6 if angular_momentum else 3)]
+        self.Y = Y
 
         self.loss_fn = F.mse_loss
 
         log.info(f"CoM[{robot.__class__.__name__}]-Samples:{size}-Aug:{'True' if augment else 'False'}-"
-                 f"Normalize:{normalize}")
+                 f"Normalize:{standarize}")
 
     def compute_normalization(self, X, Y):
         idx = 6 if self.angular_momentum else 3
@@ -120,26 +121,44 @@ class COMMomentum(Dataset):
         return X_mean, X_std, Y_mean, Y_std
 
     def test_equivariance(self):
-        decimals = 15
-        q, dq = self.robot.get_init_config(random=True)
-        x = np.concatenate((q[7:]*1.4, dq[6:] * 10))
-        x = np.round(x, decimals).astype(np.float64)
-        y = self.get_hg(*np.split(x, 2))
-        y = np.round(y, decimals).astype(np.float64)
+        trials = 5
+        for trial in range(trials):
+            q, dq = self.robot.get_init_config(random=True)
+            q[:10] = 0.0
+            dq[:9] = 0.0
+            # Block arms
+            # q[10:25], dq[10:25] = 0.0, 0.0
+            # Block arms
+            q[25:], dq[25:] = 0.0, 0.0
 
-        # Get all possible group actions
-        for g_in, g_out in zip(self.Gin.discrete_actions, self.Gout.discrete_actions):
-            gx, gy = np.round(g_in @ x, decimals), np.round(g_out @ y, decimals)
-            gy_true = self.get_hg(*np.split(gx, 2))
-            error = gy_true - gy
-            if not np.allclose(error, 0.0, rtol=1e-3, atol=1e-3):
-                try:
-                    self.gui_debug(*np.split(x, 2), *np.split(gx, 2), hg1=y, hg2=gy_true, ghg2=gy)
-                except Exception as e:
-                    logging.warning(f"Unable to start GUI of pybullet: {str(e)}")
-                raise AttributeError(f"Ground truth hg(q,dq) = Ag(q)dq is not equivariant to provided groups: \n" +
-                                     f"x:{x}\ng*x:{gx}\ny:{y} \ng*y:{gy}\n" +
-                                     f"Aq(g*q)g*dq:{gy_true}\nError:{error}")
+            # q[19:26], dq[19:26] = 0.0, 0.0
+            x = np.concatenate((q[7:], dq[6:]))
+            x = x.astype(np.float64)
+            y = self.get_hg(*np.split(x, 2))
+            y = y.astype(np.float64)
+
+
+            # Get all possible group actions
+            for g_in, g_out in zip(self.Gin.discrete_actions[1:], self.Gout.discrete_actions[1:]):
+                gx, gy = np.asarray(g_in) @ x, np.asarray(g_out) @ y
+                assert gx.dtype == x.dtype, (gx.dtype, x.dtype)
+                assert gy.dtype == y.dtype, (gy.dtype, y.dtype)
+                ggx, ggy = g_in.astype(np.float64) @ gx, g_out.astype(np.float64) @ gy
+                # Check if there is numerical error in group actions application.
+                action_error_x = ggx - x
+                action_error_y = ggy - y
+                gy_true = self.get_hg(*np.split(gx, 2))
+                assert gy_true.dtype == y.dtype, (gy_true.dtype, y.dtype)
+                error = gy_true - gy
+                if not np.allclose(error, 0.0, rtol=1e-3, atol=1e-3):
+                    try:
+                        self.gui_debug(*np.split(x, 2), *np.split(gx, 2), hg1=y, hg2=gy_true, ghg2=gy)
+                    except Exception as e:
+                        logging.warning(f"Unable to start GUI of pybullet: {str(e)}")
+                    raise AttributeError(f"Ground truth hg(q,dq) = Ag(q)dq is not equivariant to provided groups: \n" +
+                                         f"x:{x}\ng*x:{gx}\ny:{y} \ng*y:{gy}\n" +
+                                         f"Aq(g*q)g*dq:{gy_true}\nError:{error}")
+        return None
 
     def compute_metrics(self, y, y_pred) -> dict:
         with torch.no_grad():
@@ -159,7 +178,7 @@ class COMMomentum(Dataset):
         return metrics
 
     def __len__(self):
-        return self.size
+        return self.Y.shape[0]
 
     def __getitem__(self, i):
         if self.angular_momentum:
@@ -167,10 +186,25 @@ class COMMomentum(Dataset):
         else:
             x, y = self.X[i, :], self.Y[i, :3],
 
-        if self.augment:  # Sample uniformly among symmetry actions including identity
-            g_in, g_out = random.choice(self.group_actions)
-            x, y = (g_in @ x).astype(self.dtype), (g_out @ y).astype(self.dtype)
+        # if self.augment:  # Sample uniformly among symmetry actions including identity
+        #     g_in, g_out = random.choice(self.group_actions)
+        #     x, y = (g_in @ x).astype(self.dtype), (g_out @ y).astype(self.dtype)
         return x, y
+
+    def collate_fn(self, batch):
+        # Enforce data type in batched array
+
+        # Small hack to do batched augmentation. TODO: Although efficient this should be done somewhere else.
+        x_batch, y_batch = default_collate(batch)
+
+        if self.augment:  # Sample uniformly among symmetry actions including identity
+            g_in, g_out = random.choice(self.t_group_actions[1:])
+            g_x_batch = torch.matmul(x_batch.unsqueeze(1), g_in.unsqueeze(0).to(x_batch.dtype)).squeeze()
+            g_y_batch = torch.matmul(y_batch.unsqueeze(1), g_out.unsqueeze(0).to(y_batch.dtype)).squeeze()
+            # x, xx = x_batch[0], g_x_batch[0]
+            # y, yy = y_batch[0], g_y_batch[0]
+            x_batch, y_batch = g_x_batch, g_y_batch
+        return [x_batch.to(self.dtype), y_batch.to(self.dtype)]
 
     @property
     def augment(self):
@@ -185,7 +219,7 @@ class COMMomentum(Dataset):
     def get_hg(self, q, dq):
         hg = self.robot.pinocchio_robot.centroidalMomentum(q=np.concatenate((self.base_q, q)),
                                                            v=np.concatenate((self.base_dq, dq)))
-        hg = np.array(hg).astype(self.dtype)
+        hg = np.array(hg)
         if self.angular_momentum:
             return hg
         return hg[:3]
@@ -225,11 +259,11 @@ class COMMomentum(Dataset):
 
         robot1 = self.robot
         robot2 = copy.copy(self.robot)
-        offset = 1.0
+        offset = 2 * self.robot.hip_height
         robot1.configure_bullet_simulation(self._pb, world=None)
         robot2.configure_bullet_simulation(self._pb, world=None)
-        tint_robot(robot2, alpha=0.4)
-        tint_robot(robot1, alpha=0.4)
+        # tint_robot(robot2, alpha=0.9)
+        # tint_robot(robot1, alpha=0.9)
         # Place robots in env
         q, dq = robot1.get_init_config(random=True)
         q[:7] = self.base_q
@@ -242,9 +276,9 @@ class COMMomentum(Dataset):
         robot1.reset_state(np.concatenate((base_q1, q1)), dq)
         robot2.reset_state(np.concatenate((base_q2, q2)), dq)
         # Draw linear momentum
-        draw_momentum_vector(base_q1[:3], hg1[:3], v_color=(0, 0, 0), scale=5.0, text=f"hg(q,dq)={hg1}")
-        draw_momentum_vector(base_q2[:3], hg2[:3], v_color=(0, 0, 0), scale=5.0, text=f"hg(g*q, g*dq)={hg2}")
-        draw_momentum_vector(base_q2[:3], ghg2[:3], v_color=(0.125, 0.709, 0.811), scale=5.0,
+        draw_momentum_vector(base_q1[:3], hg1[:3], v_color=(0, 0, 0), scale=1/np.linalg.norm(hg1[:3]), text=f"hg(q,dq)={hg1}")
+        draw_momentum_vector(base_q2[:3], hg2[:3], v_color=(0, 0, 0), scale=1/np.linalg.norm(hg2[:3]), text=f"hg(g*q, g*dq)={hg2}")
+        draw_momentum_vector(base_q2[:3], ghg2[:3], v_color=(0.125, 0.709, 0.811), scale=1/np.linalg.norm(ghg2[:3]),
                              text=f"g*hg(q, dq)={ghg2}", show_axes=False, offset=0.2)
         print("a")
 
