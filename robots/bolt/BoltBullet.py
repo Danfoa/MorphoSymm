@@ -144,14 +144,12 @@ class BoltBullet(PinBulletWrapper):
 
     @property
     def velocity_limits(self, q=None, dq=None) -> Union[float, Collection]:
-        return self._max_servo_speed
+        return np.array([self._max_servo_speed] * self.nj),
 
     @property
     def joint_pos_limits(self) -> Tuple[Collection, Collection]:
-        if self._pos_neutral is None or self._pos_upper_limit is None:
-            self._pos_lower_limit = np.array([-pi] * self.nj)    # Max pos offset from neutral pos
-            self._pos_upper_limit = np.array([pi] * self.nj)  # Max pos offset from neutral pos
-        return self._pos_lower_limit, self._pos_upper_limit
+        # Override URDF values
+        return np.array([-pi] * self.nj), np.array([pi] * self.nj)
 
     @property
     def hip_height(self) -> float:

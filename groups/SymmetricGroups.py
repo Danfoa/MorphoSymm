@@ -7,6 +7,8 @@ from typing import Optional, Sequence
 
 import numpy as np
 import jax.numpy as jnp
+
+import os
 from emlp.groups import Group
 
 

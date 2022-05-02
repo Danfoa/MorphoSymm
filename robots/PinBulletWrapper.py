@@ -76,6 +76,8 @@ class PinBulletWrapper(ABC):
         self._endeff_names = None
         self._mirror_joint_idx, self._mirror_endeff_idx = None, None  # Used for mirroring robot state
         self._mirror_obs_idx, self._mirror_obs_signs = None, None
+        # Default to URDF values
+        self._joint_upper_limits, self._joint_lower_limits, self._joint_vel_limits = None, None, None
         self._feet_lateral_friction = feet_lateral_friction
         self._feet_spinning_friction = feet_spinning_friction
         # Initialize Pinocchio Robot.
@@ -83,7 +85,8 @@ class PinBulletWrapper(ABC):
         self.control_mode = control_mode
         self.nq = self.pinocchio_robot.nq
         self.nv = self.pinocchio_robot.nv
-        self.nj = len(self.joint_names)
+        self.nj = self.nq - 7
+        assert self.nj == len(self.joint_names), f"{len(self.joint_names)} != {self.nj}"
         self.nf = len(self.endeff_names)
         self.useFixedBase = useFixedBase
         self.nb_dof = self.nv - 6
@@ -134,14 +137,24 @@ class PinBulletWrapper(ABC):
         assert self.robot_id is not None
         log.debug("Configuring Bullet Robot")
         bullet_joint_map = {}  # Key: joint name - Value: joint id
+
+        if self._joint_lower_limits is None or self._joint_upper_limits is None:
+            self._joint_lower_limits, self._joint_upper_limits, self._joint_vel_limits = (np.empty(self.nj) for _ in range(3))
+
         for bullet_joint_id in range(self.bullet_client.getNumJoints(self.robot_id)):
             joint_info = self.bullet_client.getJointInfo(self.robot_id, bullet_joint_id)
             joint_name = joint_info[1].decode("UTF-8")
-            link_name = joint_info[12].decode("UTF-8")
-            parent_id = joint_info[16]
+
             if joint_name in self.joint_names:
                 self.joint_aux_vars[joint_name].bullet_id = bullet_joint_id
             bullet_joint_map[joint_name] = bullet_joint_id  # End effector joints.
+
+            # Fill default joint pos vel limits
+            lower_limit, upper_limit = joint_info[8], joint_info[9]
+            tau_max, dq_max = joint_info[10], joint_info[11]
+            self._joint_lower_limits[bullet_joint_id] = lower_limit
+            self._joint_upper_limits[bullet_joint_id] = upper_limit
+            self._joint_vel_limits[bullet_joint_id] = dq_max
 
         # Disable the velocity control on the joints as we use torque control.
         self.bullet_client.setJointMotorControlArray(self.robot_id,
@@ -157,10 +170,11 @@ class PinBulletWrapper(ABC):
         # list. Therefore, the computation is done wrt to the frame of the fixed joint.
         self.bullet_endeff_ids = {name: bullet_joint_map[name] for name in self.endeff_names}
         self.bullet_ids_allowed_floor_contacts = [bullet_joint_map[name] for name in self.endeff_names]
+
         # Enforce similar actuator dynamics and ensure friction forces:
-        num_joints = self.bullet_client.getNumJoints(self.robot_id)
-        for i in range(num_joints):
-            joint_info = self.bullet_client.getJointInfo(self.robot_id, i)
+        joints_lower_limit, joints_upper_limit = self.joint_pos_limits
+        for joint_id in range(self.nj):
+            joint_info = self.bullet_client.getJointInfo(self.robot_id, joint_id)
             link_name = joint_info[12].decode("UTF-8")
             joint_name = joint_info[1].decode("UTF-8")
             parent_id = joint_info[16]
@@ -168,32 +182,29 @@ class PinBulletWrapper(ABC):
             joint_type = joint_info[2]
 
             if joint_type == self.bullet_client.JOINT_REVOLUTE:
-                qd_max = self.velocity_limits if isinstance(self.velocity_limits, float) else self.velocity_limits[i]
-                lower_limit, upper_limit = -pi, pi
-                self.bullet_client.changeDynamics(self.robot_id, i,
+                # Override URDF values if configured in robot specific child class
+                qd_max = self.velocity_limits[joint_id]
+                lower_limit, upper_limit = joints_lower_limit[joint_id], joints_upper_limit[joint_id]
+                self.bullet_client.changeDynamics(self.robot_id, joint_id,
                                                   linearDamping=0.04, angularDamping=0.04,
                                                   restitution=0.3, lateralFriction=0.5,
-                                                  jointLowerLimit=-pi/2, jointUpperLimit=pi/2,
+                                                  jointLowerLimit=lower_limit,
+                                                  jointUpperLimit=upper_limit,
                                                   maxJointVelocity=qd_max
                                                   )
             elif joint_type == self.bullet_client.JOINT_FIXED:  # Ensure end effectors have contact friction
-                self.bullet_client.changeDynamics(self.robot_id, i,
+                self.bullet_client.changeDynamics(self.robot_id, joint_id,
                                                   restitution=0.0,
-                                                  # rollingFriction=0.5,  # improve collision of round objects
-                                                  spinningFriction=self._feet_spinning_friction,  # improve collision of round objects
+                                                  spinningFriction=self._feet_spinning_friction,
+                                                  # improve collision of round objects
                                                   contactStiffness=30000,
                                                   contactDamping=1000,
                                                   lateralFriction=self._feet_lateral_friction)
             elif joint_type == self.bullet_client.JOINT_PRISMATIC:
-                self.bullet_client.changeDynamics(self.robot_id, i, linearDamping=0, angularDamping=0, )
+                self.bullet_client.changeDynamics(self.robot_id, joint_id, linearDamping=0, angularDamping=0, )
 
             log.debug("- id:{:<4} j_name: {:<10} l_name: {:<15} parent_id: {:<4} lim:[{:.1f},{:.1f}]".format(
-                i,
-                joint_name,
-                link_name,
-                parent_id,
-                np.rad2deg(lower_limit),
-                np.rad2deg(upper_limit)))
+                joint_id, joint_name, link_name, parent_id, np.rad2deg(lower_limit), np.rad2deg(upper_limit)))
 
         # Compute Observation and Action Space sizes
         n_obs = len(self.get_observation())
@@ -591,6 +602,9 @@ class PinBulletWrapper(ABC):
         Returns:
             maximum velocity per dof (nj,)
         """
+        if self._joint_vel_limits is None:
+            raise NotImplementedError()
+        return self._joint_vel_limits
 
     @property
     @abstractmethod
@@ -601,7 +615,9 @@ class PinBulletWrapper(ABC):
             - (nj,) lower_limits: Actuated joints lower positional limits
             - (nj,) upper_limits: Actuated joints upper positional limits
         """
-        raise NotImplementedError()
+        if self._joint_lower_limits == None or self._joint_upper_limits == None:
+            raise NotImplementedError()
+        return self._joint_lower_limits, self._joint_upper_limits
 
     @property
     @abstractmethod
@@ -633,15 +649,15 @@ class PinBulletWrapper(ABC):
 
     def mirror_joints_sagittal(self, q, dq) -> [Collection, Collection]:
         q_mirror, dq_mirror = np.array(q), np.array(dq)
-        q_mirror[7:7 + self.nj] = np.array(q[7:7 + self.nj])[(self.mirror_joint_idx)] * self.mirror_joint_signs
-        dq_mirror[6:6 + self.nj] = np.array(dq[6:6 + self.nj])[(self.mirror_joint_idx)] * self.mirror_joint_signs
+        q_mirror[7:] = np.array(q[7:])[np.asarray(self.mirror_joint_idx)] * self.mirror_joint_signs
+        dq_mirror[6:] = np.array(dq[6:])[np.asarray(self.mirror_joint_idx)] * self.mirror_joint_signs
         return q_mirror, dq_mirror
 
     def mirror_action(self, a) -> Collection:
-        return np.array(a)[[self.mirror_joint_idx]] * self.mirror_joint_signs
+        return np.array(a)[np.asarray(self.mirror_joint_idx)] * self.mirror_joint_signs
 
     def mirror_observation(self, a) -> Collection:
-        return np.array(a)[[self.mirror_obs_idx]] * self.mirror_obs_signs
+        return np.array(a)[np.asarray(self.mirror_obs_idx)] * self.mirror_obs_signs
 
     @property
     def mirror_endeff_idx(self) -> Collection:
@@ -686,7 +702,7 @@ class PinBulletWrapper(ABC):
         return self._mirror_obs_signs
 
     @property
-    def mirror_joint_idx(self) -> List:
+    def mirror_joint_idx(self) -> Tuple:
         """
         Provides the permutation indices for obtaining the joints sagittal plane mirror equivalents in the order of
         `joint_names`
@@ -699,7 +715,7 @@ class PinBulletWrapper(ABC):
             assert len(np.unique(self._mirror_joint_idx)) == len(self._mirror_joint_idx), \
                 "Appears to be missing indices: %s" % self._mirror_joint_idx
 
-        return self._mirror_joint_idx
+        return tuple(self._mirror_joint_idx)
 
     @property
     def bullet_client(self):

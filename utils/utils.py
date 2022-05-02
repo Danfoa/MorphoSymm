@@ -13,6 +13,12 @@ from pybullet_utils import bullet_client
 def test_model_equivariance():
     pass
 
+def pprint_dict(d : dict):
+    str = []
+    d_sorted = dict(sorted(d.items()))
+    for k, v in d_sorted.items():
+        str.append(f"{k}={v}")
+    return "-".join(str)
 
 def configure_bullet_simulation(gui=True):
     BACKGROUND_COLOR = '--background_color_red=%.2f --background_color_green=%.2f --background_color_blue=%.2f' % \

@@ -4,41 +4,84 @@
 # @Author  : Daniel Ordonez 
 # @email   : daniels.ordonez@gmail.com
 # Some code was adapted from https://github.com/ElisevanderPol/symmetrizer/blob/master/symmetrizer/nn/modules.py
-import functools
 import itertools
+import logging
 import math
-import os
 import pathlib
-import warnings
+from typing import Union
 
-import jax
-import jax.numpy as jnp
 import numpy as np
 import torch
 import torch.nn.functional as F
-from jax import jit
 from emlp import Group
 from emlp.nn.pytorch import torchify_fn
 from emlp.reps.representation import Rep, Vector
-from emlp.reps.linear_operators import densify
-import pickle5 as pickle
-from pickle5 import PickleError
+from jax import jit
+from torch.nn import Conv1d
+from torch.nn.modules.utils import _single
 
 from groups.SemiDirectProduct import SemiDirectProduct
-import logging
-
 from utils.emlp_cache import EMLPCache
 from utils.utils import slugify
-import itertools
 
 log = logging.getLogger(__name__)
+
+
+class BasisConv1d(Conv1d):
+    from torch.nn.common_types import _size_1_t
+
+    def __init__(self, rep_in: Rep, rep_out: Rep, kernel_size: _size_1_t, stride: _size_1_t = 1,
+                 padding: Union[str, _size_1_t] = 0, dilation: _size_1_t = 1, groups: int = 1, bias: bool = True,
+                 padding_mode: str = 'zeros', device=None, dtype=None,) -> None:
+
+        # Original Implementation ________________________________________________________________________
+        kernel_size_ = _single(kernel_size)
+        stride_ = _single(stride)
+        padding_ = padding if isinstance(padding, str) else _single(padding)
+        dilation_ = _single(dilation)
+        super(Conv1d, self).__init__(rep_in.G.d, rep_out.G.d, kernel_size_, stride_, padding_, dilation_,
+            False, _single(0), groups, bias, padding_mode, **{'device': device, 'dtype': dtype})
+
+        # Custom implementation ________________________________________________________________________
+        self.G = SemiDirectProduct(Gin=rep_in.G, Gout=rep_out.G)
+        self.repW = Vector(self.G)
+        self.rep_in = rep_in
+        self.rep_out = rep_out
+
+        # Compute the nullspace
+        basis = torch.tensor(np.asarray(self.repW.equivariant_basis()))
+        self.basis = torch.nn.Parameter(basis, requires_grad=False)
+        # Create the network parameters. Coefficients for each base, and kernel dim
+        self.basis_coeff = torch.nn.Parameter(torch.rand(self.basis.shape[1], kernel_size))
+        self._weight = self.weight
+        if bias:
+            self.bias_basis = torch.nn.Parameter(torch.tensor(np.asarray(rep_out.equivariant_basis())),
+                                                 requires_grad=False)
+            self.bias_basis_coeff = torch.nn.Parameter(torch.randn((self.bias_basis.shape[-1])))
+            self._bias = self.bias
+        else:
+            self.bias_basis, self.bias_basis_coeff = None, None
+        # Check Equivariance.
+        EMLP.test_module_equivariance(module=self, rep_in=self.rep_in, rep_out=self.rep_out)
+
+    @property
+    def weight(self):
+        self._weight = torch.matmul(self.basis, self.basis_coeff).reshape((self.rep_out.G.d, self.rep_in.G.d, self.kernel_size[0]))
+        return self._weight
+
+    @property
+    def bias(self):
+        if self.bias_basis is not None:
+            self._bias = torch.sum(self.bias_basis * self.bias_basis_coeff, dim=-1).reshape((self.rep_out.G.d,))
+            return self._bias
+        return None
 
 
 class BasisLinear(torch.nn.Module):
     """
     Group-equivariant linear layer
     """
-    def __init__(self, rep_in: Rep, rep_out: Rep, with_bias=True, cache_dir=None):
+    def __init__(self, rep_in: Rep, rep_out: Rep, bias=True):
         super().__init__()
 
         # TODO: Add parameter for direct/whreat product
@@ -46,9 +89,6 @@ class BasisLinear(torch.nn.Module):
         self.repW = Vector(self.G)
         self.rep_in = rep_in
         self.rep_out = rep_out
-        self.with_bias = with_bias
-
-        self.cache_dir = cache_dir
 
         # Compute the nullspace
         self.basis = torch.nn.Parameter(torch.tensor(np.asarray(self.repW.equivariant_basis())), requires_grad=False)
@@ -56,14 +96,16 @@ class BasisLinear(torch.nn.Module):
         self.basis_coeff = torch.nn.Parameter(torch.randn((self.basis.shape[-1])))
         self._weight = self.weight
 
-        if self.with_bias:
-            self._bias = self.bias
-            self.bias_basis = torch.nn.Parameter(torch.tensor(np.asarray(rep_out.equivariant_basis()))
-                                                 , requires_grad=False)
+        if bias:
+            self.bias_basis = torch.nn.Parameter(torch.tensor(np.asarray(rep_out.equivariant_basis())),
+                                                 requires_grad=False)
             self.bias_basis_coeff = torch.nn.Parameter(torch.randn((self.bias_basis.shape[-1])))
+            self._bias = self.bias
 
         # TODO: Check if necessary
         self.proj_b = torchify_fn(jit(lambda b: self.P_bias @ b))
+        # Initialize parameters
+        self.init_std = None
         self.reset_parameters()
         EMLP.test_module_equivariance(module=self, rep_in=self.rep_in, rep_out=self.rep_out)
         log.info(str(self))
@@ -76,12 +118,12 @@ class BasisLinear(torch.nn.Module):
 
     @property
     def weight(self):
-        self._weight = torch.sum(self.basis * self.basis_coeff, dim=-1).reshape((self.rep_out.G.d, self.rep_in.G.d))
+        self._weight = torch.matmul(self.basis, self.basis_coeff).reshape((self.rep_out.G.d, self.rep_in.G.d))
         return self._weight
 
     @property
     def bias(self):
-        if self.with_bias:
+        if self.bias_basis is not None:
             self._bias = torch.sum(self.bias_basis * self.bias_basis_coeff, dim=-1).reshape((self.rep_out.G.d,))
             return self._bias
         return None
@@ -109,14 +151,17 @@ class BasisLinear(torch.nn.Module):
         else:
             raise NotImplementedError(f"{mode} is not a recognized mode for Kaiming initialization")
 
-        std = gain * math.sqrt(basis_coeff_variance)
-        bound = math.sqrt(3.0) * std
+        self.init_std = gain * math.sqrt(basis_coeff_variance)
+        bound = math.sqrt(3.0) * self.init_std
 
+        prev_basis_coeff = torch.clone(self.basis_coeff)
         torch.nn.init.uniform_(self.basis_coeff, -bound, bound)
+        assert not torch.allclose(prev_basis_coeff, self.basis_coeff), "Ups, smth is wrong."
 
     def __repr__(self):
         string = f"G[{self.G}]-W{self.rep_out.size() * self.rep_in.size()}-" \
-                 f"Wtrain:{self.basis.shape[-1]}={self.basis_coeff.shape[0] / np.prod(self.repW.size()) * 100:.1f}%"
+                 f"Wtrain:{self.basis.shape[-1]}={self.basis_coeff.shape[0] / np.prod(self.repW.size()) * 100:.1f}%" \
+                 f"-init_std:{self.init_std:.3f}"
         return string
 
 
@@ -167,7 +212,11 @@ class EMLP(torch.nn.Module):
         self.init_mode = init_mode
 
         # Cache dir
+        log.warning(f"Cache Dir {cache_dir}")
         self.cache_dir = cache_dir if cache_dir is None else pathlib.Path(cache_dir).resolve(strict=True)
+        if self.cache_dir is None:
+            log.warning("No cache directory provided. Nothing will be saved")
+
         self.load_cache_file()
 
         # Parse channels as a single int, a sequence of ints, a single Rep, a sequence of Reps
@@ -182,7 +231,7 @@ class EMLP(torch.nn.Module):
             layers.append(layer)
             rep_inter_in = rep_inter_out
         # Add last layer
-        linear_out = BasisLinear(rep_in=rep_inter_in, rep_out=rep_out, with_bias=with_bias)
+        linear_out = BasisLinear(rep_in=rep_inter_in, rep_out=rep_out, bias=with_bias)
         layers.append(linear_out)
 
         self.net = torch.nn.Sequential(*layers)
@@ -195,18 +244,37 @@ class EMLP(torch.nn.Module):
 
     @staticmethod
     def test_module_equivariance(module: torch.nn.Module, rep_in, rep_out):
-        x = torch.randn((rep_in.G.d,))
-        for g_in, g_out in zip(rep_in.G.discrete_generators, rep_out.G.discrete_generators):
-            g_in = torch.tensor(np.asarray(g_in), dtype=torch.float32)
-            g_out = torch.tensor(np.asarray(g_out), dtype=torch.float32)
-            # y  f(x)  --   g·y = f(g·x)
-            y = module.forward(x)
-            x_ = g_in @ x
-            g_y_pred = module.forward(g_in @ x)
-            g_y_true = g_out @ y
-            if not torch.allclose(g_y_true, g_y_pred, atol=1e-4, rtol=1e-4):
-                error = g_y_true - g_y_pred
-                raise RuntimeError(f"{module} is not equivariant to in/out group generators f(g·x) - g·y:{error}")
+
+        if isinstance(module, BasisConv1d):
+            B = 5   # Batch
+            L = 15  # Window size
+            x = torch.randn((B, rep_in.G.d, L))
+            for g_in, g_out in zip(rep_in.G.discrete_generators, rep_out.G.discrete_generators):
+                g_in = torch.tensor(np.asarray(g_in), dtype=torch.float32).unsqueeze(0)
+                g_out = torch.tensor(np.asarray(g_out), dtype=torch.float32).unsqueeze(0)
+                # y  f(x)  --   g·y = f(g·x)
+                y = module.forward(x)
+                g_y_pred = module.forward(g_in @ x)
+                g_y_true = g_out @ y
+                if not torch.allclose(g_y_true, g_y_pred, atol=1e-4, rtol=1e-4):
+                    error = g_y_true - g_y_pred
+                    raise RuntimeError(f"{module} is not equivariant to in/out group generators f(g·x) - g·y:{error}")
+
+        elif isinstance(module, (EquivariantBlock, BasisLinear)):
+            x = torch.randn((rep_in.G.d,))
+            for g_in, g_out in zip(rep_in.G.discrete_generators, rep_out.G.discrete_generators):
+                g_in = torch.tensor(np.asarray(g_in), dtype=torch.float32)
+                g_out = torch.tensor(np.asarray(g_out), dtype=torch.float32)
+                # y  f(x)  --   g·y = f(g·x)
+                y = module.forward(x)
+                g_y_pred = module.forward(g_in @ x)
+                g_y_true = g_out @ y
+                if not torch.allclose(g_y_true, g_y_pred, atol=1e-4, rtol=1e-4):
+                    error = g_y_true - g_y_pred
+                    raise RuntimeError(f"{module} is not equivariant to in/out group generators f(g·x) - g·y:{error}")
+
+        else:
+            raise NotImplementedError(module)
 
     @property
     def _cache_file_name(self) -> str:
@@ -216,6 +284,7 @@ class EMLP(torch.nn.Module):
 
     def load_cache_file(self):
         if self.cache_dir is None:
+            log.info("Cache Loading Failed: No cache directory provided")
             return
         model_cache_file = self.cache_dir.joinpath(self._cache_file_name)
 
@@ -244,7 +313,7 @@ class EMLP(torch.nn.Module):
 
     def save_cache_file(self):
         if self.cache_dir is None:
-            warnings.warn("No cache directory provided. Nothing will be saved")
+            log.info("Cache Saving Failed: No cache directory provided")
             return
 
         model_cache_file = self.cache_dir.joinpath(self._cache_file_name)
@@ -271,7 +340,7 @@ class EMLP(torch.nn.Module):
 
     def reset_parameters(self, init_mode=None):
         assert init_mode is not None or self.init_mode is not None
-        self.init_mode = self.init_mode if init_mode is None else init_mode
+        self.init_mode = init_mode if init_mode is not None else self.init_mode
         for module in self.net:
             if isinstance(module, EquivariantBlock):
                 module.linear.reset_parameters(mode=self.init_mode, activation=module.activation.__class__.__name__.lower())

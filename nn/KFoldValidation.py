@@ -14,6 +14,7 @@
 import copy
 import functools
 import os.path as osp
+import pathlib
 from abc import ABC, abstractmethod
 from copy import deepcopy
 from dataclasses import dataclass
@@ -77,26 +78,23 @@ class KFoldDataModule(BaseKFoldDataModule):
      Our `setup_fold_index`, the provided train dataset will be split accordingly to
      the current fold split.
     """
-    dataset: Optional[Dataset] = None
     train_dataset: Optional[Dataset] = None
     test_dataset: Optional[Dataset] = None
     train_fold: Optional[Dataset] = None
     val_fold: Optional[Dataset] = None
 
-    def __init__(self, dataset: Dataset, test_samples, num_folds=5, batch_size=256):
+    def __init__(self, train_dataset: Dataset, test_dataset: Dataset, num_folds=5, batch_size=256):
         super().__init__()
-        self.dataset = dataset
-        self.test_samples = test_samples
+        self.train_dataset = train_dataset
+        self.test_dataset = test_dataset
         self.num_folds = num_folds
         self.batch_size = batch_size
         # self.setup()
 
     def prepare_data(self) -> None:
-        assert self.dataset is not None
+        assert self.train_dataset is not None
 
     def setup(self, stage: Optional[str] = None) -> None:
-        self.train_dataset, self.test_dataset = random_split(self.dataset,
-                                                             [len(self.dataset) - self.test_samples, self.test_samples])
         self.setup_folds(self.num_folds)
         self.setup_fold_index(0)
         log.info(str(self))
@@ -113,14 +111,28 @@ class KFoldDataModule(BaseKFoldDataModule):
         log.info(f"{self.__class__.__name__}: Switching to fold {fold_index}, n_train:{len(self.train_fold)}, "
                  f"n_val:{len(self.val_fold)}")
 
+    def on_before_batch_transfer(self, batch: Any, dataloader_idx: int) -> Any:
+        a = self.trainer.training
+        b = self.trainer.testing
+        c = self.trainer.validating
+        d = self.trainer.predicting
+        return batch
+
     def train_dataloader(self) -> DataLoader:
-        return DataLoader(self.train_fold, batch_size=self.batch_size)
+        return DataLoader(self.train_fold, batch_size=self.batch_size, num_workers=4,
+                          collate_fn=lambda x: self.train_dataset.collate_fn(x))
 
     def val_dataloader(self) -> DataLoader:
-        return DataLoader(self.val_fold, batch_size=self.batch_size)
+        return DataLoader(self.val_fold, batch_size=self.batch_size, num_workers=4,
+                          collate_fn=lambda x: self.train_dataset.collate_fn(x))
 
     def test_dataloader(self) -> DataLoader:
-        return DataLoader(self.test_dataset, batch_size=self.batch_size)
+        return DataLoader(self.test_dataset, batch_size=self.batch_size, num_workers=4,
+                          collate_fn=lambda x: self.test_dataset.collate_fn(x))
+
+    def predict_dataloader(self) -> DataLoader:
+        return DataLoader(self.test_dataset, batch_size=self.batch_size, num_workers=4,
+                          collate_fn=lambda x: self.test_dataset.collate_fn(x))
 
     def __repr__(self):
         return str(self)
@@ -181,11 +193,10 @@ class KFoldDataModule(BaseKFoldDataModule):
 class KFoldValidation:
     def __init__(self, model: pl.LightningModule,
                  trainer_kwargs: dict, kfold_data_module: BaseKFoldDataModule,
-                 num_folds: int, export_path: str, reinitialize=False, run_name=None) -> None:
+                 num_folds: int, reinitialize=False, run_name=None) -> None:
         super().__init__()
         self.num_folds = num_folds
         self.current_fold: int = 0
-        self.export_path = export_path
         self.pl_model = model
         self.trainer_kwargs = trainer_kwargs
         self.kfold_datamodule = kfold_data_module
@@ -236,57 +247,69 @@ class KFoldValidation:
     def advance(self, *args: Any, **kwargs: Any) -> None:
         """Used to the run a fitting and testing on the current hold."""
         # TODO: Almost impossible to reset trainer without reading 900 pages of documentation.
-        tb_logger = TensorBoardLogger(save_dir=".", name=f'{self.run_name}', version=self.current_fold)
-        ckpt_callback = ModelCheckpoint(monitor="hp/val_loss", mode='min', dirpath=f'{self.run_name}', 
-                                        filename=f"best_model_of_fold_{self.current_fold}", save_weights_only=True)
-        early_stop_callback = EarlyStopping(monitor="hp/val_loss",
-                                            patience=int(self.trainer_kwargs['max_epochs'] * 0.2), mode='min')
+        tb_logger = TensorBoardLogger(save_dir=".", name=f'{self.run_name}', version=f"fold_{self.current_fold}")
+        ckpt_call = ModelCheckpoint(monitor="hp/val_loss", mode='min', dirpath=tb_logger.log_dir,
+                                    filename="best", save_last=True, save_weights_only=False)
+        early_stop_call = EarlyStopping(monitor="hp/val_loss",
+                                        patience=int(self.trainer_kwargs['max_epochs'] * 0.2), mode='min')
         self.trainer_kwargs["logger"] = tb_logger
-        self.trainer_kwargs["callbacks"] = [ckpt_callback, early_stop_callback]
+        self.trainer_kwargs["callbacks"] = [ckpt_call, early_stop_call]
         self.trainer_kwargs["deterministic"] = True
         self.trainer_kwargs['enable_progress_bar'] = False
         # self.trainer_kwargs['enable_model_summary'] = False
 
         self.trainer = Trainer(**self.trainer_kwargs)
 
-        self.trainer.fit(model=self.pl_model, datamodule=self.kfold_datamodule)
-        # Store the logged metrics
-        self.metrics[self.current_fold].update({'train': self.trainer.logged_metrics})
+        # Resume training if possible.
+        ckpt_path = pathlib.Path(ckpt_call.dirpath).joinpath(ckpt_call.CHECKPOINT_NAME_LAST + ckpt_call.FILE_EXTENSION)
+        best_path = pathlib.Path(ckpt_call.dirpath).joinpath(ckpt_call.filename + ckpt_call.FILE_EXTENSION)
 
-        # Load the best val-detected parameters of fold training. Use these for validation and testing.
-        self.pl_model.load_state_dict(torch.load(ckpt_callback.best_model_path)["state_dict"])
-        # Store the logged metrics
+        if not ckpt_path.exists() and best_path.exists():  # Run was already finished, load best fold model and make predictions.
+            log.info(f"Resuming training from {best_path}")
+            self.pl_model.load_state_dict(torch.load(best_path)["state_dict"])
+            self.trainer.validate(model=self.pl_model, dataloaders=self.kfold_datamodule.train_dataloader())
+            self.metrics[self.current_fold].update({'train': self.trainer.logged_metrics})
+        else:  # Run was stopped during previous run.
+            self.trainer.fit(model=self.pl_model, datamodule=self.kfold_datamodule,
+                             ckpt_path=best_path if best_path.exists() else None)
+            # Store the logged metrics
+            self.metrics[self.current_fold].update({'train': self.trainer.logged_metrics})
+            # Load the best val-detected parameters of fold training. Use these for validation and testing.
+            self.pl_model.load_state_dict(torch.load(ckpt_call.best_model_path)["state_dict"])
+
+        # Test best model during fold training on validation set
         self.trainer.validate(model=self.pl_model, datamodule=self.kfold_datamodule)
         self.metrics[self.current_fold].update({'val': self.trainer.logged_metrics})
 
 
     def on_fold_end(self) -> None:
         """Used to save the weights of the current fold and reset the LightningModule and its optimizers."""
+        torch.set_grad_enabled(False)
+
         reduce_test_metrics = False
         if reduce_test_metrics:
             self.trainer.predict(model=self.pl_model, dataloaders=self.kfold_datamodule.test_dataloader(),)
             self.metrics[self.current_fold].update({'test': self.trainer.logged_metrics})
         else:
-            torch.set_grad_enabled(False)
             metrics = {}
+            self.trainer.testing = True # Trick trainer into thinking its calling predict loop.
             for x, y in self.kfold_datamodule.test_dataloader():
                 y_pred = self.pl_model(x)
                 losses = torch.linalg.norm(y_pred - y, dim=-1)
                 metrics['test_loss'] = losses if metrics.get('test_loss') is None else torch.hstack((losses,
                                                                                                      metrics['test_loss']))
-                dat_metrics = self.kfold_datamodule.dataset.compute_metrics(y, y_pred)
+                dat_metrics = self.pl_model.compute_metrics(y, y_pred)
                 for k, v in dat_metrics.items():
                     metrics[f"test_{k}"] = v if metrics.get(f"test_{k}") is None else torch.hstack((metrics[f"test_{k}"],
                                                                                                     dat_metrics[k]))
-
+            self.trainer.testing = False
         self.metrics[self.current_fold]['test'] = metrics
 
-        self.trainer.save_checkpoint(osp.join(self.export_path, f"model.{self.current_fold}.pt"))
         torch.set_grad_enabled(True)
 
         # restore the original weights + optimizers and schedulers.
         self.pl_model.load_state_dict(self.lightning_module_state_dict)
-        if self.reinitialize: # TODO: Avoid assuming custom LightningModel
+        if self.reinitialize:  # TODO: Avoid assuming custom LightningModel
             self.pl_model.model.reset_parameters()
 
     def on_run_end(self) -> dict:

@@ -121,15 +121,19 @@ class COMMomentum(Dataset):
         return X_mean, X_std, Y_mean, Y_std
 
     def test_equivariance(self):
-        trials = 5
+        trials = 10
         for trial in range(trials):
             q, dq = self.robot.get_init_config(random=True)
-            q[:10] = 0.0
-            dq[:9] = 0.0
-            # Block arms
-            # q[10:25], dq[10:25] = 0.0, 0.0
-            # Block arms
-            q[25:], dq[25:] = 0.0, 0.0
+            # q[:10] = 0.0
+            # dq[:9] = 0.0
+            # # Block arms
+            # n_b = 1
+            # q[(10):(10+n_b)] = 0.0  # left
+            # q[(18):(18+n_b)] = 0.0  # right
+            # dq[(10):(10 + n_b)] = 0.0  # left
+            # dq[(18):(18 + n_b)] = 0.0  # right
+            # # Block arms
+            # q[25:], dq[25:] = 0.0, 0.0
 
             # q[19:26], dq[19:26] = 0.0, 0.0
             x = np.concatenate((q[7:], dq[6:]))
@@ -150,31 +154,33 @@ class COMMomentum(Dataset):
                 gy_true = self.get_hg(*np.split(gx, 2))
                 assert gy_true.dtype == y.dtype, (gy_true.dtype, y.dtype)
                 error = gy_true - gy
-                if not np.allclose(error, 0.0, rtol=1e-3, atol=1e-3):
+                rel_error_norm = np.linalg.norm(error) / np.linalg.norm(gy_true)
+                cos_sim = np.dot(gy, gy_true)/(np.linalg.norm(gy_true)*np.linalg.norm(gy))
+                if rel_error_norm > 0.05 and cos_sim <= 0.95:
                     try:
                         self.gui_debug(*np.split(x, 2), *np.split(gx, 2), hg1=y, hg2=gy_true, ghg2=gy)
                     except Exception as e:
                         logging.warning(f"Unable to start GUI of pybullet: {str(e)}")
                     raise AttributeError(f"Ground truth hg(q,dq) = Ag(q)dq is not equivariant to provided groups: \n" +
                                          f"x:{x}\ng*x:{gx}\ny:{y} \ng*y:{gy}\n" +
-                                         f"Aq(g*q)g*dq:{gy_true}\nError:{error}")
+                                         f"Aq(g*q,g*dq):{gy_true}\nError:{error}")
         return None
 
-    def compute_metrics(self, y, y_pred) -> dict:
+    @staticmethod
+    def compute_metrics(y, y_pred, standarizer) -> dict:
         with torch.no_grad():
             metrics = {}
 
-            y_dn = self.standarizer.unstandarize(yn=y.cpu())
-            y_pred_dn = self.standarizer.unstandarize(yn=y_pred.cpu())
+            y_dn = standarizer.unstandarize(yn=y.cpu())
+            y_pred_dn = standarizer.unstandarize(yn=y_pred.cpu())
 
             lin, lin_pred = y_dn[:, :3], y_pred_dn[:, :3]
             metrics["lin_cos_sim"] = F.cosine_similarity(lin, lin_pred, dim=-1)
             metrics["lin_err"] = torch.linalg.norm(lin - lin_pred, dim=-1)
 
-            if self.angular_momentum:
-                ang, ang_pred = y_dn[:, 3:], y_pred_dn[:, 3:]
-                metrics["ang_cos_sim"] = F.cosine_similarity(ang, ang_pred, dim=-1)
-                metrics["ang_err"] = torch.linalg.norm(ang - ang_pred, dim=-1)
+            ang, ang_pred = y_dn[:, 3:], y_pred_dn[:, 3:]
+            metrics["ang_cos_sim"] = F.cosine_similarity(ang, ang_pred, dim=-1)
+            metrics["ang_err"] = torch.linalg.norm(ang - ang_pred, dim=-1)
         return metrics
 
     def __len__(self):
@@ -280,5 +286,10 @@ class COMMomentum(Dataset):
         draw_momentum_vector(base_q2[:3], hg2[:3], v_color=(0, 0, 0), scale=1/np.linalg.norm(hg2[:3]), text=f"hg(g*q, g*dq)={hg2}")
         draw_momentum_vector(base_q2[:3], ghg2[:3], v_color=(0.125, 0.709, 0.811), scale=1/np.linalg.norm(ghg2[:3]),
                              text=f"g*hg(q, dq)={ghg2}", show_axes=False, offset=0.2)
+        draw_momentum_vector(base_q2[:3], hg2[3:], v_color=(0, .5, .5), show_axes=False,
+                             scale=1 / np.linalg.norm(hg2[3:]))
+        draw_momentum_vector(base_q2[:3], ghg2[3:], v_color=(0.125, 0.709, 0.811), scale=1 / np.linalg.norm(ghg2[3:]),
+                             show_axes=False, offset=0.2)
+
         print("a")
 
