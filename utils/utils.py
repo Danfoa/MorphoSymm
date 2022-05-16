@@ -5,20 +5,25 @@
 # @email   : daniels.ordonez@gmail.com
 import numpy as np
 import pybullet_data
+import scipy.sparse
 import torch
 from pybullet import GUI, DIRECT, COV_ENABLE_GUI, COV_ENABLE_SEGMENTATION_MARK_PREVIEW, COV_ENABLE_DEPTH_BUFFER_PREVIEW, \
     COV_ENABLE_MOUSE_PICKING
 from pybullet_utils import bullet_client
 
-def test_model_equivariance():
-    pass
 
-def pprint_dict(d : dict):
+def coo2torch_coo(M: scipy.sparse.coo_matrix):
+    idx = np.vstack((M.row, M.col))
+    return torch.sparse_coo_tensor(idx, M.data, size=M.shape, dtype=torch.float32)
+
+
+def pprint_dict(d: dict):
     str = []
     d_sorted = dict(sorted(d.items()))
     for k, v in d_sorted.items():
         str.append(f"{k}={v}")
     return "-".join(str)
+
 
 def configure_bullet_simulation(gui=True):
     BACKGROUND_COLOR = '--background_color_red=%.2f --background_color_green=%.2f --background_color_blue=%.2f' % \
@@ -40,6 +45,7 @@ def configure_bullet_simulation(gui=True):
     # floor_id = pb.loadURDF("plane.urdf", basePosition=[0, 0, 0.0], useFixedBase=1)
     return pb
 
+
 def symbolic_matrix(base_name, rows, cols):
     from sympy import Symbol
 
@@ -54,7 +60,6 @@ def symbolic_matrix(base_name, rows, cols):
 
 def permutation_matrix(oneline_notation):
     d = len(oneline_notation)
-    P = np.zeros((d, d))
     assert d == len(np.unique(oneline_notation)), np.unique(oneline_notation, return_counts=True)
     P[range(d), np.abs(oneline_notation)] = 1
     return P
@@ -81,6 +86,8 @@ def append_dictionaries(dict1, dict2, recursive=True):
 
 import unicodedata
 import re
+
+
 def slugify(value, allow_unicode=False):
     """
     Taken from https://github.com/django/django/blob/master/django/utils/text.py
@@ -97,8 +104,14 @@ def slugify(value, allow_unicode=False):
     value = re.sub(r'[^\w\s-]', '', value.lower())
     return re.sub(r'[-\s]+', '-', value).strip('-_')
 
-if __name__ == "__main__":
 
+if __name__ == "__main__":
     a = (2, 3, 0, 1)
     P = permutation_matrix(a)
     assert is_canonical_permutation(P)
+
+
+def reflex_matrix(plane_norm_vector):
+    aa = np.expand_dims(plane_norm_vector, -1) if plane_norm_vector.shape == (3,) else plane_norm_vector
+    d = aa.shape[0]
+    return np.eye(d) - 2 * ((aa @ aa.T)/(aa.T @ aa))

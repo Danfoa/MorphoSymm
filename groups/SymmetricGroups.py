@@ -5,6 +5,11 @@
 # @email   : daniels.ordonez@gmail.com
 from typing import Optional, Sequence
 
+import jax
+import scipy.sparse
+from scipy import sparse
+from scipy.sparse import issparse
+from tqdm import tqdm
 import numpy as np
 import jax.numpy as jnp
 
@@ -24,12 +29,25 @@ class Sym(Group):
 
         self.is_orthogonal = True
         self.is_permutation = True
+        self.is_sparse = False
+
+        self.discrete_generators = []
+        # Ensure its orthogonal matrix
         for i, h in enumerate(generators):
-            # Ensure its orthogonal matrix
-            assert np.allclose(np.linalg.norm(h, axis=0), 1), f"Generator {i} is not orthogonal: \n{h} "
-            if np.any(h < 0): self.is_permutation = False
-        # TODO: Make everything Sparse and Lazy. Avoid memory and runtime excess
-        self.discrete_generators = np.array(generators).astype(np.int)
+            if issparse(h):
+                assert np.allclose(sparse.linalg.norm(h, axis=0), 1), f"Generator {i} is not orthogonal: \n{h}"
+                if h.min() < 0: self.is_permutation = False
+                self.is_sparse = True
+            else:
+                assert np.allclose(np.linalg.norm(h, axis=0), 1), f"Generator {i} is not orthogonal: \n{h}"
+                if np.any(h < 0): self.is_permutation = False
+
+            self.discrete_generators.append(h)
+
+        if not self.is_sparse:
+            self.discrete_generators = jnp.asarray(self.discrete_generators)
+
+        self.lie_algebra = []  # Avoid memory allocation.
         super().__init__()
 
     @property
@@ -50,12 +68,20 @@ class Sym(Group):
 
     @staticmethod
     def oneline2matrix(oneline_notation, reflexions: Optional[Sequence] = None):
+
         d = len(oneline_notation)
-        P = np.zeros((d, d))
+        # P = np.zeros((d, d)).astype(np.int8)
         assert d == len(np.unique(oneline_notation)), np.unique(oneline_notation, return_counts=True)
-        reflexions = 1 if not reflexions else reflexions
-        P[range(d), np.abs(oneline_notation)] = 1 * np.array(reflexions)
-        return P
+
+        reflexions = np.ones((d,), dtype=np.int8) if not reflexions else reflexions
+        assert len(reflexions) == d, f"{len(reflexions)} != {d}"
+
+        rows, cols = range(d), np.abs(oneline_notation)
+        P = scipy.sparse.coo_matrix((reflexions, (rows, cols)), shape=(d, d))
+        # P2 = np.zeros((d, d))
+        # P2[range(d), np.abs(oneline_notation)] = 1 * np.array(reflexions).astype(np.int8)
+        # assert np.allclose(P.todense(), P2)
+        return P.astype(np.int8)
 
     @property
     def np_gens(self):
@@ -72,12 +98,16 @@ class C2(Sym):
         assert len(self.discrete_generators) == 1, "C2 must contain only one generator (without counting the identity)"
 
         h = self.discrete_generators[0]
-        assert not np.allclose(h, np.eye(self.d)), "Generator must not be the identity"
-        assert np.allclose(h @ h, np.eye(self.d)), "Generator is not cyclic"
+
+        is_eye = np.isclose(sum(h.diagonal()), self.d) if self.is_sparse else jnp.isclose(jnp.trace(h), self.d)
+        is_cyclic = np.isclose(sum((h @ h).diagonal()), self.d) if self.is_sparse else jnp.isclose(jnp.trace(h @ h), self.d)
+        assert not is_eye, f"Generator must not be the identity: \n {h}"
+        assert is_cyclic, f"Generator is not cyclic h @ h != I"
+
 
     @property
     def discrete_actions(self) -> list:
-        return [jnp.eye(self.d, dtype=jnp.int32), self.discrete_generators[0]]
+        return [jnp.eye(self.d, dtype=self.discrete_generators.dtype), self.discrete_generators[0]]
 
     def __repr__(self):
         return f"C2[d:{self.d}]"
@@ -93,6 +123,43 @@ class C2(Sym):
         G = C2(generator=H)
         return G
 
+    @staticmethod
+    def get_equivariant_basis(P):
+        """
+        Custom code to obtain the equivariant basis, without the need to do eigendecomposition. Allowing to compute the
+        basis of very large matrix without running into memory or complexity issues
+        :param P: (n,n) Generalized Permutation matrix with +-1 entries
+        :return: Q: (n, b) `b` Eigenvectors of the fix-point equation
+        """
+        dtype = P.dtype
+        # Modified code from: shorturl.at/kuvBD
+        n = len(P)
+        # compute the cyclic decomposition. a.k.a orbit for each dimension of the vec space acted by the gen permutation
+        w = np.abs(P) @ np.arange(n).astype(np.int32)
+        pendind_dims = set(range(n))
+        cycles = []
+
+        pbar = tqdm(total=n, disable=False,  dynamic_ncols=True, maxinterval=20, position=0, leave=True)
+        while pendind_dims:
+            a = pendind_dims.pop()  # Get the initial point of an orbit.
+            pbar.update(1)
+            # pendind_dims.remove(a)
+            cycles.append([a])
+            while w[a] in pendind_dims:
+                a = w[a]
+                cycles[-1].append(a)
+                pendind_dims.remove(a)
+                pbar.update(1)
+        pbar.close()
+
+        # obtain the eigenvectors
+        Q = np.zeros((n, 0)).astype(dtype)
+        for i, cyc in enumerate(cycles):
+            p = np.sum(P[cyc, :], axis=1)
+            if np.prod(p) == 1:
+                Q = np.hstack((Q, np.zeros((n, 1), dtype=dtype)))
+                Q[cyc, -1] = [np.prod(p[i:-1]) for i in range(len(p))]
+        return Q
 
 class Klein4(Sym):
 
@@ -109,8 +176,8 @@ class Klein4(Sym):
         # assert not np.allclose(a, np.eye(self.d)) and not np.allclose(b, np.eye(self.d)), f"Provide only two non-trivial generators"
         assert np.allclose(a @ a, np.eye(self.d)), f"Generator is not cyclic:\n{a @ a}"
         assert np.allclose(b @ b, np.eye(self.d)), f"Generator is not cyclic:\n{b @ b}"
-        assert np.allclose((a@b) @ (a@b), np.eye(self.d)), f"Generators composition a·b is not cyclic:\n{a@b}"
-        assert not np.allclose(a@b, np.eye(self.d)), f"Third action must be non-trivial: a·b != e"
+        assert np.allclose((a @ b) @ (a @ b), np.eye(self.d)), f"Generators composition a·b is not cyclic:\n{a @ b}"
+        assert not np.allclose(a @ b, np.eye(self.d)), f"Third action must be non-trivial: a·b != e"
 
     @property
     def discrete_actions(self) -> list:

@@ -16,7 +16,7 @@ from torch.utils.data import DataLoader, random_split
 from emlp.reps import Vector
 from hydra.utils import get_original_cwd
 
-from omegaconf import DictConfig
+from omegaconf import DictConfig, OmegaConf
 from pytorch_lightning import Trainer, seed_everything
 from pytorch_lightning import loggers as pl_loggers
 from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint
@@ -72,6 +72,7 @@ def objective(trial: optuna.trial.Trial, cfg: DictConfig, network, dataset, trai
     ckpt_call = ModelCheckpoint(dirpath=tb_logger.log_dir, filename='best', monitor="hp/val_loss", save_last=True)
     stop_call = EarlyStopping(monitor="hp/val_loss", patience=100, mode='min')
     trainer_kwargs["callbacks"] = [ckpt_call, stop_call]
+    trainer_kwargs['enable_progress_bar'] = False
 
     trainer = Trainer(logger=tb_logger, **trainer_kwargs)
 
@@ -135,7 +136,6 @@ def main(cfg: DictConfig):
     cfg.seed = cfg.seed if cfg.seed >= 0 else np.random.randint(0, 1000)
     seed_everything(seed=np.random.randint(0, 1000))
     log.info(f"Current working directory : {os.getcwd()}")
-
     # Avoid repeating to compute basis at each experiment.
     root_path = pathlib.Path(get_original_cwd()).resolve()
     global cache_dir
@@ -197,6 +197,7 @@ def main(cfg: DictConfig):
                                    augment=True, dtype=torch.float32)
 
         metrics = []
+        print(train_sizes)
         for training_size in train_sizes:
             # Prepare data _____________________________________________________________________________
             train_dataset = COMMomentum(robot, Gin=Gin_model, Gout=Gout_model, size=training_size,

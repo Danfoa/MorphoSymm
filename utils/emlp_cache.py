@@ -1,6 +1,9 @@
+import numpy as np
 
 from emlp.reps.representation import Base
 import itertools
+
+from scipy.sparse import issparse
 
 
 class EMLPCache(dict):
@@ -25,6 +28,13 @@ class EMLPCache(dict):
     def __getitem__(self, y):
         # Search first in lazy cache then in running cache
         if str(y) in self.lazy_cache:
+            M = self.lazy_cache[str(y)]
+            if M.dtype == np.object:
+                M = M.item()
+                assert issparse(M), "Object Array loaded and its not a sparse matrix, dunno whats this."
+                self.cache[str(y)] = M
+                self.lazy_cache.files.remove(str(y))  # Move to memory, remove from file.
+                return self.cache[str(y)]
             return self.lazy_cache[str(y)]
         elif isinstance(y, Base):
             return self.cache[y]

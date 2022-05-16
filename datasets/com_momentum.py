@@ -124,23 +124,11 @@ class COMMomentum(Dataset):
         trials = 10
         for trial in range(trials):
             q, dq = self.robot.get_init_config(random=True)
-            # q[:10] = 0.0
-            # dq[:9] = 0.0
-            # # Block arms
-            # n_b = 1
-            # q[(10):(10+n_b)] = 0.0  # left
-            # q[(18):(18+n_b)] = 0.0  # right
-            # dq[(10):(10 + n_b)] = 0.0  # left
-            # dq[(18):(18 + n_b)] = 0.0  # right
-            # # Block arms
-            # q[25:], dq[25:] = 0.0, 0.0
 
-            # q[19:26], dq[19:26] = 0.0, 0.0
             x = np.concatenate((q[7:], dq[6:]))
             x = x.astype(np.float64)
             y = self.get_hg(*np.split(x, 2))
             y = y.astype(np.float64)
-
 
             # Get all possible group actions
             for g_in, g_out in zip(self.Gin.discrete_actions[1:], self.Gout.discrete_actions[1:]):
