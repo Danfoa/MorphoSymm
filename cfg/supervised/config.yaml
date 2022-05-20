@@ -1,42 +1,39 @@
-robot_name: 'bolt'
+
+defaults:
+  - _self_
+  - dataset: com_momentum
+  - model: emlp
+
 # TODO: Make distinctions between. Trainer Args, Model Psecific Args, Program Args
-model_type: 'emlp'
-init_mode: 'fan_in'   # Forward constant activation variance or cnst gradient backward variance.
-bias: false
-lr: 1e-3
-lr_trials: 50
-num_layers: 1
-num_channels: 64
+robot_name: 'bolt'
+#init_mode: 'fan_in'   # Forward constant activation variance or cnst gradient backward variance.
+
+#model_type: 'emlp'
+#bias: false
+#lr: 1e-3
+#lr_trials: 50
+#num_layers: 1
+#num_channels: 64
 seed: -1
-batch_size: 512
+#batch_size: 512
 
 exp_name: 'tests'
+
 device: 0
-max_epochs: 2
+#max_epochs: 2
 
 # Run parameters
 run_type: single_run
 kfolds: 5
 
-dataset:
-  name: 'com_momentum'
-  train_samples: 5000
-  test_samples: 10000
-  angular_momentum: True
-  standarize: True
-  augmentation: False
-
 # Hydra configuration _________
-#defaults:
-#  - override hydra/launcher: joblib
-
 hydra:
   run:
     dir: ./experiments/${hydra.job.name}/${hydra.job.override_dirname}
 
   job:
     # TODO: Reorganize output dir
-    name: ${exp_name}_${robot_name}/train=${dataset.train_samples}-test=${dataset.test_samples}/model=${model_type}_n-ch${num_channels}_n-ly${num_layers}
+    name: ${dataset.job_name}
     num: ${seed}
     env_set:
       XLA_PYTHON_CLIENT_PREALLOCATE: 'false'
@@ -46,7 +43,6 @@ hydra:
         kv_sep: "="
         item_sep: " "
         exclude_keys:
-          - seed
           - batch_size
           - model_type
           - num_channels
@@ -60,6 +56,8 @@ hydra:
           - dataset.test_samples
           - run_type
           - kfolds
+          - dataset
+          - seed
 
   sweep:
     dir: ./experiments/${hydra.job.name}/
@@ -83,6 +81,6 @@ hydra:
         maxBytes: 2048
         backupCount: 1
     root:
-      handlers: [console,file]
+      handlers: [console]
 
     disable_existing_loggers: false

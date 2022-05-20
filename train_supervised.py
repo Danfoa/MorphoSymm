@@ -150,7 +150,7 @@ def main(cfg: DictConfig):
     # Configure base trainer parameters ________________________________________________________
     callbacks = [ModelCheckpoint(monitor="hp/val_loss", mode='min', dirpath='.', filename="best",
                                  save_last=True, every_n_epochs=1),
-                 EarlyStopping(monitor="hp/val_loss", patience=cfg.max_epochs * 0.1, mode='min')]
+                 EarlyStopping(monitor="hp/val_loss", patience=cfg.dataset.max_epochs * 0.1, mode='min')]
 
 
     if cfg.run_type == "hp_search":
@@ -178,17 +178,17 @@ def main(cfg: DictConfig):
                           # 'strategy': "ddp",
                           # 'log_every_n_steps': int(cfg.dataset.train_samples // cfg.batch_size // 2),
                           # Every half epoch.
-                          'max_epochs': cfg.max_epochs,
+                          'max_epochs': cfg.dataset.max_epochs,
                           'check_val_every_n_epoch': 1,
                           'benchmark': True,
                           'callbacks': callbacks}
 
         # init_modes = ['fan_in', 'fan_out', 'normal0.1', 'normal1.0']
-        init_modes = [cfg.init_mode] if isinstance(cfg.init_mode, str) else cfg.init_mode
+        init_modes = [cfg.model.init_mode] if isinstance(cfg.model.init_mode, str) else cfg.model.init_mode
         train_sizes = cfg.dataset.train_samples
         # model_types = ['emlp', 'mlp', 'mlp-aug']
-        model_types = cfg.model_type
-        hidden_layers = cfg.num_layers
+        model_types = cfg.model.model_type
+        hidden_layers = cfg.model.num_layers
         hd = hidden_layers
         results = {}
 

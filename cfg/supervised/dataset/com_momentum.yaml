@@ -1,0 +1,14 @@
+#
+job_name: ${exp_name}_${robot_name}/train=${dataset.train_samples}-test=${dataset.test_samples}/model=${model.model_type}_n-ch${model.num_channels}_n-ly${model.num_layers}
+
+name: 'com_momentum'
+augment: true
+train_samples: 10000
+test_samples: 1000
+angular_momentum: True
+
+standarize: True
+
+augmentation: False
+batch_size: 512
+max_epochs: 4000

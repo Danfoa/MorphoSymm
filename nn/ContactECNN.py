@@ -4,6 +4,7 @@
 # @Author  : Daniel Ordonez 
 # @email   : daniels.ordonez@gmail.com
 import copy
+from math import ceil
 
 import numpy as np
 import scipy.sparse
@@ -19,24 +20,33 @@ from emlp.groups import Group
 from emlp.reps.representation import Rep, Vector
 from scipy.sparse import block_diag
 
+import logging
+log = logging.getLogger(__name__)
+
 class ContactECNN(EquivariantModel):
 
-    def __init__(self, rep_in: Rep, rep_out: Rep, hidden_group: Group, window_size=150, cache_dir=None):
+    def __init__(self, rep_in: Rep, rep_out: Rep, hidden_group: Group, window_size=150, cache_dir=None, dropout=0.5,
+                 init_mode="fan_in"):
         super(ContactECNN, self).__init__(rep_in, rep_out, hidden_group, cache_dir)
         self.rep_in = rep_in
         self.rep_out = rep_out
         self.hidden_G = hidden_group
+        self.init_mode = init_mode
         self.window_size = window_size
+        self.dropout = dropout
 
-        rep_ch_64 = SparseRep(self.hidden_G.canonical_group(64))
-        rep_ch_128 = SparseRep(self.hidden_G.canonical_group(128))
+        self.in_invariant_dims = self.rep_in.G.n_inv_dims
+        self.inv_equi_ratio = self.rep_in.G.n_inv_dims / self.rep_in.G.d
+
+        rep_ch_64 = SparseRep(self.hidden_G.canonical_group(64, inv_dims=ceil(64 * self.inv_equi_ratio)))
+        rep_ch_128 = SparseRep(self.hidden_G.canonical_group(128, inv_dims=ceil(128 * self.inv_equi_ratio)))
 
         self.block1 = nn.Sequential(
             BasisConv1d(rep_in=self.rep_in, rep_out=rep_ch_64, kernel_size=3, stride=1, padding=1),
             nn.ReLU(),
             BasisConv1d(rep_in=rep_ch_64, rep_out=rep_ch_64, kernel_size=3, stride=1, padding=1),
             nn.ReLU(),
-            nn.Dropout(p=0.5),  # TODO: Make equivariant version.
+            nn.Dropout(p=self.dropout),
             nn.MaxPool1d(kernel_size=2, stride=2)
         )
 
@@ -45,7 +55,7 @@ class ContactECNN(EquivariantModel):
             nn.ReLU(),
             BasisConv1d(rep_in=rep_ch_128, rep_out=rep_ch_128, kernel_size=3, stride=1, padding=1),
             nn.ReLU(),
-            nn.Dropout(p=0.5),
+            nn.Dropout(p=self.dropout),
             nn.MaxPool1d(kernel_size=2, stride=2)
         )
 
@@ -54,39 +64,71 @@ class ContactECNN(EquivariantModel):
         G = C2(generator=block_diag([rep_ch_128.G.discrete_generators[0]]*block2_out_window))
         rep_in_mlp = SparseRep(G)
 
+        # Canonical representations
+        rep_ch_2048 = SparseRep(self.hidden_G.canonical_group(2048, inv_dims=ceil(2048 * self.inv_equi_ratio)))
+        rep_ch_512 = SparseRep(self.hidden_G.canonical_group(512, inv_dims=ceil(512 * self.inv_equi_ratio)))
+
         self.fc = nn.Sequential(
             EquivariantBlock(rep_in=rep_in_mlp,
-                             rep_out=SparseRep(self.hidden_G.canonical_group(2048)),
+                             rep_out=rep_ch_2048,
                              activation=nn.ReLU),
-            nn.Dropout(p=0.5),
-            EquivariantBlock(rep_in=SparseRep(self.hidden_G.canonical_group(2048)),
-                             rep_out=SparseRep(self.hidden_G.canonical_group(512)),
+            nn.Dropout(p=self.dropout),
+            EquivariantBlock(rep_in=rep_ch_2048,
+                             rep_out=rep_ch_512,
                              activation=nn.ReLU),
 
-            nn.Dropout(p=0.5),
-            BasisLinear(rep_in=SparseRep(self.hidden_G.canonical_group(512)),
-                        rep_out=SparseRep(self.hidden_G.canonical_group(16))),
+            nn.Dropout(p=self.dropout),
+            BasisLinear(rep_in=rep_ch_512, rep_out=self.rep_out),
         )
-        self.save_cache_file()
 
         # Test Each block equivariance.
-        EquivariantModel.test_module_equivariance(self.block1, rep_in=self.rep_in, rep_out=rep_ch_64,
-                                                  in_shape=(1, 54, 150))
-        EquivariantModel.test_module_equivariance(self.block2, rep_in=rep_ch_64, rep_out=rep_ch_128,
-                                                  in_shape=(1, 64, 75))
-        EquivariantModel.test_module_equivariance(self.fc, rep_in=rep_in_mlp, rep_out=rep_out)
+        # EquivariantModel.test_module_equivariance(self.block1, rep_in=self.rep_in, rep_out=rep_ch_64,
+        #                                           in_shape=(1, 54, 150))
+        # EquivariantModel.test_module_equivariance(self.block2, rep_in=rep_ch_64, rep_out=rep_ch_128,
+        #                                           in_shape=(1, 64, 75))
+        # EquivariantModel.test_module_equivariance(self.fc, rep_in=rep_in_mlp, rep_out=self.rep_out)
+
+        # self.reset_parameters(init_mode=init_mode)
         # Test entire model equivariance.
-        self.test_module_equivariance(module=self, rep_in=self.rep_in, rep_out=self.rep_out,
-                                      in_shape=(1, 150, rep_in.G.d))
+        # self.test_module_equivariance(module=self, rep_in=self.rep_in, rep_out=self.rep_out,
+        #                               in_shape=(1, 150, rep_in.G.d))
         self.save_cache_file()
 
     def forward(self, x):
         x = x.permute(0, 2, 1)
         block1_out = self.block1(x)
         block2_out = self.block2(block1_out)
-        block2_out_reshape = block2_out.view(block2_out.shape[0], -1)
+        block2_out = block2_out.permute(0, 2, 1)
+        block2_out_reshape = block2_out.reshape(block2_out.shape[0], -1)
         fc_out = self.fc(block2_out_reshape)
         return fc_out
+
+    def get_hparams(self):
+        return {'window_size': self.window_size,
+                'rep_in': str(self.rep_in),
+                'rep_out': str(self.rep_in),
+                'hidden_group': str(self.hidden_G),
+                'init_mode': self.init_mode,
+                'dropout': self.dropout}
+
+    def reset_parameters(self, init_mode=None, model=None):
+        assert init_mode is not None or self.init_mode is not None
+        self.init_mode = init_mode if init_mode is not None else self.init_mode
+
+        x = self if model is None else model
+        for module in x.children():
+            if isinstance(module, torch.nn.Sequential):
+                for m in module.children():
+                    if isinstance(m, BasisConv1d):
+                        m.reset_parameters(mode=self.init_mode, activation="ReLU")
+                    elif isinstance(m, EquivariantBlock):
+                        m.linear.reset_parameters(mode=self.init_mode,
+                                                  activation=m.activation.__class__.__name__.lower())
+                    elif isinstance(m, BasisLinear):
+                        m.reset_parameters(mode=self.init_mode, activation="Linear")
+
+        log.info(f"{self.model_class} initialized with mode: {self.init_mode}")
+
 
     @staticmethod
     def test_module_equivariance(module: torch.nn.Module, rep_in, rep_out, in_shape=None):
@@ -107,19 +149,9 @@ class ContactECNN(EquivariantModel):
             else:
                 g_x = g_in @ x
 
-            # xa = x[0, 0, :].detach().numpy()
-            # gx = g_x[0, 0, :].detach().numpy()
-            # g = g_in[0, :, :].detach().numpy()
-            # bb = g_y_true[0, :].detach().numpy()
-
             g_y_pred = module.forward(g_x)
 
             g_y_true = (g_out[0, :, :] @ y.T).T
-
-            # a = y[0, :].detach().numpy()
-            # bb = g_y_true[0, :].detach().numpy()
-            # b = g_y_pred[0, :].detach().numpy()
-            # g = g_out[0, :, :].detach().numpy()
 
             if not torch.allclose(g_y_true, g_y_pred, atol=1e-4, rtol=1e-4):
                 error = g_y_true - g_y_pred

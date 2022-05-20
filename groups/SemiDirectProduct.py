@@ -85,10 +85,15 @@ class SparseRep(BaseRep):
             if self.G.is_sparse and len(self.G.discrete_generators) == 1:
                 # P = self.G.discrete_generators[0]
                 Q = self.sparse_equivariant_basis()
+                # Q2 = self.sparse_equivariant_basis2()
+                # assert np.allclose(Q, Q2)
             else:
                 self.G.lie_algebra = []
                 Q = Vector(self.G).equivariant_basis()
             self.solcache[canon_rep] = Q
+        else:
+            log.info(f"{canon_rep} cache found")
+
         if self.G.is_sparse:
             # TODO: Apply inv perm to sparse matrix, by modifying coordinates directly.
             return self.solcache[canon_rep]
@@ -122,52 +127,47 @@ class SparseRep(BaseRep):
         """
         P = self.G.discrete_generators[0]
         log.info(f"Solving equivariant basis using single generalized permutation matrix {P.shape}")
-        dtype = P.dtype
         n = P.shape[0]
-        # compute the cyclic decomposition. a.k.a orbit for each dimension of the vec space acted by the gen permutation
-        # w = np.abs(P) @ np.arange(n).astype(np.int32)
-        w = P.row   # oneline notation
 
-        pendind_dims = set(range(n))
-        cycles = []
-        pbar = tqdm(total=n, disable=False, dynamic_ncols=True, maxinterval=20, position=0, leave=True,
-                    file=sys.stdout)
-        pbar.set_description("Finding Orbits")
-        while pendind_dims:
-            a = pendind_dims.pop()  # Get the initial point of an orbit.
-            pbar.update(1)
-            cycles.append([a])
-            while w[a] in pendind_dims:
-                a = w[a]
-                cycles[-1].append(a)
-                pendind_dims.remove(a)
-                pbar.update(1)
-        pbar.refresh()
-        pbar.close()
+        idx = scipy.sparse.eye(n, format='coo', dtype=P.dtype)
+        orbits = [idx]
+        for h in self.G.discrete_generators:
+            orbits.append((h @ orbits[-1]).tocoo().astype(np.int))
 
-        # obtain the eigenvectors
-        tmp = P.sum(axis=1)
+        # cols_itr = np.asarray([m.col for m in orbits]).T
+        rows_itr = np.asarray([m.row for m in orbits]).T
+        data_itr = np.asarray([m.data for m in orbits]).T
 
-        pbar = tqdm(total=len(cycles), disable=False, dynamic_ncols=True, maxinterval=20, position=0, leave=True,
+        pending_dims = np.ones((n,), dtype=np.bool)
+
+        pbar = tqdm(total=len(pending_dims), disable=False, dynamic_ncols=True, maxinterval=20, position=0, leave=True,
                     file=sys.stdout)
         pbar.set_description("Finding Eigenvectors")
-        eig_cols, eig_rows, eig_data = [], [], []
-        for n_orbit, orbit in enumerate(cycles):
-            p = tmp[orbit, 0]
-            if np.prod(p) == 1:
-                # Coordinates of the eigenvector values
-                cols = [n_orbit] * len(orbit)
-                rows = orbit
-                # Values of the eigenvector
-                data = [np.prod(p[j:-1]) for j in range(len(p))]
 
-                eig_data.extend(data)
-                eig_rows.extend(rows)
-                eig_cols.extend(cols)
-                pbar.update(1)
-        pbar.refresh()
+        n_orbit = 0
+        eig_cols, eig_rows, eig_data = [], [], []
+        non_permuted_dims = np.where(rows_itr[:, 0] == rows_itr[:, 1])[0]
+        non_relfected_dims = np.where(data_itr[non_permuted_dims, 0] == data_itr[non_permuted_dims, 1])[0]
+        inv_dims = non_permuted_dims[non_relfected_dims]
+        if len(inv_dims) > 0:
+            eig_rows.extend(inv_dims)
+            eig_cols.extend(range(len(inv_dims)))
+            eig_data.extend(data_itr[inv_dims, 0])
+            n_orbit = len(inv_dims)
+            pending_dims[inv_dims] = False
+            pbar.update(len(inv_dims))
+
+        for idxs, vals in zip(rows_itr, data_itr):
+            if pending_dims[idxs[0]]:
+                eig_rows.extend(idxs)
+                eig_cols.extend([n_orbit] * len(idxs))
+                eig_data.extend(vals)
+                pending_dims[idxs] = False
+                n_orbit += 1
+                pbar.update(len(idxs))
+        pbar.set_description(f"{n_orbit} eigenvectors found")
         pbar.close()
-        Q = scipy.sparse.coo_matrix((eig_data, (eig_rows, eig_cols)), shape=(n, len(cycles)))
+        Q = scipy.sparse.coo_matrix((eig_data, (eig_rows, eig_cols)), shape=(n, n_orbit))
         return Q
 
     def __repr__(self):

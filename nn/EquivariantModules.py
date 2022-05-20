@@ -69,10 +69,13 @@ class BasisLinear(torch.nn.Module):
         # Add hook to backward pass
         self.register_full_backward_hook(EquivariantModel.backward_hook)
 
+
     def forward(self, x):
         """
         Normal forward pass, using weights formed by the basis and corresponding coefficients
         """
+        if x.device != self.weight.device:
+            self._new_coeff, self._new_bias_coeff = True, True
         return F.linear(x, weight=self.weight, bias=self.bias)
 
     @property
@@ -124,15 +127,20 @@ class BasisLinear(torch.nn.Module):
         assert not torch.allclose(prev_basis_coeff, self.basis_coeff), "Ups, smth is wrong."
 
     def __repr__(self):
-        string = f"G[{self.repW.G}]-W{self.rep_out.size() * self.rep_in.size()}-" \
+        string = f"E-Linear G[{self.repW.G}]-W{self.rep_out.size() * self.rep_in.size()}-" \
                  f"Wtrain:{self.basis.shape[-1]}={self.basis_coeff.shape[0] / np.prod(self.repW.size()) * 100:.1f}%" \
                  f"-init_std:{self.init_std:.3f}"
         return string
 
+    def to(self, *args, **kwargs):
+        # When device or type changes tensors need updating.
+        self._new_bias_coeff, self._new_coeff = True, True
+        return super(BasisLinear, self).to(*args, **kwargs)
+
 
 class EquivariantBlock(torch.nn.Module):
 
-    def __init__(self, rep_in: Rep, rep_out: Rep, with_bias=True, activation=torch.nn.Identity):
+    def __init__(self, rep_in: BaseRep, rep_out: BaseRep, with_bias=True, activation=torch.nn.Identity):
         super(EquivariantBlock, self).__init__()
 
         # TODO: Optional Batch Normalization
@@ -148,7 +156,7 @@ class EquivariantBlock(torch.nn.Module):
 
 class EquivariantModel(torch.nn.Module):
 
-    def __init__(self, rep_in: Rep, rep_out: Rep, hidden_group: Group, cache_dir: Optional[Union[str, pathlib.Path]] = None):
+    def __init__(self, rep_in: BaseRep, rep_out: BaseRep, hidden_group: Group, cache_dir: Optional[Union[str, pathlib.Path]] = None):
         super(EquivariantModel, self).__init__()
         self.rep_in = rep_in
         self.rep_out = rep_out
@@ -214,11 +222,14 @@ class EquivariantModel(torch.nn.Module):
             lazy_cache, cache = run_cache.lazy_cache, run_cache.cache
         else:
             lazy_cache, cache = {}, run_cache
+
+        if len(run_cache) == 0:
+            log.debug(f"Ignoring cache save as there is no new equivariant basis")
         combined_cache = {str(k): np.asarray(v) for k, v in itertools.chain(lazy_cache.items(), cache.items())}
         np.savez_compressed(model_cache_file, **combined_cache)
 
         # Since we moved all cache to disk with lazy loading. Remove from memory
-        self.rep_in.solcache = EMLPCache(cache={}, lazy_cache=np.load(model_cache_file))
+        self.rep_in.solcache = EMLPCache(cache={}, lazy_cache=np.load(str(model_cache_file), allow_pickle=True))
         log.info(f"Saved cache from {list(self.rep_in.solcache.keys())} to {model_cache_file}")
 
     @staticmethod
@@ -243,7 +254,8 @@ class EquivariantModel(torch.nn.Module):
             if not torch.allclose(g_y_true, g_y_pred, atol=1e-4, rtol=1e-4):
                 max_error = torch.max(g_y_true - g_y_pred)
                 error = g_y_true - g_y_pred
-                raise RuntimeError(f"{module} is not equivariant to in/out group generators f(g·x) - g·y:{error}")
+                raise RuntimeError(f"{module}\nis not equivariant to in/out group generators\n"
+                                   f"max(f(g·x) - g·y) = {torch.max(error).item()}")
 
             if torch.allclose(g_y_pred, y, atol=1e-4, rtol=1e-4):
                 log.warning(f"\nModule {module} is INVARIANT! not EQUIVARIANT\n")
@@ -253,8 +265,8 @@ class EquivariantModel(torch.nn.Module):
     def model_class(self):
         return self.__class__.__name__
 
-    def __repr__(self):
-        return f'{self.model_class}: {self.rep_in.G}-{self.rep_out.G}'
+    # def __repr__(self):
+    #     return f'{self.model_class}: {self.rep_in.G}-{self.rep_out.G}'
 
 
 class EMLP(EquivariantModel):

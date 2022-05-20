@@ -1,0 +1,5 @@
+
+model_type: ???
+bias: true
+lr: 1e-3
+init_mode: 'fan_in'

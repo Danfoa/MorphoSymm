@@ -47,7 +47,13 @@ class Sym(Group):
         if not self.is_sparse:
             self.discrete_generators = jnp.asarray(self.discrete_generators)
 
-        self.lie_algebra = []  # Avoid memory allocation.
+        # Count number of dimensions that are invariant.
+        h_diags = np.array([h.diagonal() for h in self.discrete_generators] * 4)
+        inv_h_diags = np.array(h_diags) == 1
+        inv_dims = np.all(inv_h_diags, axis=0)
+        self.inv_dims = inv_dims
+        self.n_inv_dims = np.sum(inv_dims).item()
+
         super().__init__()
 
     @property
@@ -107,20 +113,46 @@ class C2(Sym):
 
     @property
     def discrete_actions(self) -> list:
-        return [jnp.eye(self.d, dtype=self.discrete_generators.dtype), self.discrete_generators[0]]
+        return [jnp.eye(self.d, dtype=self.discrete_generators[0].dtype), self.discrete_generators[0]]
 
     def __repr__(self):
         return f"C2[d:{self.d}]"
 
     @staticmethod
-    def canonical_group(d) -> 'C2':
+    def canonical_group(d, inv_dims: int = 0) -> 'C2':
         """
         @param d: Vector Space dimension
         """
         assert d > 0, "Vector space dimension must be greater than 0"
-        h = list(reversed(range(d)))
-        H = C2.oneline2matrix(h)
+        assert inv_dims < d - 1, "At least a single dimension must be symmetric"
+
+        id = inv_dims
+
+        # Get fully equivariant representation.
+        p = np.flip(np.arange(d))
+        r = np.ones_like(p)
+
+        if d % 2 > 0:   # Odd dimensional repr: Can have odd number of `inv_dims`
+            if id % 2 == 0:
+                r[d//2] *= -1
+            else:
+                id -= 1    # Count middle point invariance
+        else:           # Even dimensional repr: Cannot have odd number of `inv_dims`
+            if id % 2 > 0:
+                inv_dims += 1
+                id = inv_dims
+
+        # Enforce `inv_dims` invariant dimensions.
+        n = id // 2
+        if n > 0:
+            p_copy = np.copy(p)
+            p[:n] = np.flip(p_copy[-n:])
+            p[-n:] = np.flip(p_copy[:n])
+
+        H = Sym.oneline2matrix(oneline_notation=p.tolist(), reflexions=r.tolist())
+        # HH = np.asarray(H.todense())
         G = C2(generator=H)
+        assert G.n_inv_dims == inv_dims, G.n_inv_dims
         return G
 
     @staticmethod

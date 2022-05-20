@@ -3,19 +3,33 @@
 # @Time    : 25/1/22
 # @Author  : Daniel Ordonez 
 # @email   : daniels.ordonez@gmail.com
+import pathlib
 import numpy as np
-import pybullet_data
 import scipy.sparse
 import torch
-from pybullet import GUI, DIRECT, COV_ENABLE_GUI, COV_ENABLE_SEGMENTATION_MARK_PREVIEW, COV_ENABLE_DEPTH_BUFFER_PREVIEW, \
-    COV_ENABLE_MOUSE_PICKING
-from pybullet_utils import bullet_client
 
+
+
+def check_if_resume_experiment(ckpt_call):
+    ckpt_path = pathlib.Path(ckpt_call.dirpath).joinpath(ckpt_call.CHECKPOINT_NAME_LAST + ckpt_call.FILE_EXTENSION)
+    best_path = pathlib.Path(ckpt_call.dirpath).joinpath(ckpt_call.filename + ckpt_call.FILE_EXTENSION)
+
+    terminated = False
+    if best_path.exists() and not ckpt_path.exists():
+        terminated = True
+    elif ckpt_path.exists() and best_path.exists():
+        terminated = False
+
+    return terminated, ckpt_path, best_path
 
 def coo2torch_coo(M: scipy.sparse.coo_matrix):
-    idx = np.vstack((M.row, M.col))
-    return torch.sparse_coo_tensor(idx, M.data, size=M.shape, dtype=torch.float32)
-
+    density = M.getnnz() / np.prod(M.shape)
+    memory = np.prod(M.shape) * 32
+    if memory > 1e9:
+        idx = np.vstack((M.row, M.col))
+        return torch.sparse_coo_tensor(idx, M.data, size=M.shape, dtype=torch.float32).coalesce()
+    else:
+        return torch.tensor(np.asarray(M.todense(), dtype=np.float32))
 
 def pprint_dict(d: dict):
     str = []
@@ -26,6 +40,12 @@ def pprint_dict(d: dict):
 
 
 def configure_bullet_simulation(gui=True):
+    import pybullet_data
+    from pybullet import GUI, DIRECT, COV_ENABLE_GUI, COV_ENABLE_SEGMENTATION_MARK_PREVIEW, \
+        COV_ENABLE_DEPTH_BUFFER_PREVIEW, \
+        COV_ENABLE_MOUSE_PICKING
+    from pybullet_utils import bullet_client
+
     BACKGROUND_COLOR = '--background_color_red=%.2f --background_color_green=%.2f --background_color_blue=%.2f' % \
                        (0.960, 0.960, 0.960)
 

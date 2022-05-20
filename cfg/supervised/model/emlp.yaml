@@ -1,0 +1,5 @@
+
+defaults:
+  - mlp
+
+model_type: 'EMLP'

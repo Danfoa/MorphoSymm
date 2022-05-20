@@ -3,6 +3,7 @@ import pathlib
 import time
 from typing import Union, Callable
 
+import numpy as np
 import pytorch_lightning as pl
 import torch
 import torch.nn.functional as F
@@ -24,7 +25,7 @@ class LightningModel(pl.LightningModule):
         self.lr = lr
 
         # self.model = model
-        self.loss_fn = loss_fn
+        self._loss_fn = loss_fn
         self.compute_metrics = metrics_fn
         self._log_w = log_w
         self._log_preact = log_preact
@@ -45,42 +46,43 @@ class LightningModel(pl.LightningModule):
         # It is independent of forward
         x, y = batch
         y_pred = self.model(x)
-        loss = self.loss_fn(y, y_pred)
+        loss = self._loss_fn(y_pred, y)
         # Logging to TensorBoard by default
-        self.log("hp/train_loss", loss, prog_bar=False,  on_epoch=True)
+        self.log("train_loss", loss, prog_bar=False, on_step=True, on_epoch=True)
 
-        metrics = self.compute_metrics(y, y_pred)
-        for k, v in metrics.items():
-            self.log(f"hp/train_{k}", torch.mean(v), prog_bar=False,  on_epoch=True)
-
+        metrics = self.compute_metrics(y_pred, y)
+        self.log_metrics(metrics, prefix="train_")
         return loss
 
     def validation_step(self, batch, batch_idx):
         x, y = batch
 
-        with torch.no_grad():
-            y_pred = self.model(x)
-            loss = self.loss_fn(y, y_pred)
-            metrics = self.compute_metrics(y, y_pred)
+        y_pred = self.model(x)
+        loss = self._loss_fn(y_pred, y)
+        metrics = self.compute_metrics(y_pred, y)
 
-            self.log("hp/val_loss", loss, prog_bar=False,  on_epoch=True)
-            for k, v in metrics.items():
-                self.log(f"hp/val_{k}", torch.mean(v), prog_bar=False,  on_epoch=True)
+        self.log("val_loss", loss, prog_bar=False, on_epoch=True)
+        self.log_metrics(metrics, prefix="val_")
 
         return loss
 
     def test_step(self, batch, batch_idx):
         x, y = batch
 
-        with torch.no_grad():
-            y_pred = self.model(x)
-            loss = self.loss_fn(y, y_pred)
-            metrics = self.compute_metrics(y, y_pred)
+        y_pred = self.model(x)
+        loss = self._loss_fn(y_pred, y)
+        metrics = self.compute_metrics(y_pred, y)
 
-            self.log("hp/test_loss", loss, prog_bar=False,  on_epoch=True)
-            for k, v in metrics.items():
-                self.log(f"hp/test_{k}", v, prog_bar=False,  on_epoch=True)
+        self.log("test_loss", loss, prog_bar=False, on_epoch=True)
+        self.log_metrics(metrics, prefix="test_")
+
         return loss
+
+    def log_metrics(self, metrics: dict, prefix=''):
+        for k, v in metrics.items():
+            name = f"{prefix}{k}"
+
+            self.log(name, v, prog_bar=False)
 
     def on_train_epoch_start(self) -> None:
         self.epoch_start_time = time.time()
@@ -93,9 +95,10 @@ class LightningModel(pl.LightningModule):
     def on_train_start(self):
         # TODO: Add number of layers and hidden channels dimensions.
         hparams = {'lr': self.lr, 'model': self.model_type}
-        hparams.update(self.model.get_hparams())
+        if hasattr(self.model, "get_hparams"):
+            hparams.update(self.model.get_hparams())
         if self.logger:
-            self.logger.log_hyperparams(hparams, {"hp/val_loss": 0., "hp/train_loss": 0., "hp/cosine_sim": 0.})
+            self.logger.log_hyperparams(hparams, {"val_loss": 0.0})
 
     def on_train_end(self) -> None:
         ckpt_call = self.trainer.checkpoint_callback
@@ -106,7 +109,6 @@ class LightningModel(pl.LightningModule):
                 # Remove last model ckpt leave only best, to hint training successful termination.
                 ckpt_path.unlink()
                 log.info("Removing last ckpt from successful training run.")
-
 
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(self.parameters(), lr=self.lr)

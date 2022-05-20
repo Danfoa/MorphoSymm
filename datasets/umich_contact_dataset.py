@@ -3,9 +3,11 @@
 # @Time    : 13/5/22
 # @Author  : Daniel Ordonez 
 # @email   : daniels.ordonez@gmail.com
+import pathlib
 
 import numpy as np
 import scipy
+import sklearn
 import torch
 import torch.nn.functional as F
 from deep_contact_estimator.utils.data_handler import contact_dataset
@@ -17,10 +19,12 @@ from utils.utils import reflex_matrix, coo2torch_coo
 
 class UmichContactDataset(contact_dataset):
 
-    def __init__(self, data_path, label_path, window_size, device='cuda', augment=False):
+    def __init__(self, data_path: pathlib.Path, label_path: pathlib.Path, window_size, use_class_imbalance_w=False, device='cuda', augment=False):
+        assert data_path.exists(), data_path.absolute()
+        assert label_path.exists(), label_path.absolute()
 
-        super().__init__(data_path, label_path, window_size, device=device)
-
+        super().__init__(str(data_path), str(label_path), window_size, device=device)
+        self.device = device
         self.contact_state_freq = self.get_class_frequency()
 
         self.Gin, self.Gout = self.get_in_out_groups()
@@ -32,24 +36,81 @@ class UmichContactDataset(contact_dataset):
             self.hin = torch.tensor(self.Gin.discrete_generators[0].todense(), device=device)
             self.hout = torch.tensor(self.Gout.discrete_generators[0].todense(), device=device)
 
+        class_weights = None if not use_class_imbalance_w else self.contact_state_freq
+        self.loss_fn = torch.nn.CrossEntropyLoss(weight=class_weights)
+        # def f(x,y):
+        #     r = F.cross_entropy(x,y)
+        #     return r
+
+        # self.loss_fn = f
+
     def collate_fn(self, batch):
         collated_batch = default_collate(batch)
 
-        if self.augment:
+        if self.augment and np.random.rand() > 0.5:
             # (Batch, Window size, features)
             x_batch = collated_batch['data']
-            y_batch = F.one_hot(collated_batch['label'], num_classes=self.n_contact_states)
+            y_batch = F.one_hot(collated_batch['label'], num_classes=self.n_contact_states).to(x_batch.dtype)
             g_x_batch = torch.matmul(x_batch.unsqueeze(1), self.hin.unsqueeze(0).to(x_batch.dtype)).squeeze()
-            g_y_batch = torch.matmul(y_batch.unsqueeze(1), self.hout.unsqueeze(0).to(y_batch.dtype)).squeeze()
+            g_y_batch = torch.matmul(y_batch.unsqueeze(1), self.hout.unsqueeze(0).to(x_batch.dtype)).squeeze()
             # Convert back to numerical class label.
             _, g_y = torch.max(g_y_batch, dim=1)
-            return {'data': g_x_batch, 'label': g_y}
+            # return {"data": g_x_batch, "label": g_y}
+            return g_x_batch, g_y
         else:
-            return collated_batch
+            # return collated_batch
+            return collated_batch['data'], collated_batch['label']
 
     def get_class_frequency(self):
         classes, counts = torch.unique(self.label, return_counts=True, sorted=True)
         return counts / len(self)
+
+    @torch.no_grad()
+    def compute_metrics(self, output: torch.Tensor, gt_label: torch.Tensor) -> dict:
+        _, prediction = torch.max(output, dim=1)
+
+        bin_pred = self.decimal2binary(prediction)
+        bin_gt = self.decimal2binary(gt_label)
+
+        # P = bin_gt.sum(axis=0)   # Positives
+        # N = torch.logical_not(bin_gt).sum(axis=0)  # Negatives
+
+        acc_per_leg = (bin_pred == bin_gt).sum(axis=0) / output.shape[0]
+        acc = (prediction == gt_label).sum() / output.shape[0]
+        acc_per_leg_avg = torch.sum(acc_per_leg) / 4.0
+
+        # precision_of_class = sklearn.metrics.precision_score(y_pred=prediction, y_true=gt_label, average='weighted',
+        #                                                      zero_division=0)
+        TP = [torch.logical_and(bin_pred[:, i], bin_gt[:, i]).sum() for i in range(4)]
+        FP = [bin_pred[:, i].sum() - tp for i, tp in enumerate(TP)]
+        TN = [torch.logical_and(torch.logical_not(bin_pred[:, i]), torch.logical_not(bin_gt[:, i])).sum() for i in range(4)]
+        FN = [torch.logical_not(bin_pred[:, i]).sum() - tn for i, tn in enumerate(TN)]
+
+        precision_legs = [tp/(tp + fp) for tp, fp in zip(TP, FP)]
+        recall_legs = [tp/(tp + fn) for tp, fn in zip(TP, FN)]
+
+        leg_names = ["RF", "LF", "RH", "LH"]
+        precision = {f'precision_{leg}': v for leg, v in zip(leg_names, precision_legs)}
+        recall = {f'recall_{leg}': v for leg, v in zip(leg_names, recall_legs)}
+        acc_dir = {f"acc_{leg}": v for leg, v in zip(leg_names, acc_per_leg)}
+        TP_dir = {f'TP_{leg}': v.float() for leg, v in zip(leg_names, TP)}
+        FP_dir = {f'FP_{leg}': v.float() for leg, v in zip(leg_names, FP)}
+        TN_dir = {f'TN_{leg}': v.float() for leg, v in zip(leg_names, TN)}
+        FN_dir = {f'FN_{leg}': v.float() for leg, v in zip(leg_names, FN)}
+
+        metrics = {'acc': acc, 'acc_legs_avg': acc_per_leg_avg}
+        metrics.update(precision)
+        metrics.update(recall)
+        metrics.update(acc_dir)
+        metrics.update(TP_dir)
+        metrics.update(FP_dir)
+        metrics.update(TN_dir)
+        metrics.update(FN_dir)
+        return metrics
+
+    def decimal2binary(self, x):
+        mask = 2 ** torch.arange(4 - 1, -1, -1).to(self.device, x.dtype)
+        return x.unsqueeze(-1).bitwise_and(mask).ne(0).byte()
 
     @staticmethod
     def get_in_out_groups():

@@ -1,0 +1,8 @@
+
+defaults:
+  - contact_cnn
+
+model_type: 'ECNN'
+lr: 0.00001
+dropout: 0.5
+unconstraint_finetune: false

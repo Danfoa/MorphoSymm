@@ -1,0 +1,6 @@
+
+defaults:
+  - base_model
+
+model_type: 'CNN'
+lr: 0.0001

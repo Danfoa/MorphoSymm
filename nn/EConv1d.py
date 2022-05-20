@@ -4,7 +4,7 @@
 # @Author  : Daniel Ordonez 
 # @email   : daniels.ordonez@gmail.com
 import math
-from typing import Union
+from typing import Union, Optional
 
 import numpy as np
 import torch
@@ -22,8 +22,7 @@ class BasisConv1d(torch.nn.Module):
     from torch.nn.common_types import _size_1_t
 
     def __init__(self, rep_in: BaseRep, rep_out: BaseRep, kernel_size: _size_1_t, stride: _size_1_t = 1,
-                 padding: Union[str, _size_1_t] = 0, dilation: _size_1_t = 1, groups: int = 1, bias: bool = True,
-                 dtype=None) -> None:
+                 padding: Union[str, _size_1_t] = 0, dilation: _size_1_t = 1, groups: int = 1, bias: bool = True) -> None:
         super().__init__()
 
         # Original Implementation Parameters ___________________________________________________________
@@ -40,7 +39,7 @@ class BasisConv1d(torch.nn.Module):
         self.rep_out = rep_out
 
         # Avoid recomputing W when basis coefficients have not changed.
-        self._new_coeff, self._new_basis_coeff = True, True
+        self._new_coeff, self._new_bias_coeff = True, True
 
         # Compute the nullspace
         Q = self.repW.equivariant_basis()
@@ -49,16 +48,13 @@ class BasisConv1d(torch.nn.Module):
         self.basis = torch.nn.Parameter(basis, requires_grad=False)
 
         # Create the network parameters. Coefficients for each base, and kernel dim
-        self.basis_coeff = torch.nn.Parameter(torch.rand(self.basis.shape[1], self.kernel_size_))
-
-        self._weight = self.weight
+        self.basis_coeff = torch.nn.Parameter(torch.rand(self.basis.shape[1], self.kernel_size_), requires_grad=True)
 
         if bias:
             Qbias = rep_out.equivariant_basis()
             bias_basis = coo2torch_coo(Qbias) if issparse(Qbias) else torch.tensor(np.asarray(Qbias))
             self.bias_basis = torch.nn.Parameter(bias_basis, requires_grad=False)
-            self.bias_basis_coeff = torch.nn.Parameter(torch.randn((self.bias_basis.shape[-1])))
-            self._bias = self.bias
+            self.bias_basis_coeff = torch.nn.Parameter(torch.randn((self.bias_basis.shape[-1])), requires_grad=True)
         else:
             self.bias_basis, self.bias_basis_coeff = None, None
 
@@ -70,6 +66,8 @@ class BasisConv1d(torch.nn.Module):
         self.register_full_backward_hook(EquivariantModel.backward_hook)
 
     def forward(self, x):
+        if x.device != self.weight.device:
+            self._new_coeff, self._new_bias_coeff = True, True
         return F.conv1d(input=x, weight=self.weight, bias=self.bias, stride=self.stride_, padding=self.padding_,
                         dilation=self.dilation_, groups=self.groups_)
 
@@ -83,9 +81,9 @@ class BasisConv1d(torch.nn.Module):
     @property
     def bias(self):
         if self.bias_basis is not None:
-            if self._new_basis_coeff:
+            if self._new_bias_coeff:
                 self._bias = torch.matmul(self.bias_basis, self.bias_basis_coeff).reshape((self.rep_out.G.d,))
-                self._new_basis_coeff = False
+                self._new_bias_coeff = False
             return self._bias
         return None
 
@@ -122,3 +120,9 @@ class BasisConv1d(torch.nn.Module):
 
         self._new_coeff, self._new_bias_coeff = True, True
         assert not torch.allclose(prev_basis_coeff, self.basis_coeff), "Ups, smth is wrong."
+
+    def __repr__(self):
+        string = f"E-Conv1D G[{self.repW.G}]-W{self.rep_out.size() * self.rep_in.size()}-" \
+                 f"Wtrain:{self.basis.shape[-1]}={self.basis_coeff.shape[0] / np.prod(self.repW.size()) * 100:.1f}%" \
+                 f"-init_std:{self.init_std:.3f}"
+        return string
