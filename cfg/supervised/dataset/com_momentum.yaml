@@ -12,7 +12,7 @@ standarize: True
 
 augmentation: False
 batch_size: 256
-max_epochs: 100
+max_epochs: 200
 log_every_n_epochs: 0.5
 
 train_ratio: 0.7

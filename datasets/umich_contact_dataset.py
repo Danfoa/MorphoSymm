@@ -21,6 +21,7 @@ import deep_contact_estimator
 
 class UmichContactDataset(contact_dataset):
     dataset_path = pathlib.Path(deep_contact_estimator.__file__).parents[1].joinpath('dataset')
+    leg_names = ["RF", "LF", "RH", "LH"]
 
     def __init__(self, data_name, label_name, window_size,
                  train_ratio=0.7, test_ratio=0.15, val_ratio=0.15, loss_class_weights=None,
@@ -95,10 +96,10 @@ class UmichContactDataset(contact_dataset):
         # precision_legs = [tp / (tp + fp) for tp, fp in zip(TP, FP)]
         # recall_legs = [tp / (tp + fn) for tp, fn in zip(TP, FN)]
 
-        leg_names = ["RF", "LF", "RH", "LH"]
+
         # precision = {f'precision_{leg}': v for leg, v in zip(leg_names, precision_legs)}
         # recall = {f'recall_{leg}': v for leg, v in zip(leg_names, recall_legs)}
-        acc_dir = {f"acc_{leg}": v for leg, v in zip(leg_names, acc_per_leg)}
+        acc_dir = {f"acc_{leg}": v for leg, v in zip(self.leg_names, acc_per_leg)}
         # TP_dir = {f'TP_{leg}': v.float() for leg, v in zip(leg_names, TP)}
         # FP_dir = {f'FP_{leg}': v.float() for leg, v in zip(leg_names, FP)}
         # TN_dir = {f'TN_{leg}': v.float() for leg, v in zip(leg_names, TN)}
@@ -272,8 +273,8 @@ class UmichContactDataset(contact_dataset):
             num_val = int(val_ratio * num_data)
             num_test = int(test_ratio * num_data)
             assert train_ratio + val_ratio + test_ratio <= 1.0
-            cur_val = cur_data[:num_test, :]
-            cur_test = cur_data[num_test:num_val + num_test, :]
+            cur_val = cur_data[:num_val, :]
+            cur_test = cur_data[num_val:num_val + num_test, :]
             cur_train = cur_data[-num_train:, :]
 
             # stack with all other sequences
@@ -287,7 +288,7 @@ class UmichContactDataset(contact_dataset):
             # stack labels
             val_label = np.vstack((val_label, cur_label[:num_val, :]))
             test_label = np.vstack((test_label, cur_label[num_val:num_val + num_test, :]))
-            train_label = np.vstack((train_label, cur_label[num_val + num_test:, :]))
+            train_label = np.vstack((train_label, cur_label[-num_train:, :]))
 
             # break
         train_label = train_label.reshape(-1, )

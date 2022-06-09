@@ -6,3 +6,4 @@ model_type: 'ECNN'
 lr: 0.00005
 dropout: 0.5
 unconstraint_finetune: false
+inv_dims_scale: 1.0

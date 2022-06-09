@@ -5,3 +5,4 @@ defaults:
 model_type: 'EMLP'
 num_layers: 2
 num_channels: 128
+inv_dims_scale: 1.0

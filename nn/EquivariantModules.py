@@ -287,21 +287,23 @@ class EMLP(EquivariantModel):
             Module: the EMLP objax module."""
 
     def __init__(self, rep_in, rep_out, hidden_group, ch=64, num_layers=3, with_bias=True, activation=torch.nn.ReLU,
-                 cache_dir=None, init_mode="fan_in"):
+                 cache_dir=None, init_mode="fan_in", inv_dims_scale=1.0):
         super().__init__(rep_in, rep_out, hidden_group, cache_dir)
         logging.info("Initing EMLP (PyTorch)")
         self.activations = activation
         self.hidden_channels = ch
         self.n_layers = num_layers
         self.init_mode = init_mode
-
+        self.inv_dims_scale = inv_dims_scale
         # Parse channels as a single int, a sequence of ints, a single Rep, a sequence of Reps
         rep_inter_in = rep_in
         rep_inter_out = rep_out
-        inv_in, inv_out = rep_in.G.n_inv_dims/rep_in.G.d, rep_out.G.n_inv_dims/rep_in.G.d
+        inv_in, inv_out = rep_in.G.n_inv_dims/rep_in.G.d, rep_out.G.n_inv_dims/rep_out.G.d
+        inv_ratios = np.linspace(inv_in, inv_out, num_layers + 2, endpoint=True) * self.inv_dims_scale
+
         layers = []
-        for n in range(num_layers + 1):
-            rep_inter_out = SparseRep(self.hidden_group.canonical_group(ch))
+        for n, inv_ratio in zip(range(num_layers + 1), inv_ratios[1:num_layers + 2]):
+            rep_inter_out = SparseRep(self.hidden_group.canonical_group(ch, inv_dims=math.ceil(ch * inv_ratio)))
             layer = EquivariantBlock(rep_in=rep_inter_in, rep_out=rep_inter_out, with_bias=with_bias,
                                      activation=self.activations)
             layers.append(layer)
@@ -321,9 +323,11 @@ class EMLP(EquivariantModel):
     def get_hparams(self):
         return {'num_layers': len(self.net),
                 'hidden_ch': self.hidden_channels,
+                'activation': str(self.activations.__class__.__name__),
                 'Repin': str(self.rep_in),
                 'Repout': str(self.rep_in),
                 'init_mode': str(self.init_mode),
+                'inv_dim_scale': self.inv_dims_scale,
                 }
 
     def reset_parameters(self, init_mode=None):

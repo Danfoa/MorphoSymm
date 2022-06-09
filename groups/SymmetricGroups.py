@@ -93,6 +93,11 @@ class Sym(Group):
     def np_gens(self):
         return np.array(self.discrete_generators)
 
+    @staticmethod
+    def canonical_group(d, inv_dims: int = 0) -> 'Sym':
+        raise NotImplementedError()
+
+
 class C2(Sym):
 
     def __init__(self, generator):
@@ -116,7 +121,7 @@ class C2(Sym):
         return [sparse.eye(self.d, format='coo'), self.discrete_generators[0]]
 
     def __repr__(self):
-        return f"C2[d:{self.d}]"
+        return f"C2[d:{self.d}]" if self.n_inv_dims == 0 else f"C2[d:{self.d}|inv:{self.n_inv_dims}]"
 
     @staticmethod
     def canonical_group(d, inv_dims: int = 0) -> 'C2':
@@ -226,10 +231,10 @@ class Klein4(Sym):
         return hash(str(self.discrete_generators))
 
     def __repr__(self):
-        return f"V4[d:{self.d}]"
+        return f"V4[d:{self.d}]" if self.n_inv_dims == 0 else f"V4[d:{self.d}|inv:{self.n_inv_dims}]"
 
     @staticmethod
-    def canonical_group(d) -> 'Klein4':
+    def canonical_group(d, inv_dims: int = 0) -> 'Klein4':
         """
         @param d: Vector Space dimension
         """

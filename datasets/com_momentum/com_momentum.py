@@ -138,7 +138,7 @@ class COMMomentum(Dataset):
 
             # Get all possible group actions
             for g_in, g_out in zip(self.Gin.discrete_actions[1:], self.Gout.discrete_actions[1:]):
-                g_in, gy_out = (g_in.todense(), g_out.todense()) if issparse(g_in) else (g_in, g_out)
+                g_in, g_out = (g_in.todense(), g_out.todense()) if issparse(g_in) else (g_in, g_out)
                 gx, gy = np.asarray(g_in) @ x, np.asarray(g_out) @ y
                 assert gx.dtype == x.dtype, (gx.dtype, x.dtype)
                 assert gy.dtype == y.dtype, (gy.dtype, y.dtype)

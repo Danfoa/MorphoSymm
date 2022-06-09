@@ -48,10 +48,10 @@ class LightningModel(pl.LightningModule):
         y_pred = self.model(x)
         loss = self._loss_fn(y_pred, y)
         # Logging to TensorBoard by default
-        self.log("train_loss", loss, prog_bar=False, on_step=True, on_epoch=True)
+        self.log("train_loss", loss, prog_bar=False, on_step=True, on_epoch=True, batch_size=y.shape[0])
 
         metrics = self.compute_metrics(y_pred, y)
-        self.log_metrics(metrics, prefix="train_")
+        self.log_metrics(metrics, prefix="train_", batch_size=y.shape[0])
         return loss
 
     def validation_step(self, batch, batch_idx):
@@ -62,7 +62,7 @@ class LightningModel(pl.LightningModule):
         metrics = self.compute_metrics(y_pred, y)
 
         self.log("val_loss", loss, prog_bar=False, on_epoch=True)
-        self.log_metrics(metrics, prefix="val_")
+        self.log_metrics(metrics, prefix="val_", batch_size=y.shape[0])
 
         return loss
 
@@ -74,15 +74,15 @@ class LightningModel(pl.LightningModule):
         metrics = self.compute_metrics(y_pred, y)
 
         self.log("test_loss", loss, prog_bar=False, on_epoch=True)
-        self.log_metrics(metrics, prefix="test_")
+        self.log_metrics(metrics, prefix="test_", batch_size=y.shape[0])
 
         return loss
 
-    def log_metrics(self, metrics: dict, prefix=''):
+    def log_metrics(self, metrics: dict, prefix='', batch_size=None):
         for k, v in metrics.items():
             name = f"{prefix}{k}"
 
-            self.log(name, v, prog_bar=False)
+            self.log(name, v, prog_bar=False, batch_size=batch_size)
 
     def on_train_epoch_start(self) -> None:
         self.epoch_start_time = time.time()
@@ -98,7 +98,7 @@ class LightningModel(pl.LightningModule):
         if hasattr(self.model, "get_hparams"):
             hparams.update(self.model.get_hparams())
         if self.logger:
-            self.logger.log_hyperparams(hparams, {"val_loss": 0.0})
+            self.logger.log_hyperparams(hparams, {"val_loss": 0.0, "train_loss": 0.0, "test_loss": 0.0})
 
     def on_train_end(self) -> None:
         ckpt_call = self.trainer.checkpoint_callback

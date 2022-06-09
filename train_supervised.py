@@ -1,26 +1,22 @@
 import os
+os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
 
 import pandas as pd
-from emlp.reps.representation import Vector
 
 from datasets.com_momentum.com_momentum import COMMomentum
+from datasets.umich_contact_dataset import UmichContactDataset
 from nn.EquivariantModules import MLP, EMLP
 from utils.robot_utils import get_robot_params
 
-os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
 import hydra
-import numpy as np
 from utils.utils import check_if_resume_experiment
 
-import torch
-from torch.utils.data import DataLoader
 from hydra.utils import get_original_cwd
 from omegaconf import DictConfig
 from pytorch_lightning import Trainer, seed_everything
 from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping
 from pytorch_lightning import loggers as pl_loggers
 
-from datasets.umich_contact_dataset import UmichContactDataset
 from groups.SemiDirectProduct import SparseRep
 from nn.LightningModel import LightningModel
 
@@ -42,13 +38,13 @@ log = logging.getLogger(__name__)
 def get_model(cfg, Gin=None, Gout=None, cache_dir=None):
     if "ecnn" in cfg.model_type.lower():
         model = ContactECNN(SparseRep(Gin), SparseRep(Gout), Gin, cache_dir=cache_dir, dropout=cfg.dropout,
-                            init_mode=cfg.init_mode)
+                            init_mode=cfg.init_mode, inv_dim_scale=cfg.inv_dims_scale)
     elif "cnn" == cfg.model_type.lower():
         model = contact_cnn()
     elif "emlp" == cfg.model_type.lower():
         model = EMLP(rep_in=SparseRep(Gin), rep_out=SparseRep(Gout), hidden_group=Gout, num_layers=cfg.num_layers,
-                       ch=cfg.num_channels, init_mode=cfg.init_mode, activation=torch.nn.ReLU,
-                       with_bias=cfg.bias, cache_dir=cache_dir).to(dtype=torch.float32)
+                     ch=cfg.num_channels, init_mode=cfg.init_mode, activation=torch.nn.ReLU,
+                     with_bias=cfg.bias, cache_dir=cache_dir, inv_dims_scale=cfg.inv_dims_scale).to(dtype=torch.float32)
     elif 'mlp' == cfg.model_type.lower():
         model = MLP(d_in=Gin.d, d_out=Gout.d, num_layers=cfg.num_layers, init_mode=cfg.init_mode,
                     ch=cfg.num_channels, with_bias=cfg.bias, activation=torch.nn.ReLU).to(dtype=torch.float32)
@@ -83,7 +79,7 @@ def get_datasets(cfg, device, root_path):
 
     elif cfg.dataset.name == "com_momentum":
         robot, Gin_data, Gout_data, Gin_model, Gout_model, = get_robot_params(cfg.robot_name)
-        data_path = root_path.joinpath(f"datasets/com_momentum/{cfg.robot_name}")
+        data_path = root_path.joinpath(f"datasets/com_momentum/{cfg.robot_name.lower()}")
         # Training only sees the model symmetries
         train_dataset = COMMomentum(robot, Gin=Gin_model, Gout=Gout_model, type='train',
                                     train_ratio=cfg.dataset.train_ratio, angular_momentum=cfg.dataset.angular_momentum,
@@ -97,8 +93,8 @@ def get_datasets(cfg, device, root_path):
                                   angular_momentum=cfg.dataset.angular_momentum, data_path=data_path,
                                   augment=True, dtype=torch.float32, device=device, standarizer=train_dataset.standarizer)
 
-        train_dataloader = DataLoader(train_dataset, batch_size=cfg.dataset.batch_size, num_workers=cfg.num_workers, shuffle=True,
-                                      collate_fn=lambda x: train_dataset.collate_fn(x))
+        train_dataloader = DataLoader(train_dataset, batch_size=cfg.dataset.batch_size, num_workers=cfg.num_workers,
+                                      shuffle=True, collate_fn=lambda x: train_dataset.collate_fn(x))
         val_dataloader = DataLoader(val_dataset, batch_size=cfg.dataset.batch_size, num_workers=cfg.num_workers,
                                     collate_fn=lambda x: val_dataset.collate_fn(x))
         test_dataloader = DataLoader(test_dataset, batch_size=cfg.dataset.batch_size, num_workers=cfg.num_workers,
@@ -114,7 +110,7 @@ def get_datasets(cfg, device, root_path):
 
 @hydra.main(config_path='cfg/supervised', config_name='config')
 def main(cfg: DictConfig):
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = torch.device("cuda" if torch.cuda.is_available() and cfg.device != "cpu" else "cpu")
     cfg.seed = cfg.seed if cfg.seed >= 0 else np.random.randint(0, 1000)
     seed_everything(seed=cfg.seed)
 
@@ -122,7 +118,7 @@ def main(cfg: DictConfig):
     cache_dir = root_path.joinpath(".empl_cache")
     cache_dir.mkdir(exist_ok=True)
 
-    tb_logger = pl_loggers.TensorBoardLogger(".", name=f'seed={cfg.seed}', version=cfg.seed)
+    tb_logger = pl_loggers.TensorBoardLogger(".", name=f'seed={cfg.seed}', version=cfg.seed, default_hp_metric=False)
     ckpt_call = ModelCheckpoint(dirpath=tb_logger.log_dir, filename='best', monitor="val_loss", save_last=True)
     stop_call = EarlyStopping(monitor='val_loss', patience=max(10, int(cfg.dataset.max_epochs * 0.33)), mode='min')
     exp_terminated, ckpt_path, best_path = check_if_resume_experiment(ckpt_call)
@@ -146,7 +142,7 @@ def main(cfg: DictConfig):
         batches_per_original_epoch = original_dataset_samples // cfg.dataset.batch_size
         epochs = cfg.dataset.max_epochs * batches_per_original_epoch / (len(train_dataset) // cfg.dataset.batch_size)
 
-        trainer = Trainer(gpus=1 if torch.cuda.is_available() else 0,
+        trainer = Trainer(gpus=1 if torch.cuda.is_available() and device != 'cpu' else 0,
                           logger=tb_logger,
                           accelerator="auto",
                           log_every_n_steps=max(
@@ -165,7 +161,9 @@ def main(cfg: DictConfig):
 
         test_metrics = trainer.test(model=pl_model, dataloaders=test_dataloader)[0]
         df = pd.DataFrame.from_dict({k: [v] for k, v in test_metrics.items()})
-        df.to_csv(str(pathlib.Path(tb_logger.log_dir).joinpath("test_metrics.csv")))
+        path = pathlib.Path(tb_logger.log_dir)
+        path.mkdir(exist_ok=True, parents=True)
+        df.to_csv(str(path.joinpath("test_metrics.csv").absolute()))
 
     else:
         log.warning(f"Experiment: {os.getcwd()} Already Finished. Ignoring run")
