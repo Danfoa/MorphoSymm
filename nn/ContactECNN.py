@@ -36,7 +36,8 @@ class ContactECNN(EquivariantModel):
         self.dropout = dropout
 
         self.in_invariant_dims = self.rep_in.G.n_inv_dims
-        self.inv_equi_ratio = self.rep_in.G.n_inv_dims / self.rep_in.G.d
+        self.inv_equi_ratio = np.mean([self.rep_in.G.n_inv_dims / self.rep_in.G.d,
+                                       self.rep_out.G.n_inv_dims / self.rep_out.G.d])
 
         rep_ch_64 = SparseRep(self.hidden_G.canonical_group(64, inv_dims=ceil(64 * self.inv_equi_ratio)))
         rep_ch_128 = SparseRep(self.hidden_G.canonical_group(128, inv_dims=ceil(128 * self.inv_equi_ratio)))
@@ -88,16 +89,17 @@ class ContactECNN(EquivariantModel):
         #                                           in_shape=(1, 64, 75))
         # EquivariantModel.test_module_equivariance(self.fc, rep_in=rep_in_mlp, rep_out=self.rep_out)
 
-        # self.reset_parameters(init_mode=init_mode)
+        self.reset_parameters(init_mode=init_mode)
         # Test entire model equivariance.
-        # self.test_module_equivariance(module=self, rep_in=self.rep_in, rep_out=self.rep_out,
-        #                               in_shape=(1, 150, rep_in.G.d))
+        self.test_module_equivariance(module=self, rep_in=self.rep_in, rep_out=self.rep_out,
+                                      in_shape=(1, 150, rep_in.G.d))
         self.save_cache_file()
 
     def forward(self, x):
         x = x.permute(0, 2, 1)
         block1_out = self.block1(x)
         block2_out = self.block2(block1_out)
+        # Ensure flattening maintains symmetry constraints
         block2_out = block2_out.permute(0, 2, 1)
         block2_out_reshape = block2_out.reshape(block2_out.shape[0], -1)
         fc_out = self.fc(block2_out_reshape)
@@ -109,6 +111,7 @@ class ContactECNN(EquivariantModel):
                 'rep_out': str(self.rep_in),
                 'hidden_group': str(self.hidden_G),
                 'init_mode': self.init_mode,
+                'inv_equiv_ratio': self.inv_equi_ratio,
                 'dropout': self.dropout}
 
     def reset_parameters(self, init_mode=None, model=None):

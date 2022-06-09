@@ -7,7 +7,7 @@ import pathlib
 import numpy as np
 import scipy.sparse
 import torch
-
+from scipy.sparse import issparse
 
 
 def check_if_resume_experiment(ckpt_call):
@@ -21,6 +21,11 @@ def check_if_resume_experiment(ckpt_call):
         terminated = False
 
     return terminated, ckpt_path, best_path
+
+def dense(x):
+    if issparse(x):
+        return x.todense()
+    return x
 
 def coo2torch_coo(M: scipy.sparse.coo_matrix):
     density = M.getnnz() / np.prod(M.shape)

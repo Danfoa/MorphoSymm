@@ -113,7 +113,7 @@ class C2(Sym):
 
     @property
     def discrete_actions(self) -> list:
-        return [jnp.eye(self.d, dtype=self.discrete_generators[0].dtype), self.discrete_generators[0]]
+        return [sparse.eye(self.d, format='coo'), self.discrete_generators[0]]
 
     def __repr__(self):
         return f"C2[d:{self.d}]"
@@ -205,16 +205,22 @@ class Klein4(Sym):
 
         # Assert generators and their composition is cylic. That is, assert generators produce an abelian group
         a, b = self.discrete_generators
-        # assert not np.allclose(a, np.eye(self.d)) and not np.allclose(b, np.eye(self.d)), f"Provide only two non-trivial generators"
-        assert np.allclose(a @ a, np.eye(self.d)), f"Generator is not cyclic:\n{a @ a}"
-        assert np.allclose(b @ b, np.eye(self.d)), f"Generator is not cyclic:\n{b @ b}"
-        assert np.allclose((a @ b) @ (a @ b), np.eye(self.d)), f"Generators composition a·b is not cyclic:\n{a @ b}"
-        assert not np.allclose(a @ b, np.eye(self.d)), f"Third action must be non-trivial: a·b != e"
+
+        is_eye = lambda x: np.isclose(sum(x.diagonal()), self.d) if self.is_sparse else jnp.isclose(jnp.trace(x), self.d)
+        a_is_eye, b_is_eye, ab_is_eye = is_eye(a), is_eye(b), is_eye(a @ b)
+        is_cyclic = lambda x: np.isclose(sum((x @ x).diagonal()), self.d) if self.is_sparse else jnp.isclose(jnp.trace(x @ x), self.d)
+        a_is_cyclic, b_is_cyclic, ab_is_cyclic = is_cyclic(a),  is_cyclic(b),  is_cyclic(a @ b)
+
+        assert not a_is_eye and not b_is_eye, f"Generators cannot be the identity a != b != e"
+        assert a_is_cyclic, f"Generator is not cyclic:\n{a @ a}"
+        assert b_is_cyclic, f"Generator is not cyclic:\n{b @ b}"
+        assert ab_is_cyclic, f"Generators composition a·b is not cyclic:\n{a @ b}"
+        assert not ab_is_eye, f"Third action must be non-trivial: a·b != e"
 
     @property
     def discrete_actions(self) -> list:
         a, b = self.discrete_generators
-        return [jnp.eye(self.d, dtype=jnp.int32), a, b, a@b]
+        return [sparse.eye(self.d, format='coo'), a, b, a@b]
 
     def __hash__(self):
         return hash(str(self.discrete_generators))

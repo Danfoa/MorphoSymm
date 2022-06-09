@@ -1,5 +1,6 @@
 #
 job_name: ${exp_name}_${robot_name}/model=${model.model_type}_train_ratio=${dataset.train_ratio}
+name: "contact"
 
 data_folder: "dataset/training/numpy/"
 
@@ -14,6 +15,8 @@ batch_size: 30
 window_size: 150
 
 train_ratio: 0.7
+test_ratio: 0.15
+val_ratio: 0.15
 
 shuffle: True
 

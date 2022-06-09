@@ -14,7 +14,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 from emlp import Group
-from emlp.reps.representation import Rep
+from emlp.reps.representation import Rep, Vector
 from emlp.reps.representation import Base as BaseRep
 from scipy.sparse import issparse
 
@@ -42,7 +42,7 @@ class BasisLinear(torch.nn.Module):
 
         # Compute the nullspace
         Q = self.repW.equivariant_basis()
-        self._sum_basis_sqrd = Q.power(2).sum() if issparse(Q) else np.sum(np.power(Q))
+        self._sum_basis_sqrd = Q.power(2).sum() if issparse(Q) else np.sum(np.power(Q, 2))
         basis = coo2torch_coo(Q) if issparse(Q) else torch.tensor(np.asarray(Q))
         self.basis = torch.nn.Parameter(basis, requires_grad=False)
 
@@ -80,17 +80,17 @@ class BasisLinear(torch.nn.Module):
 
     @property
     def weight(self):
-        if self._new_coeff or self._weight is None:
-            self._weight = torch.matmul(self.basis, self.basis_coeff).reshape((self.rep_out.G.d, self.rep_in.G.d))
-            self._new_coeff = False
+        # if self._new_coeff or self._weight is None:
+        self._weight = torch.matmul(self.basis, self.basis_coeff).reshape((self.rep_out.G.d, self.rep_in.G.d))
+        self._new_coeff = False
         return self._weight
 
     @property
     def bias(self):
         if self.bias_basis is not None:
-            if self._new_bias_coeff or self._bias is None:
-                self._bias = torch.matmul(self.bias_basis, self.bias_basis_coeff).reshape((self.rep_out.G.d,))
-                self._new_bias_coeff = False
+            # if self._new_bias_coeff or self._bias is None:
+            self._bias = torch.matmul(self.bias_basis, self.bias_basis_coeff).reshape((self.rep_out.G.d,))
+            self._new_bias_coeff = False
             return self._bias
         return None
 
@@ -298,7 +298,7 @@ class EMLP(EquivariantModel):
         # Parse channels as a single int, a sequence of ints, a single Rep, a sequence of Reps
         rep_inter_in = rep_in
         rep_inter_out = rep_out
-
+        inv_in, inv_out = rep_in.G.n_inv_dims/rep_in.G.d, rep_out.G.n_inv_dims/rep_in.G.d
         layers = []
         for n in range(num_layers + 1):
             rep_inter_out = SparseRep(self.hidden_group.canonical_group(ch))
@@ -307,7 +307,7 @@ class EMLP(EquivariantModel):
             layers.append(layer)
             rep_inter_in = rep_inter_out
         # Add last layer
-        linear_out = BasisLinear(rep_in=rep_inter_in, rep_out=rep_out, bias=with_bias)
+        linear_out = BasisLinear(rep_in=rep_inter_in, rep_out=rep_out, bias=False)
         layers.append(linear_out)
 
         self.net = torch.nn.Sequential(*layers)

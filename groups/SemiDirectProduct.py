@@ -18,6 +18,9 @@ from scipy.sparse.linalg import LinearOperator
 from utils.robot_utils import get_robot_params
 
 import logging
+
+from utils.utils import dense
+
 log = logging.getLogger(__name__)
 
 class SemiDirectProduct(Sym):
@@ -35,7 +38,7 @@ class SemiDirectProduct(Sym):
             if self.is_sparse:
                 a = scipy.sparse.kron(h_out, h_in)
             else:
-                a = LazyKron([h_out, h_in])
+                a = LazyKron([dense(h_out), dense(h_in)])
             self.discrete_generators.append(a)
 
         self.G1 = Gin
@@ -44,6 +47,17 @@ class SemiDirectProduct(Sym):
 
         # TODO: Make functional for continuous groups
         self.lie_algebra = []
+
+    @property
+    def discrete_actions(self) -> list:
+        actions = []
+        for g_in, g_out in zip(self.G1.discrete_actions, self.G2.discrete_actions):
+            if self.is_sparse:
+                a = scipy.sparse.kron(g_out, g_in)
+            else:
+                a = LazyKron([dense(g_out), dense(g_in)])
+            actions.append(a)
+        return actions
 
     def get_inout_generators(self):
         return np.array(self.G1.discrete_generators, dtype=np.float32), \
@@ -82,7 +96,7 @@ class SparseRep(BaseRep):
             #     U, S, VH = scipy.sparse.linalg.svds(C, min(C.shape) - 1)
             #     rank = (S > 1e-5).sum()
             #     return VH[rank:].conj().T
-            if self.G.is_sparse and len(self.G.discrete_generators) == 1:
+            if self.G.is_sparse:
                 # P = self.G.discrete_generators[0]
                 Q = self.sparse_equivariant_basis()
                 # Q2 = self.sparse_equivariant_basis2()
@@ -131,8 +145,9 @@ class SparseRep(BaseRep):
 
         idx = scipy.sparse.eye(n, format='coo', dtype=P.dtype)
         orbits = [idx]
-        for h in self.G.discrete_generators:
-            orbits.append((h @ orbits[-1]).tocoo().astype(np.int))
+        # First action is identity e
+        for h in self.G.discrete_actions[1:]:
+            orbits.append((h @ orbits[0]).tocoo().astype(np.int))
 
         # cols_itr = np.asarray([m.col for m in orbits]).T
         rows_itr = np.asarray([m.row for m in orbits]).T

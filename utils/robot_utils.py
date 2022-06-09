@@ -56,8 +56,8 @@ def get_robot_params(robot_name):
 
         g_sagittal = C2.oneline2matrix(oneline_notation=perm_q[0], reflexions=refx_q[0])
         g_transversal = C2.oneline2matrix(oneline_notation=perm_q[1], reflexions=refx_q[1])
-        g_sagittal_out = C2.oneline2matrix(oneline_notation=[0, 1, 2, 3, 4, 5], reflexions=[1, -1, 1, -1, 1, -1])
-        g_transversal_out = C2.oneline2matrix(oneline_notation=[0, 1, 2, 3, 4, 5], reflexions=[-1, 1, 1, 1, -1, -1])
+        g_sagittal_out = C2.oneline2matrix(oneline_notation=[0, 1, 2, 3, 4, 5],    reflexions=[1, -1, 1, -1,  1, -1])
+        g_transversal_out = C2.oneline2matrix(oneline_notation=[0, 1, 2, 3, 4, 5], reflexions=[-1, 1, 1,  1, -1, -1])
 
         # Original structure symmetry groups
         Gin_data = Klein4(generators=[g_sagittal, g_transversal])

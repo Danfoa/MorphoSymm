@@ -3,3 +3,5 @@ defaults:
   - mlp
 
 model_type: 'EMLP'
+num_layers: 2
+num_channels: 128

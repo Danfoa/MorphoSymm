@@ -1,325 +1,175 @@
 import os
-# Avoid Jax stealing all GPU memory.
-from utils.utils import pprint_dict
+
+import pandas as pd
+from emlp.reps.representation import Vector
+
+from datasets.com_momentum.com_momentum import COMMomentum
+from nn.EquivariantModules import MLP, EMLP
+from utils.robot_utils import get_robot_params
 
 os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
-import pathlib
-
-import matplotlib.pyplot as plt
-import seaborn as sns
-
 import hydra
 import numpy as np
-import pandas as pd
+from utils.utils import check_if_resume_experiment
+
 import torch
-from torch.utils.data import DataLoader, random_split
-from emlp.reps import Vector
+from torch.utils.data import DataLoader
 from hydra.utils import get_original_cwd
-
-from omegaconf import DictConfig, OmegaConf
+from omegaconf import DictConfig
 from pytorch_lightning import Trainer, seed_everything
+from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping
 from pytorch_lightning import loggers as pl_loggers
-from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint
 
-from nn.KFoldValidation import KFoldDataModule, KFoldValidation
+from datasets.umich_contact_dataset import UmichContactDataset
+from groups.SemiDirectProduct import SparseRep
 from nn.LightningModel import LightningModel
-from nn.EquivariantModules import EMLP, MLP
-from datasets.com_momentum import COMMomentum
 
-import optuna
+try:
+    from yaml import CLoader as Loader, CDumper as Dumper
+except ImportError:
+    from yaml import Loader, Dumper
 
-from utils.robot_utils import get_robot_params
+import pathlib
+from deep_contact_estimator.src.contact_cnn import *
+from deep_contact_estimator.utils.data_handler import *
+from nn.ContactECNN import ContactECNN
+
 import logging
 
 log = logging.getLogger(__name__)
-cache_dir = None
 
 
-def run_hp_search(cfg, network, dataset, trainer_kwargs, n_trials=100):
-    study = optuna.create_study(direction="minimize", study_name=f"{cfg.model_type}_{cfg.robot_name}")
-    state_dict = network.state_dict()
-    study.optimize(lambda x: objective(x, cfg, network, dataset,
-                                       state_dict=state_dict, trainer_kwargs=trainer_kwargs), n_trials=n_trials)
-    results_df = study.trials_dataframe(attrs=('number', 'value', 'params', 'state'))
-    results_df.sort_values("params_lr", inplace=True)
-    results_df.to_csv("Results.csv")
-    fig, ax =plt.subplots()
-    ax.plot(results_df["params_lr"], results_df["value"], "-o")
-    ax.set_ylabel("validation loss")
-    ax.set_xlabel("lr")
-    ax.set_xscale("log")
-    ax.set_title(cfg.model_type)
-    fig.savefig("lr-vs-validation_loss.png", dpi=90)
-    fig.show()
-    print(results_df)
-    return results_df
-
-
-def objective(trial: optuna.trial.Trial, cfg: DictConfig, network, dataset, trainer_kwargs, state_dict=None) -> float:
-
-    lr = trial.suggest_loguniform(name="lr", low=1e-8, high=1e-1)
-    # trial.
-    # Build Lightning Module ___________________________________________________________________
-    if state_dict is not None:  # Reinitialize weights
-        network.load_state_dict(state_dict)
-    # network.reset_parameters()
-    pl_model = LightningModel(lr=lr, loss_fn=dataset.loss_fn,
-                              metrics_fn=lambda x, y: dataset.compute_metrics(x, y, dataset.standarizer))
-    pl_model.set_model(model=network)
-
-
-    tb_logger = pl_loggers.TensorBoardLogger(".", name=f'trial_{trial.number}', version=0)
-    ckpt_call = ModelCheckpoint(dirpath=tb_logger.log_dir, filename='best', monitor="hp/val_loss", save_last=True)
-    stop_call = EarlyStopping(monitor="hp/val_loss", patience=100, mode='min')
-    trainer_kwargs["callbacks"] = [ckpt_call, stop_call]
-    trainer_kwargs['enable_progress_bar'] = False
-
-    trainer = Trainer(logger=tb_logger, **trainer_kwargs)
-
-    train_size = int((cfg.dataset.train_samples) * .8)
-    val_size = int((cfg.dataset.train_samples) * .2)
-
-    train_dataset, test_dataset, val_dataset = random_split(dataset, [train_size, cfg.dataset.test_samples, val_size],
-                                                            generator=torch.Generator().manual_seed(cfg.seed))
-
-    train_dataloader, val_dataloader = DataLoader(dataset, batch_size=cfg.batch_size, num_workers=4,
-                                                  collate_fn=lambda x: dataset.collate_fn(x)), \
-                                       DataLoader(val_dataset, batch_size=cfg.batch_size, num_workers=4,
-                                                  collate_fn=lambda x: dataset.collate_fn(x))
-
-    ckpt_path = pathlib.Path(ckpt_call.dirpath).joinpath(ckpt_call.CHECKPOINT_NAME_LAST + ckpt_call.FILE_EXTENSION)
-    best_path = pathlib.Path(ckpt_call.dirpath).joinpath(ckpt_call.filename + ckpt_call.FILE_EXTENSION)
-
-    if best_path.exists():
-        best_ckpt = torch.load(best_path)
-        lr = best_ckpt['hyper_parameters']['lr']
-        trial.params['lr'] = lr
-        pl_model.lr = trial.params['lr']
-
-    score = np.inf
-    if best_path.exists() and not ckpt_path.exists():   # Experiment already finished
-        for k, v in best_ckpt['callbacks'].items():
-            if "EarlyStop" in k:
-                score = v["best_score"].item()
+def get_model(cfg, Gin=None, Gout=None, cache_dir=None):
+    if "ecnn" in cfg.model_type.lower():
+        model = ContactECNN(SparseRep(Gin), SparseRep(Gout), Gin, cache_dir=cache_dir, dropout=cfg.dropout,
+                            init_mode=cfg.init_mode)
+    elif "cnn" == cfg.model_type.lower():
+        model = contact_cnn()
+    elif "emlp" == cfg.model_type.lower():
+        model = EMLP(rep_in=SparseRep(Gin), rep_out=SparseRep(Gout), hidden_group=Gout, num_layers=cfg.num_layers,
+                       ch=cfg.num_channels, init_mode=cfg.init_mode, activation=torch.nn.ReLU,
+                       with_bias=cfg.bias, cache_dir=cache_dir).to(dtype=torch.float32)
+    elif 'mlp' == cfg.model_type.lower():
+        model = MLP(d_in=Gin.d, d_out=Gout.d, num_layers=cfg.num_layers, init_mode=cfg.init_mode,
+                    ch=cfg.num_channels, with_bias=cfg.bias, activation=torch.nn.ReLU).to(dtype=torch.float32)
     else:
-        trainer.fit(pl_model, train_dataloaders=train_dataloader, val_dataloaders=val_dataloader,
-                    ckpt_path=best_path if ckpt_path.exists() else None)
-        score = trainer.checkpoint_callback.best_model_score.item()
-
-        if isinstance(network, EMLP):
-            log.info("Evaluating trained model equivariance")
-            EMLP.test_module_equivariance(module=network, rep_in=network.rep_in, rep_out=network.rep_out)
-
-    # Return best model validation score.
-    return score
+        raise NotImplementedError(cfg.model_type)
+    return model
 
 
-def get_network(model_type, Gin, Gout, num_layers, init_mode, ch, bias, cache_dir):
-    if model_type == "emlp":
-        network = EMLP(rep_in=Vector(Gin), rep_out=Vector(Gout), hidden_group=Gout, num_layers=num_layers,
-                       ch=ch, init_mode=init_mode, activation=torch.nn.ReLU,
-                       with_bias=bias, cache_dir=cache_dir).to(dtype=torch.float32)
-    elif 'mlp' in model_type:
-        if 'mean' in init_mode.lower(): return
-        network = MLP(d_in=Gin.d, d_out=Gout.d, num_layers=num_layers, init_mode=init_mode,
-                      ch=ch, with_bias=bias, activation=torch.nn.ReLU).to(dtype=torch.float32)
+def get_datasets(cfg, device, root_path):
+    if cfg.dataset.name == "contact":
+        train_dataset = UmichContactDataset(data_name="train.npy",
+                                            label_name="train_label.npy", train_ratio=cfg.dataset.train_ratio,
+                                            augment=cfg.dataset.augment,
+                                            use_class_imbalance_w=cfg.dataset.balanced_classes,
+                                            window_size=cfg.dataset.window_size, device=device)
+
+        val_dataset = UmichContactDataset(data_name="val.npy",
+                                          label_name="val_label.npy", train_ratio=cfg.dataset.train_ratio,
+                                          augment=False, use_class_imbalance_w=False,
+                                          window_size=cfg.dataset.window_size, device=device)
+        test_dataset = UmichContactDataset(data_name="test.npy",
+                                           label_name="test_label.npy", train_ratio=cfg.dataset.train_ratio,
+                                           augment=False, use_class_imbalance_w=False,
+                                           window_size=cfg.dataset.window_size, device=device)
+
+        train_dataloader = DataLoader(dataset=train_dataset, batch_size=cfg.dataset.batch_size, shuffle=True,
+                                      num_workers=cfg.num_workers, collate_fn=lambda x: train_dataset.collate_fn(x))
+        val_dataloader = DataLoader(dataset=val_dataset, batch_size=cfg.dataset.batch_size,
+                                    collate_fn=lambda x: val_dataset.collate_fn(x), num_workers=cfg.num_workers)
+        test_dataloader = DataLoader(dataset=test_dataset, batch_size=cfg.dataset.batch_size,
+                                     collate_fn=lambda x: val_dataset.collate_fn(x), num_workers=cfg.num_workers)
+
+    elif cfg.dataset.name == "com_momentum":
+        robot, Gin_data, Gout_data, Gin_model, Gout_model, = get_robot_params(cfg.robot_name)
+        data_path = root_path.joinpath(f"datasets/com_momentum/{cfg.robot_name}")
+        # Training only sees the model symmetries
+        train_dataset = COMMomentum(robot, Gin=Gin_model, Gout=Gout_model, type='train',
+                                    train_ratio=cfg.dataset.train_ratio, angular_momentum=cfg.dataset.angular_momentum,
+                                    standarizer=cfg.dataset.standarize, augment=cfg.dataset.augmentation,
+                                    data_path=data_path, dtype=torch.float32, device=device)
+        # Test and validation use theoretical symmetry group, and training set standarization
+        test_dataset = COMMomentum(robot, Gin=Gin_data, Gout=Gout_data, type='test', train_ratio=cfg.dataset.train_ratio,
+                                   angular_momentum=cfg.dataset.angular_momentum, data_path=data_path,
+                                   augment=True, dtype=torch.float32, device=device, standarizer=train_dataset.standarizer)
+        val_dataset = COMMomentum(robot, Gin=Gin_data, Gout=Gout_data, type='val', train_ratio=cfg.dataset.train_ratio,
+                                  angular_momentum=cfg.dataset.angular_momentum, data_path=data_path,
+                                  augment=True, dtype=torch.float32, device=device, standarizer=train_dataset.standarizer)
+
+        train_dataloader = DataLoader(train_dataset, batch_size=cfg.dataset.batch_size, num_workers=cfg.num_workers, shuffle=True,
+                                      collate_fn=lambda x: train_dataset.collate_fn(x))
+        val_dataloader = DataLoader(val_dataset, batch_size=cfg.dataset.batch_size, num_workers=cfg.num_workers,
+                                    collate_fn=lambda x: val_dataset.collate_fn(x))
+        test_dataloader = DataLoader(test_dataset, batch_size=cfg.dataset.batch_size, num_workers=cfg.num_workers,
+                                     collate_fn=lambda x: test_dataset.collate_fn(x))
+
     else:
-        raise NotImplementedError(model_type)
-    log.info(network)
-    return network
+        raise NotImplementedError(cfg.dataset.name)
+
+    datasets = train_dataset, val_dataset, test_dataset
+    dataloaders = train_dataloader, val_dataloader, test_dataloader
+    return datasets, dataloaders
 
 
 @hydra.main(config_path='cfg/supervised', config_name='config')
 def main(cfg: DictConfig):
-    log.info(f"XLA_PYTHON_CLIENT_PREALLOCATE: {os.environ['XLA_PYTHON_CLIENT_PREALLOCATE']}")
-    torch.set_default_dtype(torch.float32)
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     cfg.seed = cfg.seed if cfg.seed >= 0 else np.random.randint(0, 1000)
-    seed_everything(seed=np.random.randint(0, 1000))
-    log.info(f"Current working directory : {os.getcwd()}")
-    # Avoid repeating to compute basis at each experiment.
+    seed_everything(seed=cfg.seed)
+
     root_path = pathlib.Path(get_original_cwd()).resolve()
-    global cache_dir
     cache_dir = root_path.joinpath(".empl_cache")
     cache_dir.mkdir(exist_ok=True)
 
-    log.info(f"Cache Directory exists {cache_dir.exists()}: {cache_dir}")
-    assert cache_dir.exists(), cache_dir.absolute()
+    tb_logger = pl_loggers.TensorBoardLogger(".", name=f'seed={cfg.seed}', version=cfg.seed)
+    ckpt_call = ModelCheckpoint(dirpath=tb_logger.log_dir, filename='best', monitor="val_loss", save_last=True)
+    stop_call = EarlyStopping(monitor='val_loss', patience=max(10, int(cfg.dataset.max_epochs * 0.33)), mode='min')
+    exp_terminated, ckpt_path, best_path = check_if_resume_experiment(ckpt_call)
 
-    robot, Gin_data, Gout_data, Gin_model, Gout_model, = get_robot_params(cfg.robot_name)
+    if not exp_terminated:
+        # Prepare data
+        datasets, dataloaders = get_datasets(cfg, device, root_path)
+        train_dataset, val_dataset, test_dataset = datasets
+        train_dataloader, val_dataloader, test_dataloader = dataloaders
 
-    # Configure base trainer parameters ________________________________________________________
-    callbacks = [ModelCheckpoint(monitor="hp/val_loss", mode='min', dirpath='.', filename="best",
-                                 save_last=True, every_n_epochs=1),
-                 EarlyStopping(monitor="hp/val_loss", patience=cfg.dataset.max_epochs * 0.1, mode='min')]
+        # Prepare model
+        model = get_model(cfg.model, Gin=train_dataset.Gin, Gout=train_dataset.Gout, cache_dir=cache_dir)
+        log.info(model)
 
+        # Prepare Lightning
+        pl_model = LightningModel(lr=cfg.model.lr, loss_fn=train_dataset.loss_fn,
+                                  metrics_fn=lambda x, y: train_dataset.compute_metrics(x, y))
+        pl_model.set_model(model)
 
-    if cfg.run_type == "hp_search":
-        trainer_kwargs = {'gpus': 1 if torch.cuda.is_available() else 0,
-                          'accelerator': "auto",
-                          # 'strategy': "ddp",
-                          'log_every_n_steps': max(int(cfg.dataset.train_samples // cfg.batch_size), 50),
-                          'max_epochs': cfg.max_epochs,
-                          'check_val_every_n_epoch': 1,
-                          'benchmark': True,
-                          'callbacks': callbacks}
-        # Prepare model ____________________________________________________________________________
-        model_type = cfg.model_type.lower()
-        network = get_network(model_type=model_type, Gin=Gin_model, Gout=Gout_model, num_layers=cfg.num_layers,
-                              init_mode=cfg.init_mode, ch=cfg.num_channels, bias=cfg.bias, cache_dir=cache_dir)
-        dataset = COMMomentum(robot, Gin=Gin_data, Gout=Gout_data, size=cfg.dataset.train_samples + cfg.dataset.test_samples,
-                              angular_momentum=cfg.dataset.angular_momentum, standarize=True,
-                              augment="aug" in model_type, dtype=torch.float32)
-        results = run_hp_search(cfg=cfg, network=network, dataset=dataset, trainer_kwargs=trainer_kwargs, n_trials=cfg.lr_trials)
-        print(results)
-        # TODO: Process results.
-    elif "cross_val" in cfg.run_type:
-        trainer_kwargs = {'gpus': 1 if torch.cuda.is_available() else 0,
-                          'accelerator': "auto",
-                          # 'strategy': "ddp",
-                          # 'log_every_n_steps': int(cfg.dataset.train_samples // cfg.batch_size // 2),
-                          # Every half epoch.
-                          'max_epochs': cfg.dataset.max_epochs,
-                          'check_val_every_n_epoch': 1,
-                          'benchmark': True,
-                          'callbacks': callbacks}
+        original_dataset_samples = int(0.7 * len(train_dataset) / cfg.dataset.train_ratio)
+        batches_per_original_epoch = original_dataset_samples // cfg.dataset.batch_size
+        epochs = cfg.dataset.max_epochs * batches_per_original_epoch / (len(train_dataset) // cfg.dataset.batch_size)
 
-        # init_modes = ['fan_in', 'fan_out', 'normal0.1', 'normal1.0']
-        init_modes = [cfg.model.init_mode] if isinstance(cfg.model.init_mode, str) else cfg.model.init_mode
-        train_sizes = cfg.dataset.train_samples
-        # model_types = ['emlp', 'mlp', 'mlp-aug']
-        model_types = cfg.model.model_type
-        hidden_layers = cfg.model.num_layers
-        hd = hidden_layers
-        results = {}
+        trainer = Trainer(gpus=1 if torch.cuda.is_available() else 0,
+                          logger=tb_logger,
+                          accelerator="auto",
+                          log_every_n_steps=max(
+                              int((len(train_dataset) // cfg.dataset.batch_size) * cfg.dataset.log_every_n_epochs), 50),
+                          max_epochs=epochs,
+                          check_val_every_n_epoch=1,
+                          benchmark=True,
+                          callbacks=[ckpt_call, stop_call],
+                          fast_dev_run=cfg.get('debug', False),
+                          detect_anomaly=cfg.get('debug', False),
+                          resume_from_checkpoint=ckpt_path if ckpt_path.exists() else None,
+                          # num_sanity_val_steps=1,  # Lightning Bug.
+                          )
 
-        test_dataset = COMMomentum(robot, Gin=Gin_data, Gout=Gout_data, size=cfg.dataset.test_samples,
-                                   angular_momentum=cfg.dataset.angular_momentum, standarize=cfg.dataset.standarize,
-                                   augment=True, dtype=torch.float32)
+        trainer.fit(model=pl_model, train_dataloaders=train_dataloader, val_dataloaders=val_dataloader)
 
-        metrics = []
-        print(train_sizes)
-        for training_size in train_sizes:
-            # Prepare data _____________________________________________________________________________
-            train_dataset = COMMomentum(robot, Gin=Gin_model, Gout=Gout_model, size=training_size,
-                                        angular_momentum=cfg.dataset.angular_momentum, standarize=False,
-                                        augment=cfg.dataset.augmentation, dtype=torch.float32)
-            # Use test set Standarizer
-            train_dataset.X, train_dataset.Y = test_dataset.standarizer.transform(train_dataset.X, train_dataset.Y)
+        test_metrics = trainer.test(model=pl_model, dataloaders=test_dataloader)[0]
+        df = pd.DataFrame.from_dict({k: [v] for k, v in test_metrics.items()})
+        df.to_csv(str(pathlib.Path(tb_logger.log_dir).joinpath("test_metrics.csv")))
 
-            # Set number of epochs accordingly to training size
-            new_max_epochs = int(max(cfg.dataset.test_samples, training_size) *
-                                 cfg.max_epochs / training_size)
-            trainer_kwargs['max_epochs'] = new_max_epochs
-            trainer_kwargs['log_every_n_steps'] = max(int(training_size // cfg.batch_size), 50)
-            for model_type in model_types:
-                if 'aug' in model_type:
-                    train_dataset.augment = True
-                else:
-                    train_dataset.augment = False
-                network = get_network(model_type=model_type, Gin=Gin_model, Gout=Gout_model, num_layers=hd,
-                                      ch=cfg.num_channels, bias=cfg.bias, init_mode='fan_in', cache_dir=cache_dir)
-                # Build Lightning Module
-                pl_model = LightningModel(lr=cfg.lr, loss_fn=train_dataset.loss_fn,
-                                          metrics_fn=lambda x, y: train_dataset.compute_metrics(x, y, train_dataset.standarizer))
-                pl_model.set_model(model=network)
-
-                for init_mode in init_modes:
-                    if 'mean' in init_mode and not 'emlp' in model_type: continue
-                    run_name = {"model": model_type, "hidden_layers": hd, "init_mode": init_mode,
-                                "training_samples": training_size}
-                    metrics = sorted(list(run_name.keys()))
-                    # Re initialize parameters
-                    pl_model.model.reset_parameters(init_mode=init_mode)
-
-                    datamodule = KFoldDataModule(train_dataset=train_dataset, test_dataset=test_dataset,
-                                                 batch_size=cfg.batch_size)
-
-                    kfold_val = KFoldValidation(model=pl_model, trainer_kwargs=trainer_kwargs, reinitialize=True,
-                                                kfold_data_module=datamodule, num_folds=cfg.kfolds,
-                                                run_name=pprint_dict(run_name))
-                    # if cfg.auto_lr:
-                    #     # Tune Hyperparameters
-                    #     tmp_trainer = Trainer(auto_lr_find=True, logger=False, gpus=1, deterministic=False,
-                    #                           detect_anomaly=True)
-                    #     pl_model.model.reset_parameters()
-                    #     tmp_trainer.tune(pl_model, train_dataloaders=datamodule.train_dataloader(),
-                    #                      val_dataloaders=datamodule.test_dataloader())
-                    #     lr_finder = tmp_trainer.tuner.lr_find(pl_model,
-                    #                                           train_dataloader=datamodule.train_dataloader(),
-                    #                                           val_dataloaders=datamodule.test_dataloader())
-                    #                                           # datamodule=datamodule)
-                    #     # Results can be found in
-                    #     r = lr_finder.results
-                    #     new_lr = lr_finder.suggestion()
-                    #     # Plot with
-                    #     fig = lr_finder.plot(suggest=True)
-                    #     plt.title(f"{model_type}")
-                    #     fig.show()
-                    results[str(run_name)] = kfold_val.run()
-
-        summaries = KFoldValidation.summarize_results(results)
-        test_pds, train_pds, val_pds = [], [], []
-        for run_name, summary in summaries.items():
-            test_pds.append(pd.DataFrame(summary['test']).assign(**eval(run_name)))
-            train_pds.append(pd.DataFrame(summary['train']).assign(**eval(run_name)))
-            val_pds.append(pd.DataFrame(summary['val']).assign(**eval(run_name)))
-
-        test_pd = pd.concat(test_pds, axis=0, join='inner')
-        train_pd = pd.concat(train_pds, axis=0, join='inner')
-        val_pd = pd.concat(val_pds, axis=0, join='inner')
-
-        file_name = f"{model_types}-{init_modes}-hd{hidden_layers}.csv"
-        test_pd.to_csv(f"TEST-{file_name}")
-        train_pd.to_csv(f"TRAIN-{file_name}")
-        val_pd.to_csv(f"VAL-{file_name}")
-
-        # Plot.
-        test_pd_long = pd.melt(test_pd, id_vars=metrics, var_name="metric")
-        metric_names = np.unique(test_pd_long['metric']).tolist()
-        g = sns.catplot(x='training_samples', y='value', col='metric', row='init_mode', hue='model',
-                        col_order=reversed(metric_names), row_order=init_modes,
-                        data=test_pd_long, kind="violin", inner="box", palette='PuBuGn',
-                        scale='count', scale_hue=True, split=False, sharey=False, sharex=False)
-        g.figure.savefig(file_name + ".png", dpi=90)
-        g.figure.show()
-        # print(summaries)
-
-    elif cfg.run_type == "single_run":
-        pass
-    #
-    # # Build Lightning Module
-    # model = LightningModel(model=network, lr=cfg.lr, loss_fn=dataset.loss_fn,
-    #                        metrics_fn=dataset.compute_metrics)>
-    #
-    # # Configure Logger _________________________________________________________________________
-    # tb_logger = pl_loggers.TensorBoardLogger(".", name=f'seed={cfg.seed}', version=cfg.seed)
-    # gpu_available = torch.cuda.is_available()
-    # log.warning(f"CUDA GPU available {torch.cuda.get_device_name(0) if gpu_available else 'False'}")
-    # # TODO: Remove for parallel training.
-    # os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
-    # os.environ["CUDA_VISIBLE_DEVICES"] = str(cfg.device)
-    #
-    # }
-    #
-    # if cfg.kfold:
-    #     num_folds = 5
-    #     datamodule = KFoldDataModule(dataset, test_samples=cfg.dataset.test_samples, batch_size=cfg.batch_size)
-    #     kfold_val = KFoldValidation(model=model, trainer_kwargs=trainer_kwargs,
-    #                                 kfold_data_module=datamodule, num_folds=num_folds,
-    #                                 export_path="kfold")
-    #     a = kfold_val.run()
-    #     print(kfold_val.summary())
-    #
-    # else:
-    #     trainer = Trainer(**trainer_kwargs)
-    #
-    #     train_dataset, val_dataset = random_split(dataset, [cfg.dataset.train_samples - cfg.dataset.test_samples,
-    #                                                         cfg.dataset.test_samples])
-    #     train_dataloader, val_dataloader = DataLoader(dataset, batch_size=cfg.batch_size), \
-    #                                        DataLoader(val_dataset, batch_size=cfg.batch_size)
-    #
-    #     trainer.fit(model, train_dataloaders=train_dataloader, val_dataloaders=val_dataloader)
+    else:
+        log.warning(f"Experiment: {os.getcwd()} Already Finished. Ignoring run")
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()

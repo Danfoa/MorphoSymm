@@ -73,17 +73,17 @@ class BasisConv1d(torch.nn.Module):
 
     @property
     def weight(self):
-        if self._new_coeff:
-            self._weight = torch.matmul(self.basis, self.basis_coeff).reshape((self.rep_out.G.d, self.rep_in.G.d, self.kernel_size_))
-            self._new_coeff = False
+        # if self._new_coeff:
+        self._weight = torch.matmul(self.basis, self.basis_coeff).reshape((self.rep_out.G.d, self.rep_in.G.d, self.kernel_size_))
+        self._new_coeff = False
         return self._weight
 
     @property
     def bias(self):
         if self.bias_basis is not None:
-            if self._new_bias_coeff:
-                self._bias = torch.matmul(self.bias_basis, self.bias_basis_coeff).reshape((self.rep_out.G.d,))
-                self._new_bias_coeff = False
+            # if self._new_bias_coeff:
+            self._bias = torch.matmul(self.bias_basis, self.bias_basis_coeff).reshape((self.rep_out.G.d,))
+            self._new_bias_coeff = False
             return self._bias
         return None
 

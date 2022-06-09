@@ -20,6 +20,7 @@ seed: -1
 exp_name: 'tests'
 
 device: 0
+num_workers: 0  # Dataloader workers
 #max_epochs: 2
 
 # Run parameters
@@ -44,16 +45,17 @@ hydra:
         item_sep: " "
         exclude_keys:
           - batch_size
-          - model_type
-          - num_channels
-          - num_layers
+          - model
+          - model.model_type
+          - model.num_channels
+          - model.num_layers
           - device
           - robot_name
           - exp_name
           - max_epochs
-          - dataset.train_samples
-          - dataset.val_samples
-          - dataset.test_samples
+          - dataset.train_ratio
+          - dataset.val_ratio
+          - dataset.test_ratio
           - run_type
           - kfolds
           - dataset

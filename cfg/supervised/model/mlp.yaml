@@ -3,5 +3,5 @@ defaults:
   - base_model
 
 model_type: 'MLP'
-num_layers: 1
-num_channels: 64
+num_layers: 2
+num_channels: 128
