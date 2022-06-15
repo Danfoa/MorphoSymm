@@ -2,6 +2,7 @@ import copy
 import logging
 import pathlib
 import random
+import time
 from typing import Union
 
 import numpy as np
@@ -90,7 +91,16 @@ class COMMomentum(Dataset):
         assert type.lower() in ["train", "test", "val"], f"type must be one of these [train, test, val]"
         file_path = partition_path.joinpath(f"{type}.npz")
         assert file_path.exists(), file_path.absolute()
-        data = np.load(str(file_path))
+        # Loading on multiple threads might lead to issues -------------------
+        trials = 5
+        data = None
+        while data is None and trials > 0:
+            try:
+                data = np.load(str(file_path))
+            except:
+                trials -= 1
+                time.sleep(np.random.random())
+        #  -------------------------------------------------------------------
         X, Y = data['X'], data['Y']
 
         q, dq = robot.get_init_config(random=False)
@@ -197,13 +207,13 @@ class COMMomentum(Dataset):
         x_batch, y_batch = default_collate(batch)
 
         if self.augment:  # Sample uniformly among symmetry actions including identity
-            g_in, g_out = random.choice(self.t_group_actions[1:])
+            g_in, g_out = random.choice(self.t_group_actions)
             g_x_batch = torch.matmul(x_batch.unsqueeze(1), g_in.unsqueeze(0).to(x_batch.dtype)).squeeze()
             g_y_batch = torch.matmul(y_batch.unsqueeze(1), g_out.unsqueeze(0).to(y_batch.dtype)).squeeze()
             # x, xx = x_batch[0], g_x_batch[0]
             # y, yy = y_batch[0], g_y_batch[0]
             x_batch, y_batch = g_x_batch, g_y_batch
-        return [x_batch.to(self.dtype), y_batch.to(self.dtype)]
+        return x_batch.to(self.dtype), y_batch.to(self.dtype)
 
     @property
     def augment(self):

@@ -91,7 +91,7 @@ class Sym(Group):
 
     @property
     def np_gens(self):
-        return np.array(self.discrete_generators)
+        return np.array([h.todense() for h in self.discrete_generators])
 
     @staticmethod
     def canonical_group(d, inv_dims: int = 0) -> 'Sym':
@@ -239,23 +239,41 @@ class Klein4(Sym):
         @param d: Vector Space dimension
         """
         assert d > 0, "Vector space dimension must be greater than 0"
-        a = list(reversed(range(d)))
 
-        #
+        # Representation reflections
+        r_a = np.ones((d,))
+        r_b = np.ones((d,))
+
         mod = d % 4
-        idx = np.array_split(range(d - mod), indices_or_sections=4)
-        b_r = np.ones((d,))
-        if mod > 0:
-            r_idx = np.array(range(d-mod, d))
-            b = np.concatenate((idx[2], idx[3], idx[0], idx[1], r_idx)).tolist()
-            b_r[-mod:] = -1
-            raise NotImplementedError("TODO: Deal with case where impossible to get all representations irreducible")
-        else:
-            b = np.concatenate((idx[2], idx[3], idx[0], idx[1])).tolist()
 
-        rep_a = C2.oneline2matrix(a)
-        rep_b = C2.oneline2matrix(b, reflexions=b_r.tolist())
+        # Find the appropiate number of invariant dimensions.
+        feasible_inv_dims = inv_dims - mod if inv_dims > mod else mod
+        for i in range(5):
+            if (d - i - feasible_inv_dims) % 4 == 0:  # Prioratize invariance rather than equivariance
+                feasible_inv_dims += i
+                break
+            elif (d + i - feasible_inv_dims) % 4 == 0:
+                feasible_inv_dims -= i
+                break
+
+        if feasible_inv_dims % 2 > 0:  # Odd number of inv dims
+            feasible_inv_dims -= 1
+
+        idx = np.array(range(d))
+        equiv_dims = idx[feasible_inv_dims//2: len(idx) - feasible_inv_dims//2]
+        parts = np.array_split(equiv_dims, indices_or_sections=4)
+
+        equiv_a = np.concatenate((parts[1], parts[0], parts[3], parts[2])).tolist()
+        equiv_b = np.concatenate((parts[2], parts[3], parts[0], parts[1])).tolist()
+
+        a = np.concatenate((idx[:feasible_inv_dims//2], equiv_a, idx[len(idx) - feasible_inv_dims//2:]))
+        b = np.concatenate((idx[:feasible_inv_dims//2], equiv_b, idx[len(idx) - feasible_inv_dims//2:]))
+
+        rep_a = C2.oneline2matrix(a,)
+        rep_b = C2.oneline2matrix(b,)
         G = Klein4(generators=[rep_a, rep_b])
+
+        assert G.n_inv_dims == feasible_inv_dims, G.n_inv_dims
         return G
 
     def is_canonical(self):

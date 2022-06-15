@@ -3,7 +3,7 @@ defaults:
   - contact_cnn
 
 model_type: 'ECNN'
-lr: 0.00005
+lr: 2.6e-6
 dropout: 0.5
 unconstraint_finetune: false
 inv_dims_scale: 1.0

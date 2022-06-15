@@ -59,6 +59,7 @@ hydra:
           - run_type
           - kfolds
           - dataset
+          - debug
           - seed
 
   sweep:

@@ -10,7 +10,6 @@ angular_momentum: True
 
 standarize: True
 
-augmentation: False
 batch_size: 256
 max_epochs: 200
 log_every_n_epochs: 0.5

@@ -3,6 +3,7 @@ defaults:
   - mlp
 
 model_type: 'EMLP'
+lr: 2.4e-3
 num_layers: 2
 num_channels: 128
 inv_dims_scale: 1.0

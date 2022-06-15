@@ -10,6 +10,7 @@ import torch
 from scipy.sparse import issparse
 
 
+
 def check_if_resume_experiment(ckpt_call):
     ckpt_path = pathlib.Path(ckpt_call.dirpath).joinpath(ckpt_call.CHECKPOINT_NAME_LAST + ckpt_call.FILE_EXTENSION)
     best_path = pathlib.Path(ckpt_call.dirpath).joinpath(ckpt_call.filename + ckpt_call.FILE_EXTENSION)
@@ -43,6 +44,8 @@ def pprint_dict(d: dict):
         str.append(f"{k}={v}")
     return "-".join(str)
 
+def cm2inch(cm):
+    return cm/2.54
 
 def configure_bullet_simulation(gui=True):
     import pybullet_data

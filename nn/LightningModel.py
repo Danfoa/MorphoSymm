@@ -7,6 +7,7 @@ import numpy as np
 import pytorch_lightning as pl
 import torch
 import torch.nn.functional as F
+from torch.utils.data.dataloader import default_collate
 
 from nn.EquivariantModules import BasisLinear, EquivariantBlock, LinearBlock, EMLP, MLP
 
@@ -18,8 +19,8 @@ MetricCallable = Callable[[torch.Tensor, torch.Tensor, ], dict]
 
 class LightningModel(pl.LightningModule):
 
-    def __init__(self, lr, loss_fn: LossCallable, metrics_fn: MetricCallable,
-                 log_preact=False, log_w=False):
+    def __init__(self, lr, loss_fn: LossCallable, metrics_fn: MetricCallable, test_epoch_metrics_fn=None,
+                 val_epoch_metrics_fn=None, log_preact=False, log_w=False):
         super().__init__()
         # self.model_type = model.__class__.__name__
         self.lr = lr
@@ -27,6 +28,8 @@ class LightningModel(pl.LightningModule):
         # self.model = model
         self._loss_fn = loss_fn
         self.compute_metrics = metrics_fn
+        self.test_epoch_metrics_fn = test_epoch_metrics_fn
+        self.val_epoch_metrics_fn = val_epoch_metrics_fn
         self._log_w = log_w
         self._log_preact = log_preact
         # Save hyperparams in model checkpoint.
@@ -64,7 +67,7 @@ class LightningModel(pl.LightningModule):
         self.log("val_loss", loss, prog_bar=False, on_epoch=True)
         self.log_metrics(metrics, prefix="val_", batch_size=y.shape[0])
 
-        return loss
+        return {'out': y_pred, 'gt': y}
 
     def test_step(self, batch, batch_idx):
         x, y = batch
@@ -76,7 +79,7 @@ class LightningModel(pl.LightningModule):
         self.log("test_loss", loss, prog_bar=False, on_epoch=True)
         self.log_metrics(metrics, prefix="test_", batch_size=y.shape[0])
 
-        return loss
+        return {'out': y_pred, 'gt': y}
 
     def log_metrics(self, metrics: dict, prefix='', batch_size=None):
         for k, v in metrics.items():
@@ -92,13 +95,29 @@ class LightningModel(pl.LightningModule):
         if self._log_w: self.log_weights()
         if self._log_preact: self.log_preactivations()
 
+    def validation_epoch_end(self, outputs):
+        if self.val_epoch_metrics_fn is not None:
+            out = [o['out'] for o in outputs]
+            gt = [o['gt'] for o in outputs]
+            out = torch.cat(out, dim=0)
+            gt = torch.cat(gt, dim=0)
+            self.val_epoch_metrics_fn([out, gt, self.trainer, self, False, "val_"])
+
+    def test_epoch_end(self, outputs):
+        if self.test_epoch_metrics_fn is not None:
+            out = [o['out'] for o in outputs]
+            gt = [o['gt'] for o in outputs]
+            out = torch.cat(out, dim=0)
+            gt = torch.cat(gt, dim=0)
+            self.test_epoch_metrics_fn([out, gt, self.trainer, self, True, "test_"])
+
     def on_train_start(self):
         # TODO: Add number of layers and hidden channels dimensions.
         hparams = {'lr': self.lr, 'model': self.model_type}
         if hasattr(self.model, "get_hparams"):
             hparams.update(self.model.get_hparams())
         if self.logger:
-            self.logger.log_hyperparams(hparams, {"val_loss": 0.0, "train_loss": 0.0, "test_loss": 0.0})
+            self.logger.log_hyperparams(hparams, {"val_loss": np.NaN, "train_loss_epoch": np.NaN, "test_loss": np.NaN})
 
     def on_train_end(self) -> None:
         ckpt_call = self.trainer.checkpoint_callback

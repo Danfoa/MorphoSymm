@@ -9,6 +9,7 @@ import logging
 import math
 import pathlib
 from typing import Union, Optional
+from zipfile import BadZipFile
 
 import numpy as np
 import torch
@@ -194,21 +195,25 @@ class EquivariantModel(torch.nn.Module):
             log.warning(f"Model cache {model_cache_file.stem} not found")
             return
 
-        lazy_cache = np.load(model_cache_file, allow_pickle=True)
+        try:
+            lazy_cache = np.load(model_cache_file, allow_pickle=True)
 
-        run_cache = self.rep_in.solcache
-        if isinstance(run_cache, EMLPCache):
-            cache = run_cache.cache
-        else:
-            cache = run_cache
+            run_cache = self.rep_in.solcache
+            if isinstance(run_cache, EMLPCache):
+                cache = run_cache.cache
+            else:
+                cache = run_cache
 
-        # Remove from memory cache all file-saved caches. Taking advantage of lazy loading.
-        for k in list(cache.keys()):
-            if str(k) in lazy_cache:
-                cache.pop(k)
+            # Remove from memory cache all file-saved caches. Taking advantage of lazy loading.
+            for k in list(cache.keys()):
+                if str(k) in lazy_cache:
+                    cache.pop(k)
 
-        Rep.solcache = EMLPCache(cache, lazy_cache)
-        log.info(f"Cache loaded for: {list(Rep.solcache.keys())}")
+            Rep.solcache = EMLPCache(cache, lazy_cache)
+            log.info(f"Cache loaded for: {list(Rep.solcache.keys())}")
+        except Exception as e:
+            log.warning(f"Error while loading cache from {model_cache_file}: \n {e}")
+
 
     def save_cache_file(self):
         if self.cache_dir is None:
@@ -225,12 +230,18 @@ class EquivariantModel(torch.nn.Module):
 
         if len(run_cache) == 0:
             log.debug(f"Ignoring cache save as there is no new equivariant basis")
-        combined_cache = {str(k): np.asarray(v) for k, v in itertools.chain(lazy_cache.items(), cache.items())}
-        np.savez_compressed(model_cache_file, **combined_cache)
+        try:
+            combined_cache = {str(k): np.asarray(v) for k, v in itertools.chain(lazy_cache.items(), cache.items())}
+            np.savez_compressed(model_cache_file, **combined_cache)
 
-        # Since we moved all cache to disk with lazy loading. Remove from memory
-        self.rep_in.solcache = EMLPCache(cache={}, lazy_cache=np.load(str(model_cache_file), allow_pickle=True))
-        log.info(f"Saved cache from {list(self.rep_in.solcache.keys())} to {model_cache_file}")
+            # Since we moved all cache to disk with lazy loading. Remove from memory
+            self.rep_in.solcache = EMLPCache(cache={}, lazy_cache=np.load(str(model_cache_file), allow_pickle=True))
+            log.info(f"Saved cache from {list(self.rep_in.solcache.keys())} to {model_cache_file}")
+        except BadZipFile as e:
+            self.rep_in.solcache.lazy_cache = {}
+            log.warning(f"Error while saving cache to {model_cache_file}: \n {e}")
+        except Exception as e:
+            log.warning(f"Error while saving cache to {model_cache_file}: \n {e}")
 
     @staticmethod
     def test_module_equivariance(module: torch.nn.Module, rep_in, rep_out, in_shape=None):
@@ -252,8 +263,8 @@ class EquivariantModel(torch.nn.Module):
             g_y_pred = module.forward(g_x)
             g_y_true = g_out @ y
             if not torch.allclose(g_y_true, g_y_pred, atol=1e-4, rtol=1e-4):
-                max_error = torch.max(g_y_true - g_y_pred)
-                error = g_y_true - g_y_pred
+                max_error = torch.max(g_y_true - g_y_pred).item()
+                error = (g_y_true - g_y_pred).detach().numpy()
                 raise RuntimeError(f"{module}\nis not equivariant to in/out group generators\n"
                                    f"max(f(g·x) - g·y) = {torch.max(error).item()}")
 
@@ -299,10 +310,10 @@ class EMLP(EquivariantModel):
         rep_inter_in = rep_in
         rep_inter_out = rep_out
         inv_in, inv_out = rep_in.G.n_inv_dims/rep_in.G.d, rep_out.G.n_inv_dims/rep_out.G.d
-        inv_ratios = np.linspace(inv_in, inv_out, num_layers + 2, endpoint=True) * self.inv_dims_scale
+        inv_ratios = np.linspace(inv_in, inv_out, num_layers + 3, endpoint=True) * self.inv_dims_scale
 
         layers = []
-        for n, inv_ratio in zip(range(num_layers + 1), inv_ratios[1:num_layers + 2]):
+        for n, inv_ratio in zip(range(num_layers + 1), inv_ratios[1:-1]):
             rep_inter_out = SparseRep(self.hidden_group.canonical_group(ch, inv_dims=math.ceil(ch * inv_ratio)))
             layer = EquivariantBlock(rep_in=rep_inter_in, rep_out=rep_inter_out, with_bias=with_bias,
                                      activation=self.activations)
@@ -311,6 +322,10 @@ class EMLP(EquivariantModel):
         # Add last layer
         linear_out = BasisLinear(rep_in=rep_inter_in, rep_out=rep_out, bias=False)
         layers.append(linear_out)
+
+        # input_layer = layers[0].linear
+        # W = input_layer.weight.detach().numpy()
+        # b = input_layer.bias.detach().numpy()
 
         self.net = torch.nn.Sequential(*layers)
         self.reset_parameters(init_mode=self.init_mode)

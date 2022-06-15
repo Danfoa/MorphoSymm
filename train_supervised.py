@@ -1,4 +1,7 @@
 import os
+
+import torch
+
 os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
 
 import pandas as pd
@@ -54,7 +57,7 @@ def get_model(cfg, Gin=None, Gout=None, cache_dir=None):
 
 
 def get_datasets(cfg, device, root_path):
-    if cfg.dataset.name == "contact":
+    if cfg.dataset.name == "contact_hp_ecnn":
         train_dataset = UmichContactDataset(data_name="train.npy",
                                             label_name="train_label.npy", train_ratio=cfg.dataset.train_ratio,
                                             augment=cfg.dataset.augment,
@@ -83,7 +86,7 @@ def get_datasets(cfg, device, root_path):
         # Training only sees the model symmetries
         train_dataset = COMMomentum(robot, Gin=Gin_model, Gout=Gout_model, type='train',
                                     train_ratio=cfg.dataset.train_ratio, angular_momentum=cfg.dataset.angular_momentum,
-                                    standarizer=cfg.dataset.standarize, augment=cfg.dataset.augmentation,
+                                    standarizer=cfg.dataset.standarize, augment=cfg.dataset.augment,
                                     data_path=data_path, dtype=torch.float32, device=device)
         # Test and validation use theoretical symmetry group, and training set standarization
         test_dataset = COMMomentum(robot, Gin=Gin_data, Gout=Gout_data, type='test', train_ratio=cfg.dataset.train_ratio,
@@ -117,6 +120,7 @@ def main(cfg: DictConfig):
     root_path = pathlib.Path(get_original_cwd()).resolve()
     cache_dir = root_path.joinpath(".empl_cache")
     cache_dir.mkdir(exist_ok=True)
+    cache_dir = None if cfg.dataset.name == "com_momentum" else cache_dir
 
     tb_logger = pl_loggers.TensorBoardLogger(".", name=f'seed={cfg.seed}', version=cfg.seed, default_hp_metric=False)
     ckpt_call = ModelCheckpoint(dirpath=tb_logger.log_dir, filename='best', monitor="val_loss", save_last=True)
@@ -134,27 +138,34 @@ def main(cfg: DictConfig):
         log.info(model)
 
         # Prepare Lightning
+        test_set_metrics_fn = (lambda x: test_dataset.test_metrics(*x)) if hasattr(train_dataset, 'test_metrics') else None
+        val_set_metrics_fn = (lambda x: val_dataset.test_metrics(*x)) if hasattr(val_dataset, 'test_metrics') else None
         pl_model = LightningModel(lr=cfg.model.lr, loss_fn=train_dataset.loss_fn,
-                                  metrics_fn=lambda x, y: train_dataset.compute_metrics(x, y))
+                                  metrics_fn=lambda x, y: train_dataset.compute_metrics(x, y),
+                                  test_epoch_metrics_fn=test_set_metrics_fn,
+                                  val_epoch_metrics_fn=val_set_metrics_fn,
+                                  )
         pl_model.set_model(model)
 
         original_dataset_samples = int(0.7 * len(train_dataset) / cfg.dataset.train_ratio)
         batches_per_original_epoch = original_dataset_samples // cfg.dataset.batch_size
-        epochs = cfg.dataset.max_epochs * batches_per_original_epoch / (len(train_dataset) // cfg.dataset.batch_size)
+        epochs = cfg.dataset.max_epochs * batches_per_original_epoch // (len(train_dataset) // cfg.dataset.batch_size)
 
         trainer = Trainer(gpus=1 if torch.cuda.is_available() and device != 'cpu' else 0,
                           logger=tb_logger,
                           accelerator="auto",
-                          log_every_n_steps=max(
-                              int((len(train_dataset) // cfg.dataset.batch_size) * cfg.dataset.log_every_n_epochs), 50),
+                          log_every_n_steps=max(int(batches_per_original_epoch * cfg.dataset.log_every_n_epochs), 50),
                           max_epochs=epochs,
                           check_val_every_n_epoch=1,
                           benchmark=True,
                           callbacks=[ckpt_call, stop_call],
                           fast_dev_run=cfg.get('debug', False),
                           detect_anomaly=cfg.get('debug', False),
+                          # limit_train_batches=0.05 if cfg.get('debug', False) else 1.0,
+                          # limit_test_batches=0.05 if cfg.get('debug', False) else 1.0,
+                          # limit_val_batches=0.05 if cfg.get('debug', False) else 1.0,
                           resume_from_checkpoint=ckpt_path if ckpt_path.exists() else None,
-                          # num_sanity_val_steps=1,  # Lightning Bug.
+                          num_sanity_val_steps=1,  # Lightning Bug.
                           )
 
         trainer.fit(model=pl_model, train_dataloaders=train_dataloader, val_dataloaders=val_dataloader)

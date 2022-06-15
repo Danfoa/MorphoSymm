@@ -146,7 +146,7 @@ class SparseRep(BaseRep):
         idx = scipy.sparse.eye(n, format='coo', dtype=P.dtype)
         orbits = [idx]
         # First action is identity e
-        for h in self.G.discrete_actions[1:]:
+        for i, h in enumerate(self.G.discrete_actions[1:]):
             orbits.append((h @ orbits[0]).tocoo().astype(np.int))
 
         # cols_itr = np.asarray([m.col for m in orbits]).T
@@ -161,15 +161,17 @@ class SparseRep(BaseRep):
 
         n_orbit = 0
         eig_cols, eig_rows, eig_data = [], [], []
-        non_permuted_dims = np.where(rows_itr[:, 0] == rows_itr[:, 1])[0]
-        non_relfected_dims = np.where(data_itr[non_permuted_dims, 0] == data_itr[non_permuted_dims, 1])[0]
-        inv_dims = non_permuted_dims[non_relfected_dims]
+
+        # TODO: Improve code readability and efficiency
+        # +1 is added in order to keep the sign of dimensions 0, otherwise its lost.
+        u_orbits = [np.unique((r+1) * d) for r, d in zip(rows_itr, data_itr)]
+        inv_dims = [u.item() for u in u_orbits if len(u) == 1]
         if len(inv_dims) > 0:
-            eig_rows.extend(inv_dims)
+            eig_rows.extend(np.asarray(inv_dims) - 1)
             eig_cols.extend(range(len(inv_dims)))
-            eig_data.extend(data_itr[inv_dims, 0])
+            eig_data.extend(list(np.ones(len(inv_dims))))
             n_orbit = len(inv_dims)
-            pending_dims[inv_dims] = False
+            pending_dims[np.asarray(inv_dims) - 1] = False
             pbar.update(len(inv_dims))
 
         for idxs, vals in zip(rows_itr, data_itr):
@@ -180,6 +182,8 @@ class SparseRep(BaseRep):
                 pending_dims[idxs] = False
                 n_orbit += 1
                 pbar.update(len(idxs))
+
+        assert not np.any(pending_dims), "There seems to be dimensions not included into the Null Space"
         pbar.set_description(f"{n_orbit} eigenvectors found")
         pbar.close()
         Q = scipy.sparse.coo_matrix((eig_data, (eig_rows, eig_cols)), shape=(n, n_orbit))

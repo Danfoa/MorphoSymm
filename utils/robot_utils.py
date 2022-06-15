@@ -97,7 +97,7 @@ def get_robot_params(robot_name):
 
         h_in = C2.oneline2matrix(oneline_notation=perm, reflexions=refx)
         Gin_data = C2(h_in)
-        # One hot encoding of 16 contact states.
+        # One hot encoding of 16 contact_hp_ecnn states.
         h_out = C2.oneline2matrix(oneline_notation=[0, 2, 1, 3, 8, 10, 9, 11, 4, 6, 5, 7, 12, 14, 13, 15])
         Gout_data = C2(h_out)
 
