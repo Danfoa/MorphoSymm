@@ -163,6 +163,7 @@ class SparseRep(BaseRep):
         eig_cols, eig_rows, eig_data = [], [], []
 
         # TODO: Improve code readability and efficiency
+        # TODO: COO format admits repeated entries, we just need to qualize after avoiding all this problem.
         # +1 is added in order to keep the sign of dimensions 0, otherwise its lost.
         u_orbits = [np.unique((r+1) * d) for r, d in zip(rows_itr, data_itr)]
         inv_dims = [u.item() for u in u_orbits if len(u) == 1]

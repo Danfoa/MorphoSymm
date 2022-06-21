@@ -1,16 +1,16 @@
 #
 job_name: ${exp_name}_${robot_name}/model=${model.model_type}_train_ratio=${dataset.train_ratio}
-name: "contact_hp_ecnn"
+name: "contact"
 
 data_folder: "dataset/training/numpy/"
 
-contact_type: "contact_hp_ecnn"
+contact_type: "contact"
 
 log_every_n_epochs: 0.15   # 4 times per epoch
 
 augment: false
 balanced_classes: false # Use class frequencies to weight cross entropy loss
-max_epochs: 40
+max_epochs: 60
 batch_size: 30
 window_size: 150
 

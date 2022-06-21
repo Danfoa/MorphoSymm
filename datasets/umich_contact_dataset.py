@@ -35,7 +35,7 @@ class UmichContactDataset(contact_dataset):
 
     def __init__(self, data_name, label_name, window_size,
                  train_ratio=0.7, test_ratio=0.15, val_ratio=0.15, loss_class_weights=None,
-                 use_class_imbalance_w=False, device='cuda', augment=False):
+                 use_class_imbalance_w=False, device='cuda', augment=False, debug=False):
 
         self.data_path, self.label_path = self.get_full_paths(data_name, label_name, train_ratio=train_ratio,
                                                               test_ratio=test_ratio, val_ratio=val_ratio)
@@ -51,29 +51,33 @@ class UmichContactDataset(contact_dataset):
                 trials -= 1
                 time.sleep(np.random.random())
 
+
         self.num_data = (data.shape[0]-window_size+1)
         self.window_size = window_size
         self.data = torch.from_numpy(data).type('torch.FloatTensor').to(device)
         self.label = torch.from_numpy(label).type('torch.LongTensor').to(device)
         # ----
-
         self.device = device
+
         self.contact_state_freq = self.get_class_frequency()
 
         self.Gin, self.Gout = self.get_in_out_groups()
         self.augment = augment
         self.n_contact_states = 16
-        if self.augment:
+        # if self.augment:
             # self._hin = coo2torch_coo(self.Gin.discrete_generators[0])
             # self._hout = coo2torch_coo(self.Gout.discrete_generators[0])
-            self.hin = torch.tensor(self.Gin.discrete_generators[0].todense(), device=device)
-            self.hout = torch.tensor(self.Gout.discrete_generators[0].todense(), device=device)
+        self.hin = torch.tensor(self.Gin.discrete_generators[0].todense(), device=device)
+        self.hout = torch.tensor(self.Gout.discrete_generators[0].todense(), device=device)
 
         if use_class_imbalance_w:
             self.class_weights = 1 - self.contact_state_freq if loss_class_weights is None else loss_class_weights
         else:
             self.class_weights = None
         self.loss_fn = torch.nn.CrossEntropyLoss(weight=self.class_weights)
+
+        if debug:
+            self.plot_statistics()
 
     def collate_fn(self, batch):
         collated_batch = default_collate(batch)
@@ -130,6 +134,10 @@ class UmichContactDataset(contact_dataset):
                                                                                  gt_arr)
         confusion_mat, rates = self.compute_confusion_mat(bin_pred_arr, bin_gt_arr, pred_arr, gt_arr)
 
+        TPR = [rates[f'{k}/TP'] / np.sum(bin_gt_arr[:, i] == 1) for i, k in enumerate(self.leg_names)]
+        TNR = [rates[f'{k}/TN'] / np.sum(bin_gt_arr[:, i] == 0) for i, k in enumerate(self.leg_names)]
+
+        balanced_acc_of_legs = [(tpr + tnr)/2 for tpr, tnr in zip(TPR, TNR)]
         recall_of_legs = [rates[f'{k}/TP']/(rates[f'{k}/TP'] + rates[f'{k}/FP']) for k in self.leg_names]
         f1_score_of_legs = [2*(p * r)/(r + p) for p, r in zip(precision_of_legs, recall_of_legs)]
 
@@ -163,6 +171,7 @@ class UmichContactDataset(contact_dataset):
         jaccard_dir = {f"{leg}/jaccard": v for leg, v in zip(self.leg_names, jaccard_of_legs)}
         recall_dir = {f"{leg}/recall": v for leg, v in zip(self.leg_names, recall_of_legs)}
         f1_score_dir = {f"{leg}/f1": v for leg, v in zip(self.leg_names, f1_score_of_legs)}
+        balanced_acc_dir = {f"{leg}/balanced_acc": a for leg, a in zip(self.leg_names, balanced_acc_of_legs)}
 
         metrics = {'contact_state/precision': precision_of_class,
                    'contact_state/jaccard': jaccard_of_class,
@@ -170,12 +179,14 @@ class UmichContactDataset(contact_dataset):
                    'legs_avg/jaccard': jaccard_of_all_legs,
                    'legs_avg/f1': np.sum(f1_score_of_legs) / 4.0,
                    'legs_avg/recall': np.sum(recall_of_legs) / 4.0,
+                   'legs_avg/balanced_acc': np.sum(balanced_acc_of_legs) / 4.0,
                    }
-        # metrics.update(acc_dir)
+
         metrics.update(precision_dir)
         metrics.update(jaccard_dir)
         metrics.update(recall_dir)
         metrics.update(f1_score_dir)
+        metrics.update(balanced_acc_dir)
 
         model.log_metrics(metrics, prefix=prefix)
         model.train()
@@ -422,3 +433,25 @@ class UmichContactDataset(contact_dataset):
             rates[f'{leg_name}/TN'] = tn
 
         return confusion_mat, rates
+
+    def plot_statistics(self):
+        import seaborn as sns
+        import matplotlib.pyplot as plt
+        y = self.label.detach().cpu().numpy()
+        bin_gt = self.decimal2binary(self.label).detach().cpu().numpy()
+
+        fig, ax = plt.subplots(figsize=(8, 8), dpi=150)
+        sns.histplot(x=np.asarray(self.states_names)[y], bins=16, stat='probability', ax=ax, discrete=True, shrink=.9)
+        ax.set_title(f'{self.data_path.stem} {len(self)} samples')
+        ax.tick_params(axis='x', rotation=70)
+        plt.tight_layout()
+        plt.show()
+
+        fig, axs = plt.subplots(ncols=2, nrows=2, figsize=(8, 8), dpi=150)
+        for leg_name, i, ax in zip(self.leg_names, range(4), axs.flatten()):
+            sns.histplot(x=bin_gt[:, i], bins=2, discrete=True, shrink=.9, stat='probability', ax=ax)
+            ax.set_title(leg_name)
+        fig.suptitle(f'{self.data_path.stem} {len(self)} samples')
+        plt.show()
+
+

@@ -80,7 +80,7 @@ class COMMomentum(Dataset):
                                          torch.tensor(np.asarray(dense(gout))).to(device)))
         self.t_group_actions = augmentation_actions
         self._pb = None  # GUI debug
-        self.augment = augment
+        self.augment = augment if isinstance(augment, bool) else False
 
         self._samples = samples
         self.dataset_path = pathlib.Path(data_path).joinpath(f"data_{samples:d}.npz")
@@ -118,8 +118,14 @@ class COMMomentum(Dataset):
         self.X = torch.from_numpy(X).type('torch.FloatTensor').to(device)
         self.Y = torch.from_numpy(Y).type('torch.FloatTensor').to(device)
 
-        self.loss_fn = F.mse_loss
+        if isinstance(augment, str) and augment.lower() == "hard":
+            for g_in, g_out in self.t_group_actions[1:]:
+                gX = torch.matmul(self.X.unsqueeze(1), g_in.unsqueeze(0).to(self.X.dtype)).squeeze()
+                gY = torch.matmul(self.Y.unsqueeze(1), g_out.unsqueeze(0).to(self.Y.dtype)).squeeze()
+                self.X = torch.vstack([self.X, gX])
+                self.Y = torch.vstack([self.Y, gY])
 
+        self.loss_fn = F.mse_loss
         log.info(str(self))
 
     def compute_normalization(self, X, Y):
@@ -195,10 +201,6 @@ class COMMomentum(Dataset):
             x, y = self.X[i, :], self.Y[i, :],
         else:
             x, y = self.X[i, :], self.Y[i, :3],
-
-        # if self.augment:  # Sample uniformly among symmetry actions including identity
-        #     g_in, g_out = random.choice(self.group_actions)
-        #     x, y = (g_in @ x).astype(self.dtype), (g_out @ y).astype(self.dtype)
         return x, y
 
     def collate_fn(self, batch):

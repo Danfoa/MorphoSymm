@@ -127,7 +127,7 @@ class LightningModel(pl.LightningModule):
             if ckpt_path.exists() and best_path.exists():
                 # Remove last model ckpt leave only best, to hint training successful termination.
                 ckpt_path.unlink()
-                log.info("Removing last ckpt from successful training run.")
+                log.info(f"Removing last ckpt {ckpt_path} from successful training run.")
 
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(self.parameters(), lr=self.lr)

@@ -163,3 +163,11 @@ class ContactECNN(EquivariantModel):
                 error = g_y_true - g_y_pred
                 raise RuntimeError(f"{module} is not equivariant to in/out group generators f(g·x) - g·y:{error}")
         module.train()
+
+    def unfreeze_equivariance(self, num_layers=1):
+        # Freeze most of model model.
+        for parameter in self.parameters():
+            parameter.requires_grad = False
+        last_equiv_layers = self.fc[0::2]
+        for e_layer in last_equiv_layers[-num_layers:]:
+            e_layer.unfreeze_equivariance()

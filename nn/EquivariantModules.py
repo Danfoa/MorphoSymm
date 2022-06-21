@@ -40,6 +40,10 @@ class BasisLinear(torch.nn.Module):
         self.rep_out = rep_out
 
         self._new_coeff, self._new_bias_coeff = True, True
+        # Layer can be "unfreeze" and thus keep variable in case that happens.
+        self.unfrozed_equivariance = False
+        self.unfrozen_w = None
+        self.unfrozen_bias = None
 
         # Compute the nullspace
         Q = self.repW.equivariant_basis()
@@ -71,6 +75,7 @@ class BasisLinear(torch.nn.Module):
         self.register_full_backward_hook(EquivariantModel.backward_hook)
 
 
+
     def forward(self, x):
         """
         Normal forward pass, using weights formed by the basis and corresponding coefficients
@@ -81,21 +86,29 @@ class BasisLinear(torch.nn.Module):
 
     @property
     def weight(self):
-        # if self._new_coeff or self._weight is None:
-        self._weight = torch.matmul(self.basis, self.basis_coeff).reshape((self.rep_out.G.d, self.rep_in.G.d))
-        self._new_coeff = False
-        return self._weight
+        if not self.unfrozed_equivariance:
+            # if self._new_coeff or self._weight is None:
+            self._weight = torch.matmul(self.basis, self.basis_coeff).reshape((self.rep_out.G.d, self.rep_in.G.d))
+            # self._new_coeff = False
+            return self._weight
+        else:
+            return self.unfrozen_w
 
     @property
     def bias(self):
-        if self.bias_basis is not None:
-            # if self._new_bias_coeff or self._bias is None:
-            self._bias = torch.matmul(self.bias_basis, self.bias_basis_coeff).reshape((self.rep_out.G.d,))
-            self._new_bias_coeff = False
-            return self._bias
-        return None
+        if not self.unfrozed_equivariance:
+            if self.bias_basis is not None:
+                # if self._new_bias_coeff or self._bias is None:
+                self._bias = torch.matmul(self.bias_basis, self.bias_basis_coeff).reshape((self.rep_out.G.d,))
+                self._new_bias_coeff = False
+                return self._bias
+            return None
+        else:
+            return self.unfrozen_bias
 
     def reset_parameters(self, mode="fan_in", activation="ReLU"):
+        if self.unfrozed_equivariance:
+            raise BrokenPipeError("initialization called after unfrozed equivariance")
         # Compute the constant coming from the derivative of the activation. Torch return the square root of this value
         gain = torch.nn.init.calculate_gain(nonlinearity=activation.lower())
         # Get input out dimensions.
@@ -127,6 +140,15 @@ class BasisLinear(torch.nn.Module):
         self._new_coeff, self._new_bias_coeff = True, True
         assert not torch.allclose(prev_basis_coeff, self.basis_coeff), "Ups, smth is wrong."
 
+    def unfreeze_equivariance(self):
+        w, bias = self.weight, self.bias
+        self.unfrozed_equivariance = True
+        self.unfrozen_w = torch.nn.Parameter(w, requires_grad=True)
+        self.register_parameter('unfrozen_w', self.unfrozen_w)
+        if bias is not None:
+            self.unfrozen_bias = torch.nn.Parameter(bias, requires_grad=True)
+            self.register_parameter('unfrozen_bias', self.unfrozen_bias)
+
     def __repr__(self):
         string = f"E-Linear G[{self.repW.G}]-W{self.rep_out.size() * self.rep_in.size()}-" \
                  f"Wtrain:{self.basis.shape[-1]}={self.basis_coeff.shape[0] / np.prod(self.repW.size()) * 100:.1f}%" \
@@ -154,6 +176,8 @@ class EquivariantBlock(torch.nn.Module):
         self._preact = self.linear(x)
         return self.activation(self._preact)
 
+    def unfreeze_equivariance(self):
+        self.linear.unfreeze_equivariance()
 
 class EquivariantModel(torch.nn.Module):
 
@@ -355,6 +379,14 @@ class EMLP(EquivariantModel):
                 module.reset_parameters(mode=self.init_mode, activation="Linear")
         log.info(f"EMLP initialized with mode: {self.init_mode}")
 
+    def unfreeze_equivariance(self, num_layers=1):
+        assert num_layers >= 1, num_layers
+        # Freeze most of model parameters.
+        for parameter in self.parameters():
+            parameter.requires_grad = False
+
+        for e_layer in self.net[-num_layers:]:
+            e_layer.unfreeze_equivariance()
 
 class LinearBlock(torch.nn.Module):
 

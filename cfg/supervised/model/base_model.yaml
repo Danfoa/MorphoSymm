@@ -3,3 +3,5 @@ model_type: ???
 bias: true
 lr: 1e-3
 init_mode: 'fan_in'
+fine_tune_lr_scale: 0.1
+fine_tune_num_layers: 1

@@ -6,26 +6,11 @@ defaults:
 
 # TODO: Make distinctions between. Trainer Args, Model Psecific Args, Program Args
 robot_name: 'bolt'
-#init_mode: 'fan_in'   # Forward constant activation variance or cnst gradient backward variance.
-
-#model_type: 'emlp'
-#bias: false
-#lr: 1e-3
-#lr_trials: 50
-#num_layers: 1
-#num_channels: 64
 seed: -1
-#batch_size: 512
-
 exp_name: 'tests'
 
 device: 0
 num_workers: 0  # Dataloader workers
-#max_epochs: 2
-
-# Run parameters
-run_type: single_run
-kfolds: 5
 
 # Hydra configuration _________
 hydra:
@@ -49,6 +34,8 @@ hydra:
           - model.model_type
           - model.num_channels
           - model.num_layers
+          - model.fine_tune_num_layers
+          - model.fine_tune_num_layers
           - device
           - robot_name
           - exp_name
@@ -60,6 +47,7 @@ hydra:
           - kfolds
           - dataset
           - debug
+          - debug_loops
           - seed
 
   sweep:
