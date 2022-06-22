@@ -83,7 +83,9 @@ def get_datasets(cfg, device, root_path):
 
     elif cfg.dataset.name == "com_momentum":
         robot, Gin_data, Gout_data, Gin_model, Gout_model, = get_robot_params(cfg.robot_name)
-        data_path = root_path.joinpath(f"datasets/com_momentum/{cfg.robot_name.lower()}")
+        robot_name = cfg.robot_name.lower()
+        robot_name = robot_name if '-' not in robot_name else robot_name.split('-')[0]
+        data_path = root_path.joinpath(f"datasets/com_momentum/{robot_name}")
         # Training only sees the model symmetries
         train_dataset = COMMomentum(robot, Gin=Gin_model, Gout=Gout_model, type='train',
                                     train_ratio=cfg.dataset.train_ratio, angular_momentum=cfg.dataset.angular_momentum,
@@ -136,23 +138,23 @@ def fine_tune_model(cfg, best_ckpt_path: pathlib.Path, pl_model, batches_per_ori
     ckpt_path = get_ckpt_storage_path(fine_tb_logger.log_dir)
     fine_ckpt_call = ModelCheckpoint(dirpath=ckpt_path, filename='best', monitor="val_loss",
                                      save_last=True)
-    fine_stop_call = EarlyStopping(monitor='val_loss', patience=max(10, int(cfg.dataset.max_epochs * 0.1)), mode='min')
+    fine_stop_call = EarlyStopping(monitor='val_loss', patience=max(10, int(epochs * 0.1)), mode='min')
     exp_terminated, ckpt_path, best_ckpt_path = check_if_resume_experiment(fine_ckpt_call)
 
     fine_trainer = Trainer(gpus=1 if torch.cuda.is_available() and device != 'cpu' else 0,
                            logger=fine_tb_logger,
                            accelerator="auto",
                            log_every_n_steps=max(int(batches_per_original_epoch*cfg.dataset.log_every_n_epochs*0.5),50),
-                           max_epochs=epochs * 1.5 if not cfg.get('debug_loops', False) else 3,
+                           max_epochs=epochs * 1.5 if not cfg.debug_loops else 3,
                            check_val_every_n_epoch=1,
                            benchmark=True,
                            callbacks=[fine_ckpt_call, fine_stop_call],
-                           fast_dev_run=cfg.get('debug', False),
-                           detect_anomaly=cfg.get('debug', False),
+                           fast_dev_run=cfg.debug,
+                           detect_anomaly=cfg.debug,
                            resume_from_checkpoint=ckpt_path if ckpt_path.exists() else None,
-                           limit_train_batches=1.0 if not cfg.get('debug_loops', False) else 0.005,
-                           limit_test_batches=1.0 if not cfg.get('debug_loops', False) else 0.005,
-                           limit_val_batches=1.0 if not cfg.get('debug_loops', False) else 0.005,
+                           limit_train_batches=1.0 if not cfg.debug_loops else 0.005,
+                           limit_test_batches=1.0 if not cfg.debug_loops else 0.005,
+                           limit_val_batches=1.0 if not cfg.debug_loops else 0.005,
                            )
     log_path = pathlib.Path(fine_tb_logger.log_dir)
     test_model(path=log_path, trainer=fine_trainer, model=pl_model,
@@ -160,7 +162,6 @@ def fine_tune_model(cfg, best_ckpt_path: pathlib.Path, pl_model, batches_per_ori
 
 
 def test_model(path, trainer, model, train_dataloader, test_dataloader, val_dataloader):
-    trainer.fit(model=model, train_dataloaders=train_dataloader, val_dataloaders=val_dataloader)
     test_metrics = trainer.test(model=model, dataloaders=test_dataloader)[0]
     df = pd.DataFrame.from_dict({k: [v] for k, v in test_metrics.items()})
     path.mkdir(exist_ok=True, parents=True)
@@ -186,6 +187,8 @@ def get_ckpt_storage_path(log_path):
 def main(cfg: DictConfig):
     device = torch.device("cuda" if torch.cuda.is_available() and cfg.device != "cpu" else "cpu")
     cfg.seed = cfg.seed if cfg.seed >= 0 else np.random.randint(0, 1000)
+    cfg['debug'] = cfg.get('debug', False)
+    cfg['debug_loops'] = cfg.get('debug_loops', False)
     seed_everything(seed=cfg.seed)
 
     root_path = pathlib.Path(get_original_cwd()).resolve()
@@ -197,7 +200,6 @@ def main(cfg: DictConfig):
     tb_logger = pl_loggers.TensorBoardLogger(".", name=f'seed={cfg.seed}', version=cfg.seed, default_hp_metric=False)
     ckpt_folder_path = get_ckpt_storage_path(tb_logger.log_dir)
     ckpt_call = ModelCheckpoint(dirpath=ckpt_folder_path, filename='best', monitor="val_loss", save_last=True)
-    stop_call = EarlyStopping(monitor='val_loss', patience=max(10, int(cfg.dataset.max_epochs * 0.1)), mode='min')
     training_done, ckpt_path, best_path = check_if_resume_experiment(ckpt_call)
 
     # Check if fine tunning is desired and if it has already run
@@ -236,22 +238,25 @@ def main(cfg: DictConfig):
         epochs = cfg.dataset.max_epochs * batches_per_original_epoch // (len(train_dataset) // cfg.dataset.batch_size)
 
         if not training_done:
+            stop_call = EarlyStopping(monitor='val_loss', patience=max(10, int(epochs * 0.2)), mode='min')
+
             log.info("\n\nInitiating Training\n\n")
             trainer = Trainer(gpus=1 if torch.cuda.is_available() and device != 'cpu' else 0,
                               logger=tb_logger,
                               accelerator="auto",
                               log_every_n_steps=max(int(batches_per_original_epoch * cfg.dataset.log_every_n_epochs), 50),
-                              max_epochs=epochs if not cfg.get('debug_loops', False) else 3,
+                              max_epochs=epochs if not cfg.debug_loops else 3,
                               check_val_every_n_epoch=1,
                               benchmark=True,
                               callbacks=[ckpt_call, stop_call],
-                              fast_dev_run=cfg.get('debug', False),
-                              detect_anomaly=cfg.get('debug', False),
-                              limit_train_batches=1.0 if not cfg.get('debug_loops', False) else 0.005,
-                              limit_test_batches=1.0 if not cfg.get('debug_loops', False) else 0.005,
-                              limit_val_batches=1.0 if not cfg.get('debug_loops', False) else 0.005,
+                              fast_dev_run=cfg.debug,
+                              detect_anomaly=cfg.debug,
+                              limit_train_batches=1.0 if not cfg.debug_loops else 0.005,
+                              limit_test_batches=1.0 if not cfg.debug_loops else 0.005,
+                              limit_val_batches=1.0 if not cfg.debug_loops else 0.005,
                               resume_from_checkpoint=ckpt_path if ckpt_path.exists() else None,
                               )
+
             trainer.fit(model=pl_model, train_dataloaders=train_dataloader, val_dataloaders=val_dataloader)
 
             # Test model

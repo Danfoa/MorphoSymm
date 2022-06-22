@@ -130,6 +130,8 @@ class UmichContactDataset(contact_dataset):
         # test_acc, acc_per_leg, bin_pred_arr, bin_gt_arr, pred_arr, gt_arr = self.compute_accuracy(dataloader, model)
         precision_of_class, precision_of_legs, precision_of_all_legs = compute_precision(bin_pred_arr, bin_gt_arr,
                                                                                          pred_arr, gt_arr)
+        f1score_of_class = sklearn.metrics.f1_score(gt_arr, pred_arr, average='weighted')
+
         jaccard_of_class, jaccard_of_legs, jaccard_of_all_legs = compute_jaccard(bin_pred_arr, bin_gt_arr, pred_arr,
                                                                                  gt_arr)
         confusion_mat, rates = self.compute_confusion_mat(bin_pred_arr, bin_gt_arr, pred_arr, gt_arr)
@@ -139,7 +141,7 @@ class UmichContactDataset(contact_dataset):
 
         balanced_acc_of_legs = [(tpr + tnr)/2 for tpr, tnr in zip(TPR, TNR)]
         recall_of_legs = [rates[f'{k}/TP']/(rates[f'{k}/TP'] + rates[f'{k}/FP']) for k in self.leg_names]
-        f1_score_of_legs = [2*(p * r)/(r + p) for p, r in zip(precision_of_legs, recall_of_legs)]
+        f1score_of_legs = [2*(p * r)/(r + p) for p, r in zip(precision_of_legs, recall_of_legs)]
 
         if log_imgs:
             import matplotlib.pyplot as plt
@@ -170,14 +172,15 @@ class UmichContactDataset(contact_dataset):
         precision_dir = {f"{leg}/precision": v for leg, v in zip(self.leg_names, precision_of_legs)}
         jaccard_dir = {f"{leg}/jaccard": v for leg, v in zip(self.leg_names, jaccard_of_legs)}
         recall_dir = {f"{leg}/recall": v for leg, v in zip(self.leg_names, recall_of_legs)}
-        f1_score_dir = {f"{leg}/f1": v for leg, v in zip(self.leg_names, f1_score_of_legs)}
+        f1_score_dir = {f"{leg}/f1": v for leg, v in zip(self.leg_names, f1score_of_legs)}
         balanced_acc_dir = {f"{leg}/balanced_acc": a for leg, a in zip(self.leg_names, balanced_acc_of_legs)}
 
-        metrics = {'contact_state/precision': precision_of_class,
+        metrics = {'contact_state/f1': f1score_of_class,
+                   'contact_state/precision': precision_of_class,
                    'contact_state/jaccard': jaccard_of_class,
                    'legs_avg/precision': precision_of_all_legs,
                    'legs_avg/jaccard': jaccard_of_all_legs,
-                   'legs_avg/f1': np.sum(f1_score_of_legs) / 4.0,
+                   'legs_avg/f1': np.sum(f1score_of_legs) / 4.0,
                    'legs_avg/recall': np.sum(recall_of_legs) / 4.0,
                    'legs_avg/balanced_acc': np.sum(balanced_acc_of_legs) / 4.0,
                    }

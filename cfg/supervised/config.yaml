@@ -12,6 +12,9 @@ exp_name: 'tests'
 device: 0
 num_workers: 0  # Dataloader workers
 
+debug: False
+debug_loops: False
+
 # Hydra configuration _________
 hydra:
   run:

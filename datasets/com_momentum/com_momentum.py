@@ -62,7 +62,7 @@ class COMMomentum(Dataset):
     def __init__(self, robot, Gin: Sym, Gout: Sym, type='train',
                  angular_momentum=True, standarizer: Union[bool, Standarizer] = True, augment=False,
                  train_ratio=0.7, test_ratio=0.15, val_ratio=0.15, samples=100000,
-                 dtype=torch.float32, data_path="datasets/com_momentum", device='cpu'):
+                 dtype=torch.float32, data_path="datasets/com_momentum", device='cpu', debug=False):
 
         self.dataset_type = type
         self.dtype = dtype
@@ -72,8 +72,8 @@ class COMMomentum(Dataset):
 
         self.Gin = Gin
         self.Gout = Gout
-        self.group_actions = [(np.asarray(gin), np.asarray(gout)) for gin, gout in zip(self.Gin.discrete_actions,
-                                                                                       self.Gout.discrete_actions)]
+        self.group_actions = [(np.asarray(gin.todense()), np.asarray(gout.todense())) for gin, gout in zip(self.Gin.discrete_actions,
+                                                                                   self.Gout.discrete_actions)]
         augmentation_actions = []
         for gin, gout in zip(self.Gin.discrete_actions, self.Gout.discrete_actions):
             augmentation_actions.append((torch.tensor(np.asarray(dense(gin))).to(device),
@@ -114,9 +114,13 @@ class COMMomentum(Dataset):
             X_mean, X_std, Y_mean, Y_std = self.compute_normalization(X, Y)
             self.standarizer = Standarizer(X_mean, X_std, Y_mean, Y_std, device=device)
 
-        X, Y = self.standarizer.transform(X, Y)
         self.X = torch.from_numpy(X).type('torch.FloatTensor').to(device)
         self.Y = torch.from_numpy(Y).type('torch.FloatTensor').to(device)
+
+        if debug:
+            self.plot_statistics()
+
+        self.X, self.Y = self.standarizer.transform(self.X, self.Y)
 
         if isinstance(augment, str) and augment.lower() == "hard":
             for g_in, g_out in self.t_group_actions[1:]:
@@ -127,6 +131,7 @@ class COMMomentum(Dataset):
 
         self.loss_fn = F.mse_loss
         log.info(str(self))
+
 
     def compute_normalization(self, X, Y):
         idx = 6 if self.angular_momentum else 3
@@ -314,21 +319,37 @@ class COMMomentum(Dataset):
             # Get joint limits.
             dq_max = np.asarray(self.robot.velocity_limits)
             q_min, q_max = (np.asarray(lim) for lim in self.robot.joint_pos_limits)
-            # Generate random configuration samples.
-            Y = np.zeros((self._samples, 6))
-            X = np.zeros((self._samples, self.robot.nj * 2))
+
+            x = np.zeros((self._samples, self.robot.nj * 2))
+            y = np.zeros((self._samples, 6))
             for i in range(self._samples):
                 q[7:] = np.random.uniform(q_min, q_max, size=None)
                 dq[6:] = np.random.uniform(-dq_max, dq_max, size=None)
                 hg = self.robot.pinocchio_robot.centroidalMomentum(q, dq)
+                y[i, :] = hg.np
+                x[i, :] = np.concatenate((q[7:], dq[6:]))
 
-                Y[i, :] = hg.np
-                X[i, :] = np.concatenate((q[7:], dq[6:]))
+            # Pinnochio introduces small but considerable equivariance numerical error, even when the robot kinematics
+            # and dynamics are completely equivariant. So we make the gt the avg of the augmented predictions.
+            ys_pin = [y]
+            for g_in, g_out in self.group_actions[1:]:
+                gx = np.squeeze(x @ g_in)
+                # gy = np.squeeze(y @ g_out)
+                gy_pin = np.zeros((self._samples, 6))
+                # Generate random configuration samples.
+                for i, x_sample in enumerate(gx):
+                    gy_pin[i, :] = self.get_hg(*np.split(x_sample, 2))
+                ys_pin.append(
+                    gy_pin @ np.linalg.inv(g_out))  # inverse is not needed for the groups we use (C2, V4).
 
+            y_pin_avg = np.mean(ys_pin, axis=0)
+            y = y_pin_avg  # To mitigate numerical error
+
+            # From the augmented dataset take the desired samples.
+            X, Y = x, y
             np.savez_compressed(str(self.dataset_path), X=X, Y=Y)
             log.info(f"Dataset saved to {self.dataset_path.absolute()}")
             self.test_equivariance()
-
         assert self.dataset_path.exists(), "Something went wrong"
 
     def ensure_dataset_partition(self, train_ratio=0.7, test_ratio=0.15, val_ratio=0.15) -> pathlib.Path:
@@ -374,3 +395,45 @@ class COMMomentum(Dataset):
 
     def __str__(self):
         return self.__repr__()
+
+    def plot_statistics(self):
+        from matplotlib import pyplot as plt
+        import seaborn as sns
+
+        x_orbits = [self.X.detach().cpu().numpy()]
+        y_orbits = [self.Y.detach().cpu().numpy()]
+
+        for g_in, g_out in self.t_group_actions[1:]:
+            g_x = torch.matmul(self.X.unsqueeze(1), g_in.unsqueeze(0).to(self.X.dtype)).squeeze()
+            g_y = torch.matmul(self.Y.unsqueeze(1), g_out.unsqueeze(0).to(self.Y.dtype)).squeeze()
+            y_orbits.append(g_y.detach().cpu().numpy())
+            x_orbits.append(g_x.detach().cpu().numpy())
+
+        y_true = []
+        for x_orbit in x_orbits:
+            y_orbit = []
+            for x in x_orbit:
+                y = self.get_hg(*np.split(x, 2))
+                y_orbit.append(y)
+            y_true.append(np.vstack(y_orbit))
+
+        i = 0
+        errors = []
+        for g_y, y_gt in zip(y_orbits, y_true):
+            lin_error = np.linalg.norm(y_gt[:, :3] - g_y[:, :3], axis=1)
+            ang_error = np.linalg.norm(y_gt[:, 3:] - g_y[:, 3:], axis=1)
+            errors.append((lin_error, ang_error))
+            print(f"action {i}, lin_error: {np.mean(lin_error):.3e} ang_error: {np.mean(ang_error):.3e}")
+            i += 1
+
+        fig, axs = plt.subplots(nrows=len(errors), ncols=2, figsize=(8, 8), dpi=150)
+        for orbit_id in range(len(errors)):
+            lin_err, ang_err = errors[orbit_id]
+            ax_lin, ax_ang = axs[orbit_id, :]
+            sns.histplot(x=lin_err, bins=50, stat='probability', ax=ax_lin, kde=True)
+            sns.histplot(x=ang_err, bins=50, stat='probability', ax=ax_ang, kde=True)
+            ax_lin.set_title(f'Lin error g:{orbit_id}')
+            ax_ang.set_title(f'Ang error g:{orbit_id}')
+        plt.tight_layout()
+        plt.show()
+
