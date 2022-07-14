@@ -220,7 +220,7 @@ class EquivariantModel(torch.nn.Module):
             return
 
         try:
-            lazy_cache = np.load(model_cache_file, allow_pickle=True)
+            lazy_cache = np.load(model_cache_file, allow_pickle=True, mmap_mode='c')
 
             run_cache = self.rep_in.solcache
             if isinstance(run_cache, EMLPCache):
@@ -290,7 +290,7 @@ class EquivariantModel(torch.nn.Module):
                 max_error = torch.max(g_y_true - g_y_pred).item()
                 error = (g_y_true - g_y_pred).detach().numpy()
                 raise RuntimeError(f"{module}\nis not equivariant to in/out group generators\n"
-                                   f"max(f(g·x) - g·y) = {torch.max(error).item()}")
+                                   f"max(f(g·x) - g·y) = {np.max(error)}")
 
             if torch.allclose(g_y_pred, y, atol=1e-4, rtol=1e-4):
                 log.warning(f"\nModule {module} is INVARIANT! not EQUIVARIANT\n")

@@ -81,6 +81,10 @@ class LightningModel(pl.LightningModule):
 
         return {'out': y_pred, 'gt': y}
 
+    def predict_step(self, batch, batch_idx, **kwargs):
+        x, y = batch
+        return self.model(x)
+
     def log_metrics(self, metrics: dict, prefix='', batch_size=None):
         for k, v in metrics.items():
             name = f"{prefix}{k}"

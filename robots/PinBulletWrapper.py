@@ -141,20 +141,22 @@ class PinBulletWrapper(ABC):
         if self._joint_lower_limits is None or self._joint_upper_limits is None:
             self._joint_lower_limits, self._joint_upper_limits, self._joint_vel_limits = (np.empty(self.nj) for _ in range(3))
 
+        a = list(range(self.bullet_client.getNumJoints(self.robot_id)))
         for bullet_joint_id in range(self.bullet_client.getNumJoints(self.robot_id)):
             joint_info = self.bullet_client.getJointInfo(self.robot_id, bullet_joint_id)
             joint_name = joint_info[1].decode("UTF-8")
 
             if joint_name in self.joint_names:
                 self.joint_aux_vars[joint_name].bullet_id = bullet_joint_id
-            bullet_joint_map[joint_name] = bullet_joint_id  # End effector joints.
+                # Fill default joint pos vel limits
+                lower_limit, upper_limit = joint_info[8], joint_info[9]
+                tau_max, dq_max = joint_info[10], joint_info[11]
+                idx = self.joint_names.index(joint_name)
+                self._joint_lower_limits[idx] = lower_limit
+                self._joint_upper_limits[idx] = upper_limit
+                self._joint_vel_limits[idx] = dq_max
 
-            # Fill default joint pos vel limits
-            lower_limit, upper_limit = joint_info[8], joint_info[9]
-            tau_max, dq_max = joint_info[10], joint_info[11]
-            self._joint_lower_limits[bullet_joint_id] = lower_limit
-            self._joint_upper_limits[bullet_joint_id] = upper_limit
-            self._joint_vel_limits[bullet_joint_id] = dq_max
+            bullet_joint_map[joint_name] = bullet_joint_id  # End effector joints.
 
         # Disable the velocity control on the joints as we use torque control.
         self.bullet_client.setJointMotorControlArray(self.robot_id,
@@ -181,27 +183,27 @@ class PinBulletWrapper(ABC):
             lower_limit, upper_limit = joint_info[8], joint_info[9]
             joint_type = joint_info[2]
 
-            if joint_type == self.bullet_client.JOINT_REVOLUTE:
-                # Override URDF values if configured in robot specific child class
-                qd_max = self.velocity_limits[joint_id]
-                lower_limit, upper_limit = joints_lower_limit[joint_id], joints_upper_limit[joint_id]
-                self.bullet_client.changeDynamics(self.robot_id, joint_id,
-                                                  linearDamping=0.04, angularDamping=0.04,
-                                                  restitution=0.3, lateralFriction=0.5,
-                                                  jointLowerLimit=lower_limit,
-                                                  jointUpperLimit=upper_limit,
-                                                  maxJointVelocity=qd_max
-                                                  )
-            elif joint_type == self.bullet_client.JOINT_FIXED:  # Ensure end effectors have contact friction
-                self.bullet_client.changeDynamics(self.robot_id, joint_id,
-                                                  restitution=0.0,
-                                                  spinningFriction=self._feet_spinning_friction,
-                                                  # improve collision of round objects
-                                                  contactStiffness=30000,
-                                                  contactDamping=1000,
-                                                  lateralFriction=self._feet_lateral_friction)
-            elif joint_type == self.bullet_client.JOINT_PRISMATIC:
-                self.bullet_client.changeDynamics(self.robot_id, joint_id, linearDamping=0, angularDamping=0, )
+            # if joint_type == self.bullet_client.JOINT_REVOLUTE:
+            #     # Override URDF values if configured in robot specific child class
+            #     dq_max = self.velocity_limits[joint_id]
+            #     lower_limit, upper_limit = joints_lower_limit[joint_id], joints_upper_limit[joint_id]
+            #     self.bullet_client.changeDynamics(self.robot_id, joint_id,
+            #                                       linearDamping=0.04, angularDamping=0.04,
+            #                                       restitution=0.3, lateralFriction=0.5,
+            #                                       jointLowerLimit=lower_limit,
+            #                                       jointUpperLimit=upper_limit,
+            #                                       maxJointVelocity=dq_max
+            #                                       )
+            # elif joint_type == self.bullet_client.JOINT_FIXED:  # Ensure end effectors have contact friction
+            #     self.bullet_client.changeDynamics(self.robot_id, joint_id,
+            #                                       restitution=0.0,
+            #                                       spinningFriction=self._feet_spinning_friction,
+            #                                       # improve collision of round objects
+            #                                       contactStiffness=30000,
+            #                                       contactDamping=1000,
+            #                                       lateralFriction=self._feet_lateral_friction)
+            # elif joint_type == self.bullet_client.JOINT_PRISMATIC:
+            #     self.bullet_client.changeDynamics(self.robot_id, joint_id, linearDamping=0, angularDamping=0, )
 
             log.debug("- id:{:<4} j_name: {:<10} l_name: {:<15} parent_id: {:<4} lim:[{:.1f},{:.1f}]".format(
                 joint_id, joint_name, link_name, parent_id, np.rad2deg(lower_limit), np.rad2deg(upper_limit)))
@@ -363,6 +365,7 @@ class PinBulletWrapper(ABC):
                     q[joint_info.idx_q],
                     dq[joint_info.idx_dq],
                 )
+
 
             # Get transform between inertial frame and link frame in base
             base_stat = self.bullet_client.getDynamicsInfo(self.robot_id, -1)
@@ -597,7 +600,7 @@ class PinBulletWrapper(ABC):
 
     @property
     @abstractmethod
-    def velocity_limits(self, q=None, dq=None) -> Union[float, Collection]:
+    def velocity_limits(self, q=None, dq=None) -> np.array:
         """
         Returns:
             maximum velocity per dof (nj,)

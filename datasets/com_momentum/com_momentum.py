@@ -132,6 +132,8 @@ class COMMomentum(Dataset):
         self.loss_fn = F.mse_loss
         log.info(str(self))
 
+        # TODO: Remmove
+        self.test_equivariance()
 
     def compute_normalization(self, X, Y):
         idx = 6 if self.angular_momentum else 3
@@ -157,29 +159,44 @@ class COMMomentum(Dataset):
             y = self.get_hg(*np.split(x, 2))
             y = y.astype(np.float64)
 
+            x_orbit, y_orbit = [x], [y]
+            y_true = [y]
+
+            non_equivariance_detected = False
             # Get all possible group actions
             for g_in, g_out in zip(self.Gin.discrete_actions[1:], self.Gout.discrete_actions[1:]):
                 g_in, g_out = (g_in.todense(), g_out.todense()) if issparse(g_in) else (g_in, g_out)
                 gx, gy = np.asarray(g_in) @ x, np.asarray(g_out) @ y
+                x_orbit.append(gx)
+                y_orbit.append(gy)
                 assert gx.dtype == x.dtype, (gx.dtype, x.dtype)
                 assert gy.dtype == y.dtype, (gy.dtype, y.dtype)
-                ggx, ggy = g_in.astype(np.float64) @ gx, g_out.astype(np.float64) @ gy
-                # Check if there is numerical error in group actions application.
-                action_error_x = ggx - x
-                action_error_y = ggy - y
+
                 gy_true = self.get_hg(*np.split(gx, 2))
+                y_true.append(gy_true)
+
                 assert gy_true.dtype == y.dtype, (gy_true.dtype, y.dtype)
+
                 error = gy_true - gy
                 rel_error_norm = np.linalg.norm(error) / np.linalg.norm(gy_true)
                 cos_sim = np.dot(gy, gy_true) / (np.linalg.norm(gy_true) * np.linalg.norm(gy))
-                if rel_error_norm > 0.05 and cos_sim <= 0.95:
-                    try:
-                        self.gui_debug(*np.split(x, 2), *np.split(gx, 2), hg1=y, hg2=gy_true, ghg2=gy)
-                    except Exception as e:
-                        logging.warning(f"Unable to start GUI of pybullet: {str(e)}")
-                    raise AttributeError(f"Ground truth hg(q,dq) = Ag(q)dq is not equivariant to provided groups: \n" +
-                                         f"x:{x}\ng*x:{gx}\ny:{y} \ng*y:{gy}\n" +
-                                         f"Aq(g*q,g*dq):{gy_true}\nError:{error}")
+
+                # TODO: Change true
+                if True or rel_error_norm > 0.05 and cos_sim <= 0.95:
+                    non_equivariance_detected = True
+
+            if non_equivariance_detected:
+                try:
+                    splited_orbits = [np.split(x, 2) for x in x_orbit]
+                    qs = [x[0] for x in splited_orbits]
+                    dqs = [x[1] for x in splited_orbits]
+                    self.gui_debug(qs=qs, dqs=dqs, hgs=y_true, ghgs=y_orbit)
+                except Exception as e:
+                    raise e
+                    logging.warning(f"Unable to start GUI of pybullet: {str(e)}")
+                # raise AttributeError(f"Ground truth hg(q,dq) = Ag(q)dq is not equivariant to provided groups: \n" +
+                #                      f"x:{x}\ng*x:{gx}\ny:{y} \ng*y:{gy}\n" +
+                #                      f"Aq(g*q,g*dq):{gy_true}\nError:{error}")
         return None
 
     def compute_metrics(self, y, y_pred) -> dict:
@@ -239,16 +256,17 @@ class COMMomentum(Dataset):
             return hg
         return hg[:3]
 
-    def gui_debug(self, q1, dq1, q2, dq2, hg1, hg2, ghg2):
+    def gui_debug(self, qs, dqs, hgs, ghgs):
+        """
+        Plot side by side robots with different configutations, CoM momentums and expected CoM after an action g
+        """
         from utils.utils import configure_bullet_simulation
-
         def tint_robot(robot, color=(0.227, 0.356, 0.450), alpha=0.5):
             num_joints = self.robot.bullet_client.getNumJoints(self.robot.robot_id)
             for i in range(num_joints):
                 self._pb.changeVisualShape(objectUniqueId=robot.robot_id, linkIndex=i, rgbaColor=color + (alpha,))
             self._pb.changeVisualShape(objectUniqueId=robot.robot_id, linkIndex=-1, rgbaColor=color + (alpha,))
-
-        def draw_momentum_vector(p1, p2, v_color, scale=1.0, show_axes=True, text=None, offset=0.0):
+        def draw_momentum_vector(p1, p2, v_color, scale=1.0, show_axes=False, text=None, offset=0.0):
             linewidth = 4
             x_color, y_color, z_color = (0, 1, 0), (1, 0, 0), (0, 0, 1)
             if show_axes:
@@ -273,35 +291,29 @@ class COMMomentum(Dataset):
         if self._pb is None:
             self._pb = configure_bullet_simulation(gui=True)
 
-        robot1 = self.robot
-        robot2 = copy.copy(self.robot)
-        offset = 2 * self.robot.hip_height
-        robot1.configure_bullet_simulation(self._pb, world=None)
-        robot2.configure_bullet_simulation(self._pb, world=None)
-        # tint_robot(robot2, alpha=0.9)
-        # tint_robot(robot1, alpha=0.9)
-        # Place robots in env
-        q, dq = robot1.get_init_config(random=True)
-        q[:7] = self.base_q
-        dq[:6] = self.base_dq
-        base_q1 = q[:7]
-        base_q2 = np.array(base_q1)
-        base_q2[1] += offset
+        robot = self.robot
+        for i in range(len(qs)):
+            q, dq, hg, ghg = qs[i], dqs[i], hgs[i], ghgs[i]
+            robot = self.robot if i==0 else copy.copy(self.robot)
+            offset = 1.5 * self.robot.hip_height
+            robot.configure_bullet_simulation(self._pb, world=None)
+            # tint_robot(robot2, alpha=0.9)
+            # Place robots in env
+            random_q, random_dq = robot.get_init_config(random=True)
+            random_q[:7] = self.base_q
+            # random_dq[:6] = self.base_dq
+            base_q = random_q[:7]
+            base_q[1] += offset * i
 
-        # Set positions:
-        robot1.reset_state(np.concatenate((base_q1, q1)), dq)
-        robot2.reset_state(np.concatenate((base_q2, q2)), dq)
-        # Draw linear momentum
-        draw_momentum_vector(base_q1[:3], hg1[:3], v_color=(0, 0, 0), scale=1 / np.linalg.norm(hg1[:3]),
-                             text=f"hg(q,dq)={hg1}")
-        draw_momentum_vector(base_q2[:3], hg2[:3], v_color=(0, 0, 0), scale=1 / np.linalg.norm(hg2[:3]),
-                             text=f"hg(g*q, g*dq)={hg2}")
-        draw_momentum_vector(base_q2[:3], ghg2[:3], v_color=(0.125, 0.709, 0.811), scale=1 / np.linalg.norm(ghg2[:3]),
-                             text=f"g*hg(q, dq)={ghg2}", show_axes=False, offset=0.2)
-        draw_momentum_vector(base_q2[:3], hg2[3:], v_color=(0, .5, .5), show_axes=False,
-                             scale=1 / np.linalg.norm(hg2[3:]))
-        draw_momentum_vector(base_q2[:3], ghg2[3:], v_color=(0.125, 0.709, 0.811), scale=1 / np.linalg.norm(ghg2[3:]),
-                             show_axes=False, offset=0.2)
+            # Set positions:
+            robot.reset_state(np.concatenate((base_q, q)), np.concatenate((self.base_dq, dq)))
+
+            # Draw linear momentum
+            linear_color, angular_color = (0.682, 0.576, 0.039), (0.392, 0.047, 0.047)
+            # draw_momentum_vector(base_q[:3], hg[:3], v_color=linear_color, scale=.2 / np.linalg.norm(hg[:3]))
+            # draw_momentum_vector(base_q[:3], hg[3:], v_color=angular_color, scale=.2 / np.linalg.norm(hg[3:]))
+            # draw_momentum_vector(base_q[:3], ghg[:3], v_color=(0, 0, 0), scale=.2 / np.linalg.norm(ghg[:3]))
+            # draw_momentum_vector(base_q[:3], ghg[3:], v_color=(0, 0, 0), scale=.2 / np.linalg.norm(ghg[3:]))
 
         print("a")
 

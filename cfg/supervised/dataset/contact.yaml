@@ -2,7 +2,7 @@
 job_name: ${exp_name}_${robot_name}/model=${model.model_type}_train_ratio=${dataset.train_ratio}
 name: "contact"
 
-data_folder: "dataset/training/numpy/"
+data_folder: "training"
 
 contact_type: "contact"
 

@@ -35,8 +35,9 @@ class UmichContactDataset(contact_dataset):
 
     def __init__(self, data_name, label_name, window_size,
                  train_ratio=0.7, test_ratio=0.15, val_ratio=0.15, loss_class_weights=None,
-                 use_class_imbalance_w=False, device='cuda', augment=False, debug=False):
-
+                 use_class_imbalance_w=False, device='cuda', augment=False, debug=False, partition='training'):
+        # Sub folder in dataset folder containing the mat/*.mat and numpy/*.npy
+        self.partition = partition
         self.data_path, self.label_path = self.get_full_paths(data_name, label_name, train_ratio=train_ratio,
                                                               test_ratio=test_ratio, val_ratio=val_ratio)
 
@@ -138,10 +139,27 @@ class UmichContactDataset(contact_dataset):
 
         TPR = [rates[f'{k}/TP'] / np.sum(bin_gt_arr[:, i] == 1) for i, k in enumerate(self.leg_names)]
         TNR = [rates[f'{k}/TN'] / np.sum(bin_gt_arr[:, i] == 0) for i, k in enumerate(self.leg_names)]
+        FNR = [1 - tpr for tpr in TPR]
+        FPR = [1 - tpr for tpr in TNR]
 
         balanced_acc_of_legs = [(tpr + tnr)/2 for tpr, tnr in zip(TPR, TNR)]
         recall_of_legs = [rates[f'{k}/TP']/(rates[f'{k}/TP'] + rates[f'{k}/FP']) for k in self.leg_names]
         f1score_of_legs = [2*(p * r)/(r + p) for p, r in zip(precision_of_legs, recall_of_legs)]
+        pred_pos_cond_rate_of_legs = [(rates[f'{k}/TP'] + rates[f'{k}/FP']) /
+                                       (rates[f'{k}/TP'] + rates[f'{k}/FP'] + rates[f'{k}/TN'] + rates[f'{k}/FN']) for k in self.leg_names]
+
+
+        individual_state_metrics = {}
+        if prefix == "test_":
+
+            for state_id, state_name in enumerate(self.states_names):
+                precision, recall, f1, support = sklearn.metrics.precision_recall_fscore_support(y_true=gt_arr,
+                                                                                                 y_pred=pred_arr,
+                                                                                                 labels=[state_id])
+                individual_state_metrics[f"contact_state/{state_name}/precision"] = float(precision)
+                individual_state_metrics[f"contact_state/{state_name}/recall"] = float(recall)
+                individual_state_metrics[f"contact_state/{state_name}/f1"] = float(f1)
+                individual_state_metrics[f"contact_state/{state_name}/support"] = int(np.sum(gt_arr == state_id))
 
         if log_imgs:
             import matplotlib.pyplot as plt
@@ -183,6 +201,10 @@ class UmichContactDataset(contact_dataset):
                    'legs_avg/f1': np.sum(f1score_of_legs) / 4.0,
                    'legs_avg/recall': np.sum(recall_of_legs) / 4.0,
                    'legs_avg/balanced_acc': np.sum(balanced_acc_of_legs) / 4.0,
+                   'legs_avg/specificity': np.sum(TNR) / 4.0,
+                   'legs_avg/FPR': np.sum(FPR) / 4.0,
+                   'legs_avg/FNR': np.sum(FNR) / 4.0,
+                   'legs_avg/pred_pos_cond_rate': np.sum(pred_pos_cond_rate_of_legs) / 4.0,
                    }
 
         metrics.update(precision_dir)
@@ -190,6 +212,7 @@ class UmichContactDataset(contact_dataset):
         metrics.update(recall_dir)
         metrics.update(f1_score_dir)
         metrics.update(balanced_acc_dir)
+        metrics.update(individual_state_metrics)
 
         model.log_metrics(metrics, prefix=prefix)
         model.train()
@@ -242,8 +265,9 @@ class UmichContactDataset(contact_dataset):
     def get_full_paths(self, data_name, label_name, train_ratio: float = 0.7,
                        val_ratio: float = 0.7, test_ratio: float = 0.7) -> (pathlib.Path, pathlib.Path):
 
-        folder_path = pathlib.Path(self.dataset_path.joinpath(f'training/numpy_train_ratio={train_ratio:.3f}'))
-        mat_path = pathlib.Path(self.dataset_path.joinpath('training/mat'))
+
+        folder_path = pathlib.Path(self.dataset_path.joinpath(f'{self.partition}/numpy_train_ratio={train_ratio:.3f}'))
+        mat_path = pathlib.Path(self.dataset_path.joinpath(f'{self.partition}/mat'))
 
         print(f'Contact Dataset path: {folder_path.absolute()}')
         data_path = folder_path.joinpath(data_name)
@@ -443,18 +467,32 @@ class UmichContactDataset(contact_dataset):
         y = self.label.detach().cpu().numpy()
         bin_gt = self.decimal2binary(self.label).detach().cpu().numpy()
 
+        df = pd.DataFrame({'contact_state': np.asarray(self.states_names)[y]})
+        df['source'] = 'gt'
+
+        df2 = pd.DataFrame({'contact_state': np.asarray(self.states_names)[y]})
+        df2['source'] = 'pred'
+
+        df = pd.concat((df, df2), axis=0, ignore_index=True)
+
+        df['contact_state'] = pd.Categorical(df['contact_state'], self.states_names)
+        n_colors = 1 if 'source' not in df else len(np.unique(df['source']))
         fig, ax = plt.subplots(figsize=(8, 8), dpi=150)
-        sns.histplot(x=np.asarray(self.states_names)[y], bins=16, stat='probability', ax=ax, discrete=True, shrink=.9)
+        sns.histplot(data=df, x='contact_state', hue='source' if 'source' in df else None, color='magma',
+                     palette=sns.color_palette("magma_r", n_colors), bins=16, stat='probability', ax=ax, discrete=True,
+                     multiple="dodge")
         ax.set_title(f'{self.data_path.stem} {len(self)} samples')
+        ax.set(yscale='log')
         ax.tick_params(axis='x', rotation=70)
         plt.tight_layout()
         plt.show()
 
-        fig, axs = plt.subplots(ncols=2, nrows=2, figsize=(8, 8), dpi=150)
-        for leg_name, i, ax in zip(self.leg_names, range(4), axs.flatten()):
-            sns.histplot(x=bin_gt[:, i], bins=2, discrete=True, shrink=.9, stat='probability', ax=ax)
-            ax.set_title(leg_name)
-        fig.suptitle(f'{self.data_path.stem} {len(self)} samples')
-        plt.show()
+        # fig, axs = plt.subplots(ncols=2, nrows=2, figsize=(8, 8), dpi=150)
+        # for leg_name, i, ax in zip(self.leg_names, range(4), axs.flatten()):
+        #     sns.histplot(x=bin_gt[:, i], bins=2, discrete=True, shrink=.9, stat='probability', ax=ax)
+        #     ax.set_title(leg_name)
+        # fig.suptitle(f'{self.data_path.stem} {len(self)} samples')
+        # plt.show()
+        # pass
 
 

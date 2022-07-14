@@ -2,10 +2,12 @@ import copy
 import os
 
 import torch
+from torch.utils.data.sampler import WeightedRandomSampler
 
 os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
 
 import pandas as pd
+import numpy as np
 
 from datasets.com_momentum.com_momentum import COMMomentum
 from datasets.umich_contact_dataset import UmichContactDataset
@@ -62,19 +64,33 @@ def get_datasets(cfg, device, root_path):
         train_dataset = UmichContactDataset(data_name="train.npy",
                                             label_name="train_label.npy", train_ratio=cfg.dataset.train_ratio,
                                             augment=cfg.dataset.augment,
-                                            use_class_imbalance_w=cfg.dataset.balanced_classes,
-                                            window_size=cfg.dataset.window_size, device=device)
+                                            use_class_imbalance_w=False,
+                                            window_size=cfg.dataset.window_size, device=device,
+                                            partition=cfg.dataset.data_folder)
 
         val_dataset = UmichContactDataset(data_name="val.npy",
                                           label_name="val_label.npy", train_ratio=cfg.dataset.train_ratio,
                                           augment=False, use_class_imbalance_w=False,
-                                          window_size=cfg.dataset.window_size, device=device)
+                                          window_size=cfg.dataset.window_size, device=device,
+                                          partition=cfg.dataset.data_folder)
         test_dataset = UmichContactDataset(data_name="test.npy",
                                            label_name="test_label.npy", train_ratio=cfg.dataset.train_ratio,
                                            augment=False, use_class_imbalance_w=False,
-                                           window_size=cfg.dataset.window_size, device=device)
+                                           window_size=cfg.dataset.window_size, device=device,
+                                           partition=cfg.dataset.data_folder,
+                                           )
+        sampler = None
+        if cfg.dataset.balanced_classes:
+            class_freqs = torch.clone(train_dataset.contact_state_freq)
+            # As dataset is heavily unbalanced, set maximum sampling prob to uniform sampling from contact_states.
+            class_freqs = torch.maximum(class_freqs, torch.ones_like(class_freqs) * (1/train_dataset.n_contact_states))
+            class_freqs = class_freqs / torch.linalg.norm(class_freqs)
+            sample_weights = 1 - (class_freqs[train_dataset.label])
+            # a = sample_weights.cpu().numpy()
+            sampler = WeightedRandomSampler(sample_weights, num_samples=cfg.dataset.batch_size, replacement=False)
 
-        train_dataloader = DataLoader(dataset=train_dataset, batch_size=cfg.dataset.batch_size, shuffle=True,
+        train_dataloader = DataLoader(dataset=train_dataset, batch_size=cfg.dataset.batch_size,
+                                      shuffle=True if sampler is None else None, sampler=sampler,
                                       num_workers=cfg.num_workers, collate_fn=lambda x: train_dataset.collate_fn(x))
         val_dataloader = DataLoader(dataset=val_dataset, batch_size=cfg.dataset.batch_size,
                                     collate_fn=lambda x: val_dataset.collate_fn(x), num_workers=cfg.num_workers)
@@ -135,7 +151,7 @@ def fine_tune_model(cfg, best_ckpt_path: pathlib.Path, pl_model, batches_per_ori
     fine_tb_logger = pl_loggers.TensorBoardLogger(".", name=f'seed={cfg.seed}',
                                                   version=version,
                                                   default_hp_metric=False)
-    ckpt_path = get_ckpt_storage_path(fine_tb_logger.log_dir)
+    ckpt_path = get_ckpt_storage_path(fine_tb_logger.log_dir, use_volatile=cfg.use_volatile)
     fine_ckpt_call = ModelCheckpoint(dirpath=ckpt_path, filename='best', monitor="val_loss",
                                      save_last=True)
     fine_stop_call = EarlyStopping(monitor='val_loss', patience=max(10, int(epochs * 0.1)), mode='min')
@@ -168,8 +184,8 @@ def test_model(path, trainer, model, train_dataloader, test_dataloader, val_data
     # noinspection PyTypeChecker
     df.to_csv(str(path.joinpath("test_metrics.csv").absolute()))
 
-
-def get_ckpt_storage_path(log_path):
+def get_ckpt_storage_path(log_path, use_volatile=True):
+    if not use_volatile: return log_path
     try:
         exp_path = pathlib.Path(*pathlib.Path(os.getcwd()).parts[3:])
         asi_root_folder = pathlib.Path(os.environ['NVME1DIR'])
@@ -194,13 +210,15 @@ def main(cfg: DictConfig):
     root_path = pathlib.Path(get_original_cwd()).resolve()
     cache_dir = root_path.joinpath(".empl_cache")
     cache_dir.mkdir(exist_ok=True)
-    # cache_dir = None if cfg.dataset.name == "com_momentum" else cache_dir
+    cache_dir = None #if cfg.dataset.name == "com_momentum" else cache_dir
 
     # Check if experiment already run
     tb_logger = pl_loggers.TensorBoardLogger(".", name=f'seed={cfg.seed}', version=cfg.seed, default_hp_metric=False)
-    ckpt_folder_path = get_ckpt_storage_path(tb_logger.log_dir)
+    ckpt_folder_path = get_ckpt_storage_path(tb_logger.log_dir, use_volatile=cfg.use_volatile)
     ckpt_call = ModelCheckpoint(dirpath=ckpt_folder_path, filename='best', monitor="val_loss", save_last=True)
     training_done, ckpt_path, best_path = check_if_resume_experiment(ckpt_call)
+    test_metrics_path = pathlib.Path(tb_logger.log_dir) / 'test_metrics.csv'
+    training_done = True if test_metrics_path.exists() else training_done
 
     # Check if fine tunning is desired and if it has already run
     should_fine_tune = cfg.model.model_type.lower() in ['ecnn']
@@ -213,6 +231,9 @@ def main(cfg: DictConfig):
     else:
         finetune_done = True
 
+    ## TODO: Avoid finetune for now
+    # finetune_done = True
+
     if not training_done or not finetune_done:
         # Prepare data
         datasets, dataloaders = get_datasets(cfg, device, root_path)
@@ -224,7 +245,7 @@ def main(cfg: DictConfig):
         log.info(model)
 
         # Prepare Lightning
-        test_set_metrics_fn = (lambda x: test_dataset.test_metrics(*x)) if hasattr(train_dataset, 'test_metrics') else None
+        test_set_metrics_fn = (lambda x: test_dataset.test_metrics(*x)) if hasattr(test_dataset, 'test_metrics') else None
         val_set_metrics_fn = (lambda x: val_dataset.test_metrics(*x)) if hasattr(val_dataset, 'test_metrics') else None
         pl_model = LightningModel(lr=cfg.model.lr, loss_fn=train_dataset.loss_fn,
                                   metrics_fn=lambda x, y: train_dataset.compute_metrics(x, y),
@@ -251,8 +272,9 @@ def main(cfg: DictConfig):
                               callbacks=[ckpt_call, stop_call],
                               fast_dev_run=cfg.debug,
                               detect_anomaly=cfg.debug,
+                              enable_progress_bar=cfg.debug_loops or cfg.debug,
                               limit_train_batches=1.0 if not cfg.debug_loops else 0.005,
-                              limit_test_batches=1.0 if not cfg.debug_loops else 0.005,
+                              # limit_test_batches=1.0 if not cfg.debug_loops else 0.005,
                               limit_val_batches=1.0 if not cfg.debug_loops else 0.005,
                               resume_from_checkpoint=ckpt_path if ckpt_path.exists() else None,
                               )

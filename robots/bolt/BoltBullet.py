@@ -103,7 +103,8 @@ class BoltBullet(PinBulletWrapper):
 
         num_joints = self.bullet_client.getNumJoints(self.robot_id)
         robot_color = [0.227, 0.356, 0.450, 1.0]
-        left_leg_color = [0.427, 0.521, 0.592, 1.0]
+        left_leg_color = [0.698, 0.376, 0.082, 1.0]
+        right_leg_color = [0.070, 0.447, 0.505, 1.0]
         endeff_color = [0.1, 0.1, 0.1, 1.0]
         # endeff_colors = ["HL_ANKLE", "HR_ANKLE", "FL_ANKLE", "FR_ANKLE"]
         for i in range(num_joints):
@@ -116,7 +117,7 @@ class BoltBullet(PinBulletWrapper):
             elif 'L' in joint_name:
                 color = left_leg_color
             elif 'R' in joint_name:
-                color = robot_color
+                color = right_leg_color
             else:
                 color = robot_color
 
