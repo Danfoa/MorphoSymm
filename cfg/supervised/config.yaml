@@ -53,6 +53,7 @@ hydra:
           - debug
           - debug_loops
           - seed
+          - use_volatile
 
   sweep:
     dir: ./experiments/${hydra.job.name}/

@@ -39,7 +39,7 @@ class UmichContactDataset(contact_dataset):
         # Sub folder in dataset folder containing the mat/*.mat and numpy/*.npy
         self.partition = partition
         self.data_path, self.label_path = self.get_full_paths(data_name, label_name, train_ratio=train_ratio,
-                                                              test_ratio=test_ratio, val_ratio=val_ratio)
+                                                              val_ratio=val_ratio)
 
         # super().__init__(str(self.data_path), str(self.label_path), window_size, device=device)
         trials = 5
@@ -221,7 +221,6 @@ class UmichContactDataset(contact_dataset):
         mask = 2 ** torch.arange(4 - 1, -1, -1).to(self.device, x.dtype)
         return x.unsqueeze(-1).bitwise_and(mask).ne(0).byte()
 
-
     @staticmethod
     def get_in_out_groups():
         # Joint Space
@@ -262,30 +261,62 @@ class UmichContactDataset(contact_dataset):
 
         return Gin_data, Gout_data
 
-    def get_full_paths(self, data_name, label_name, train_ratio: float = 0.7,
-                       val_ratio: float = 0.7, test_ratio: float = 0.7) -> (pathlib.Path, pathlib.Path):
+    def get_full_paths(self, data_name, label_name, train_ratio: float = 0.7, val_ratio: float = 0.7) -> (pathlib.Path, pathlib.Path):
 
 
         folder_path = pathlib.Path(self.dataset_path.joinpath(f'{self.partition}/numpy_train_ratio={train_ratio:.3f}'))
-        mat_path = pathlib.Path(self.dataset_path.joinpath(f'{self.partition}/mat'))
+        training_mat_path = pathlib.Path(self.dataset_path.joinpath(f'{self.partition}/mat'))
+        test_mat_path = pathlib.Path(self.dataset_path.joinpath(f'{self.partition}/mat_test'))
 
-        print(f'Contact Dataset path: {folder_path.absolute()}')
         data_path = folder_path.joinpath(data_name)
         label_path = folder_path.joinpath(label_name)
+        print(f'Contact Dataset path: \n\t- Data: {data_path} \n\t- Labels: {label_path}')
 
-        if not data_path.exists():
+        if not data_path.exists():  # Data is not there generate it.
             folder_path.mkdir(exist_ok=True)
             print(f"Generating dataset and saving it to: {folder_path}")
-            UmichContactDataset.mat2numpy_split(data_path=mat_path, save_path=folder_path,
-                                                train_ratio=train_ratio, val_ratio=val_ratio, test_ratio=test_ratio)
+            UmichContactDataset.mat2numpy_split(train_val_data_path=training_mat_path, test_data_path=test_mat_path,
+                                                save_path=folder_path, train_ratio=train_ratio, val_ratio=val_ratio)
             print(f"Created dataset partition and saved to: {folder_path}")
             assert data_path.exists(), f"Failed to create partition on {data_path}"
 
         return data_path, label_path
 
+    def compute_accuracy(self, dataloader, model):
+        # compute accuracy in batch
+
+        num_correct = 0
+        num_data = 0
+        correct_per_leg = np.zeros(4)
+        bin_pred_arr = np.zeros((0, 4))
+        bin_gt_arr = np.zeros((0, 4))
+        pred_arr = np.zeros((0))
+        gt_arr = np.zeros((0))
+        with torch.no_grad():
+            for input_data, gt_label in tqdm(dataloader):
+
+                output = model(input_data)
+
+                _, prediction = torch.max(output, 1)
+
+                bin_pred = self.decimal2binary(prediction)
+                bin_gt = self.decimal2binary(gt_label)
+
+                bin_pred_arr = np.vstack((bin_pred_arr, bin_pred.cpu().numpy()))
+                bin_gt_arr = np.vstack((bin_gt_arr, bin_gt.cpu().numpy()))
+
+                pred_arr = np.hstack((pred_arr, prediction.cpu().numpy()))
+                gt_arr = np.hstack((gt_arr, gt_label.cpu().numpy()))
+
+                correct_per_leg += (bin_pred == bin_gt).sum(axis=0).cpu().numpy()
+                num_data += input_data.size(0)
+                num_correct += (prediction == gt_label).sum().item()
+
+        return num_correct / num_data, correct_per_leg / num_data, bin_pred_arr, bin_gt_arr, pred_arr, gt_arr
+
     @staticmethod
-    def mat2numpy_split(data_path: pathlib.Path, save_path: pathlib.Path, train_ratio=0.7, val_ratio=0.15,
-                        test_ratio=0.15):
+    def mat2numpy_split(train_val_data_path: pathlib.Path, test_data_path: pathlib.Path, save_path: pathlib.Path,
+                        train_ratio=0.7, val_ratio=0.15):
         """
         Load data from .mat file, concatenate into numpy array, and save as train/val/test.
         Inputs:
@@ -319,76 +350,25 @@ class UmichContactDataset(contact_dataset):
         Output:
         -
         """
-        import scipy.io as sio
+        assert train_ratio + val_ratio <= 1.0, f'{(train_ratio, val_ratio)} > 1.0'
 
-        assert train_ratio + test_ratio + val_ratio <= 1.0, f'{(train_ratio, test_ratio, val_ratio)} > 1.0'
-
-        num_features = 54
-        train_data = np.zeros((0, num_features))
-        val_data = np.zeros((0, num_features))
-        test_data = np.zeros((0, num_features))
-        train_label = np.zeros((0, 1))
-        val_label = np.zeros((0, 1))
-        test_label = np.zeros((0, 1))
-
-        def binary2decimal(a, axis=-1):
-            return np.right_shift(np.packbits(a, axis=axis), 8 - a.shape[axis]).squeeze()
-
-        data_path = pathlib.Path(data_path)
+        data_path = pathlib.Path(train_val_data_path)
+        test_data_path = pathlib.Path(test_data_path)
         save_path = pathlib.Path(save_path)
-        assert data_path.exists(), data_path.absolute()
+        assert data_path.exists(), f"Train and Val .mat files required, and not found on {data_path.absolute()}"
+        assert test_data_path.exists(), f"Test .mat files required, and not found on {test_data_path.absolute()}"
+        assert data_path != test_data_path
 
         save_path.mkdir(exist_ok=True)
 
-        print(f"Creating dataset partition train:{train_ratio}, test:{test_ratio}, val:{val_ratio}")
-
-        # for all dataset in the folder
-        for data_name in glob.glob(str(data_path.joinpath('*'))):
-            print("loading... ", data_name)
-            # load data
-            raw_data = sio.loadmat(data_name)
-
-            contacts = raw_data['contacts']
-            q = raw_data['q']
-            p = raw_data['p']
-            qd = raw_data['qd']
-            v = raw_data['v']
-            acc = raw_data['imu_acc']
-            omega = raw_data['imu_omega']
-
-            # tau_est = raw_data['tau_est']
-            # F = raw_data['F']
-
-            # concatenate current data. First we try without GRF
-            cur_data = np.concatenate((q, qd, acc, omega, p, v), axis=1)
-
-            # separate data into train/val/test
-            num_data = np.shape(q)[0]
-            num_train = int(train_ratio * num_data)
-            num_val = int(val_ratio * num_data)
-            num_test = int(test_ratio * num_data)
-            assert train_ratio + val_ratio + test_ratio <= 1.0
-            cur_val = cur_data[:num_val, :]
-            cur_test = cur_data[num_val:num_val + num_test, :]
-            cur_train = cur_data[-num_train:, :]
-
-            # stack with all other sequences
-            train_data = np.vstack((train_data, cur_train))
-            val_data = np.vstack((val_data, cur_val))
-            test_data = np.vstack((test_data, cur_test))
-
-            # convert labels from binary to decimal
-            cur_label = binary2decimal(contacts).reshape((-1, 1))
-
-            # stack labels
-            val_label = np.vstack((val_label, cur_label[:num_val, :]))
-            test_label = np.vstack((test_label, cur_label[num_val:num_val + num_test, :]))
-            train_label = np.vstack((train_label, cur_label[-num_train:, :]))
-
-            # break
-        train_label = train_label.reshape(-1, )
-        val_label = val_label.reshape(-1, )
-        test_label = test_label.reshape(-1, )
+        print(f"\nCreating dataset partition: train:{train_ratio}, val:{val_ratio} from {data_path}")
+        (train_data, val_data), (train_label, val_label) = UmichContactDataset.load_and_split_mat_files(data_path=train_val_data_path,
+                                                                                                        partitions_ratio=(train_ratio, val_ratio),
+                                                                                                        partitions_name=("train", "test"))
+        print(f"\nCreating dataset test from {test_data_path}")
+        (test_data,), (test_label,) = UmichContactDataset.load_and_split_mat_files(data_path=test_data_path,
+                                                                                   partitions_ratio=(1.0,),
+                                                                                   partitions_name=("test",))
 
         print(f"Saving data to {save_path.resolve()}")
 
@@ -399,45 +379,59 @@ class UmichContactDataset(contact_dataset):
         np.save(str(save_path.joinpath("val_label.npy")), val_label)
         np.save(str(save_path.joinpath("test_label.npy")), test_label)
 
-        print("Generated ", train_data.shape[0], " training data.")
-        print("Generated ", val_data.shape[0], " validation data.")
-        print("Generated ", test_data.shape[0], " test data.")
+    @staticmethod
+    def load_and_split_mat_files(data_path: pathlib.Path, partitions_ratio=(0.85, 0.15),
+                                 partitions_name=("train", "val")):
+        partitions_data = [None] * len(partitions_ratio)
+        partitions_labels = [None] * len(partitions_ratio)
+        data_files = list(data_path.glob("*.mat"))
+        assert len(data_files) > 1, f"No .mat files found in {data_path.absolute()}"
+        assert sum(partitions_ratio) <= 1.0, f"the partitions should add up to less than 100% of the data"
 
-        print(train_data.shape[0])
-        print(val_data.shape[0])
-        print(test_data.shape[0])
+        print(f"Loading data from {data_path}")
+        print(f"Dataset .mat files found: {[pathlib.Path(d).name for d in data_files]}")
+        # for all dataset in the folder
+        all_samples = 0
+        for data_name in glob.glob(str(data_path.joinpath('*'))):
+            # load data
+            raw_data = scipy.io.loadmat(data_name)
 
-    def compute_accuracy(self, dataloader, model):
-        # compute accuracy in batch
+            contacts = raw_data['contacts']
+            q = raw_data['q']
+            p = raw_data['p']
+            qd = raw_data['qd']
+            v = raw_data['v']
+            acc = raw_data['imu_acc']
+            omega = raw_data['imu_omega']
 
-        num_correct = 0
-        num_data = 0
-        correct_per_leg = np.zeros(4)
-        bin_pred_arr = np.zeros((0, 4))
-        bin_gt_arr = np.zeros((0, 4))
-        pred_arr = np.zeros((0))
-        gt_arr = np.zeros((0))
-        with torch.no_grad():
-            for input_data, gt_label in tqdm(dataloader):
+            # concatenate current data. First we try without GRF
+            cur_data = np.concatenate((q, qd, acc, omega, p, v), axis=1)
+            # convert labels from binary to decimal
+            def binary2decimal(a, axis=-1):
+                return np.right_shift(np.packbits(a, axis=axis), 8 - a.shape[axis]).squeeze()
+            cur_label = binary2decimal(contacts).reshape((-1, 1))
 
-                output = model(input_data)
+            # separate data into given paritions
+            num_data = np.shape(q)[0]
+            all_samples += num_data
+            partitions_size = [int(ratio * num_data) for ratio in partitions_ratio]
 
-                _, prediction = torch.max(output, 1)
+            lower_lim = 0
+            for partition_id, (partition_size, partition_name) in enumerate(zip(partitions_size, partitions_name)):
+                if partitions_data[partition_id] is None:
+                    partitions_data[partition_id] = []
+                    partitions_labels[partition_id] = []
+                partitions_data[partition_id].append(cur_data[lower_lim:lower_lim + partition_size, :])
+                partitions_labels[partition_id].append(cur_label[lower_lim:lower_lim + partition_size, :])
+                lower_lim += partition_size
 
-                bin_pred = self.decimal2binary(prediction)
-                bin_gt = self.decimal2binary(gt_label)
+        partitions_data = [np.vstack(data_list) for data_list in partitions_data]
+        partitions_labels = [np.vstack(label_list).reshape(-1, ) for label_list in partitions_labels]
 
-                bin_pred_arr = np.vstack((bin_pred_arr, bin_pred.cpu().numpy()))
-                bin_gt_arr = np.vstack((bin_gt_arr, bin_gt.cpu().numpy()))
-
-                pred_arr = np.hstack((pred_arr, prediction.cpu().numpy()))
-                gt_arr = np.hstack((gt_arr, gt_label.cpu().numpy()))
-
-                correct_per_leg += (bin_pred == bin_gt).sum(axis=0).cpu().numpy()
-                num_data += input_data.size(0)
-                num_correct += (prediction == gt_label).sum().item()
-
-        return num_correct / num_data, correct_per_leg / num_data, bin_pred_arr, bin_gt_arr, pred_arr, gt_arr
+        for name, ratio, data in zip(partitions_name, partitions_ratio, partitions_data):
+            # assert ratio * all_samples == data.shape[0]
+            print(f"\t - {name} ({ratio*100:.1f}%) = {data.shape[0]:d} samples --> {data.shape[0]/all_samples*100:.1f}%")
+        return partitions_data, partitions_labels
 
     def compute_confusion_mat(self, bin_contact_pred_arr, bin_contact_gt_arr, pred_state, gt_state):
 

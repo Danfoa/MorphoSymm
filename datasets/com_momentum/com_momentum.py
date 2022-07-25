@@ -132,8 +132,8 @@ class COMMomentum(Dataset):
         self.loss_fn = F.mse_loss
         log.info(str(self))
 
-        # TODO: Remmove
-        self.test_equivariance()
+        # TODO: Remove
+        # self.test_equivariance()
 
     def compute_normalization(self, X, Y):
         idx = 6 if self.angular_momentum else 3
@@ -182,7 +182,7 @@ class COMMomentum(Dataset):
                 cos_sim = np.dot(gy, gy_true) / (np.linalg.norm(gy_true) * np.linalg.norm(gy))
 
                 # TODO: Change true
-                if True or rel_error_norm > 0.05 and cos_sim <= 0.95:
+                if rel_error_norm > 0.05 and cos_sim <= 0.95:
                     non_equivariance_detected = True
 
             if non_equivariance_detected:
@@ -390,7 +390,7 @@ class COMMomentum(Dataset):
             np.savez_compressed(str(partition_path.joinpath("test.npz")), X=X_test, Y=Y_test)
             np.savez_compressed(str(partition_path.joinpath("val.npz")), X=X_val, Y=Y_val)
 
-            log.info(f"Saving dataset partition {partition_folder} on {partition_path.absolute()}")
+            log.info(f"Saving dataset partition {partition_folder} on {partition_path.parent}")
         else:
             log.debug(f"Loaded dataset partition {partition_folder}")
         return partition_path

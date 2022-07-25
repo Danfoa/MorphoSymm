@@ -14,6 +14,7 @@ max_epochs: 60
 batch_size: 30
 window_size: 150
 
+
 train_ratio: 0.7
 test_ratio: 0.15
 val_ratio: 0.15

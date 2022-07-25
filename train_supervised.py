@@ -103,17 +103,18 @@ def get_datasets(cfg, device, root_path):
         robot_name = robot_name if '-' not in robot_name else robot_name.split('-')[0]
         data_path = root_path.joinpath(f"datasets/com_momentum/{robot_name}")
         # Training only sees the model symmetries
-        train_dataset = COMMomentum(robot, Gin=Gin_model, Gout=Gout_model, type='train',
+        train_dataset = COMMomentum(robot, Gin=Gin_model, Gout=Gout_model, type='train', samples=cfg.dataset.samples,
                                     train_ratio=cfg.dataset.train_ratio, angular_momentum=cfg.dataset.angular_momentum,
                                     standarizer=cfg.dataset.standarize, augment=cfg.dataset.augment,
                                     data_path=data_path, dtype=torch.float32, device=device)
         # Test and validation use theoretical symmetry group, and training set standarization
-        test_dataset = COMMomentum(robot, Gin=Gin_data, Gout=Gout_data, type='test', train_ratio=cfg.dataset.train_ratio,
-                                   angular_momentum=cfg.dataset.angular_momentum, data_path=data_path,
+        test_dataset = COMMomentum(robot, Gin=Gin_data, Gout=Gout_data, type='test', samples=cfg.dataset.samples,
+                                   train_ratio=cfg.dataset.train_ratio, angular_momentum=cfg.dataset.angular_momentum,
+                                   data_path=data_path,
                                    augment='hard', dtype=torch.float32, device=device, standarizer=train_dataset.standarizer)
-        val_dataset = COMMomentum(robot, Gin=Gin_data, Gout=Gout_data, type='val', train_ratio=cfg.dataset.train_ratio,
-                                  angular_momentum=cfg.dataset.angular_momentum, data_path=data_path,
-                                  augment=True, dtype=torch.float32, device=device, standarizer=train_dataset.standarizer)
+        val_dataset = COMMomentum(robot, Gin=Gin_data, Gout=Gout_data, type='val', samples=cfg.dataset.samples,
+                                  train_ratio=cfg.dataset.train_ratio, angular_momentum=cfg.dataset.angular_momentum,
+                                  data_path=data_path, augment=True, dtype=torch.float32, device=device, standarizer=train_dataset.standarizer)
 
         train_dataloader = DataLoader(train_dataset, batch_size=cfg.dataset.batch_size, num_workers=cfg.num_workers,
                                       shuffle=True, collate_fn=lambda x: train_dataset.collate_fn(x))
@@ -201,6 +202,7 @@ def get_ckpt_storage_path(log_path, use_volatile=True):
 
 @hydra.main(config_path='cfg/supervised', config_name='config')
 def main(cfg: DictConfig):
+    log.info("\n\n NEW RUN \n\n")
     device = torch.device("cuda" if torch.cuda.is_available() and cfg.device != "cpu" else "cpu")
     cfg.seed = cfg.seed if cfg.seed >= 0 else np.random.randint(0, 1000)
     cfg['debug'] = cfg.get('debug', False)
