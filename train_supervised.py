@@ -234,7 +234,7 @@ def main(cfg: DictConfig):
         finetune_done = True
 
     ## TODO: Avoid finetune for now
-    # finetune_done = True
+    finetune_done = True
 
     if not training_done or not finetune_done:
         # Prepare data

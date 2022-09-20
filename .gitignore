@@ -1,5 +1,3 @@
-/experiments/
-/media/
 *.pyc
 *.npz
 *.npy
@@ -8,6 +6,6 @@
 /.empl_cache/
 /_tests/
 /launch/
-
+/__pycache__/
+/.pytest_cache/
 output/
-#/paper/

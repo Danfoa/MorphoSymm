@@ -1,0 +1,15 @@
+Repin: Vs[C2[d:24]]
+Repout: Vs[C2[d:24]]
+activation: type
+hidden_ch: 256
+init_mode: fan_in
+inv_dim_scale: 0.0
+log_preact: false
+log_w: false
+loss_fn: !!python/name:torch.nn.functional.mse_loss ''
+lr: 0.0024
+metrics_fn: !!python/name:__main__.%3Clambda%3E ''
+model: EMLP
+num_layers: 4
+test_epoch_metrics_fn: null
+val_epoch_metrics_fn: null

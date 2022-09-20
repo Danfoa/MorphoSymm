@@ -1,0 +1,9 @@
+- dataset=com_momentum
+- exp_name=com_sample_eff
+- robot_name=Solo-c2
+- model=mlp
+- dataset.train_ratio=0.7
+- model.lr=0.0024
+- dataset.augment=False
+- model.num_channels=64
+- seed=7
