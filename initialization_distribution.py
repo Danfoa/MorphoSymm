@@ -16,12 +16,13 @@ from omegaconf import DictConfig
 from pytorch_lightning import seed_everything
 from torch.utils.data import DataLoader
 
+from groups.SemiDirectProduct import SparseRep
 from utils.robot_utils import get_robot_params
 from groups.SymmetricGroups import C2
 from nn.LightningModel import LightningModel
 from nn.EquivariantModules import EMLP, MLP, BasisLinear, EquivariantBlock, LinearBlock
-from nn.datasets import COMMomentum
-from utils.utils import slugify
+from datasets.com_momentum.com_momentum import COMMomentum
+from utils.utils import slugify, cm2inch
 
 
 class Identity(torch.nn.Module):
@@ -176,55 +177,53 @@ def main(cfg: DictConfig):
     cache_dir = root_path.joinpath(".empl_cache")
     cache_dir.mkdir(exist_ok=True)
 
-
-    robot, G_in, G_out, G = get_robot_params(cfg.robot_name)
-
+    robot, Gin_data, Gout_data, Gin, Gout, = get_robot_params(cfg.robot_name)
     # Parameters
-    activations = [torch.nn.ReLU]
-    init_modes = ["fan_in", "fan_out", 'normal0.1', 'normal1.0', "arithmetic_mean",]
+    activations = [torch.nn.ReLU, torch.nn.Tanh]
+    init_modes = ["fan_in", "fan_out", 'normal0.05', 'normal0.8']
 
     for activation in activations:
         df_activations, df_gradients, df_weights = None, None, None
-
         model_types = ['mlp', 'emlp']
-        model_colors = plt.cm.get_cmap('inferno')([1.0, 0.0])
+        model_colors = sns.color_palette("magma_r", len(model_types))
         alpha = 0.2
         for color, model_type in zip(model_colors, model_types):
-            color[3] = alpha
-            for i, init_mode in enumerate(init_modes):
-                # Define output group for linear momentum
-                if model_type == "emlp":
-                    network = EMLP(rep_in=Vector(G_in), rep_out=Vector(G_out), hidden_group=G_in, num_layers=cfg.num_layers,
-                                   ch=cfg.num_channels, with_bias=False, activation=activation, init_mode=init_mode,
-                                   cache_dir=cache_dir).to(dtype=torch.float32)
-                    network.save_cache_file()
-                elif model_type == 'mlp':
-                    if "mean" in init_mode: continue
-                    network = MLP(d_in=G_in.d, d_out=G_out.d, num_layers=cfg.num_layers, ch=cfg.num_channels,
-                                  with_bias=False, activation=activation, init_mode=init_mode).to(dtype=torch.float32)
-                else:
-                    raise NotImplementedError(model_type)
+            # Define output group for linear momentum
+            if "emlp" == cfg.model.model_type.lower():
+                network = EMLP(activation=activation, inv_dims_scale=0.0,
+                               rep_in=SparseRep(Gin), rep_out=SparseRep(Gout), hidden_group=Gout,
+                               num_layers=cfg.model.num_layers, ch=cfg.model.num_channels, with_bias=False,
+                               cache_dir=None).to(dtype=torch.float32)
+            elif 'mlp' == cfg.model.model_type.lower():
+                network = MLP(activation=activation, d_in=Gin.d, d_out=Gout.d,
+                              num_layers=cfg.model.num_layers, ch=cfg.model.num_channels, with_bias=False
+                              ).to(dtype=torch.float32)
+            else:
+                raise NotImplementedError(model_type)
 
-                dataset = COMMomentum(robot, cfg.dataset.train_samples, angular_momentum=cfg.dataset.angular_momentum,
-                                      Gin=G_in, Gout=G_out, augment=False)
-                data_loader = DataLoader(dataset, batch_size=cfg.batch_size)
+            dataset = COMMomentum(robot, Gin=Gin, Gout=Gout, type='train', samples=1000)
+            data_loader = DataLoader(dataset, batch_size=512, collate_fn=lambda x: dataset.collate_fn(x))
+
+            for i, init_mode in enumerate(init_modes):
+                # Re initialize network parameters
+                network.reset_parameters(init_mode=init_mode)
 
                 df_act = extract_activations(network, data_loader=data_loader)
                 df_grad = extract_gradients(network, data_loader=data_loader)
-                df_w = extract_weight_distribution(network)
+                # df_w = extract_weight_distribution(network)
                 df_act["Model Type"] = model_type
                 df_act["Initialization Mode"] = init_mode
                 df_grad["Model Type"] = model_type
                 df_grad["Initialization Mode"] = init_mode
-                df_w["Model Type"] = model_type
-                df_w["Initialization Mode"] = init_mode
+                # df_w["Model Type"] = model_type
+                # df_w["Initialization Mode"] = init_mode
 
                 if df_activations is None:
-                    df_activations, df_gradients, df_weights = df_act, df_grad, df_w
+                    df_activations, df_gradients, df_weights = df_act, df_grad, None #df_w
                 else:
                     df_activations = pd.concat((df_activations, df_act), axis=0)
                     df_gradients = pd.concat((df_gradients, df_grad), axis=0)
-                    df_weights = pd.concat((df_weights, df_w), axis=0)
+                    # df_weights = pd.concat((df_weights, df_w), axis=0)
 
         def plot_layers_distributions(df, value_kw, title=None, save=False):
             if "Param" in df.columns:
@@ -233,38 +232,41 @@ def main(cfg: DictConfig):
                 df.loc[:, "hue"] = df["Model Type"]
             g = sns.catplot(x="Layer", y=value_kw, hue="hue",
                             row="Initialization Mode", kind="violin", data=df,
-                            sharey=False, sharex="col", aspect=(cfg.num_layers+2)/1.5, ci="sd",
-                            scale='count', bw=.3, inner="box", scale_hue=True, pallete="Set3", leyend_out=False)
+                            sharey=False, sharex="col", height=cm2inch(10), aspect=1.4, ci="sd",
+                            scale='area', bw=.3, inner="box", scale_hue=True, dodge=True,
+                            palette=sns.color_palette("mako", len(model_types)),
+                            legend=True, legend_out=False)
             if title:
                 g.figure.suptitle(title)
                 g.figure.subplots_adjust(top=0.92)
                 if save:
-                    g.figure.savefig(os.path.join(get_original_cwd(), "media", title), dpi=90)
+                    g.figure.savefig(os.path.join(get_original_cwd(), "paper/images/initialization", title), dpi=150)
                     print(f"Saving {title}")
             return g.figure
 
-        save = cfg.num_layers > 7
-        main_title = f"{G_in}--{G_out}_Layers={cfg.num_layers + 2}-Hidden_channels={cfg.num_channels}-Act={activation.__name__}"
+        save = cfg.model.num_layers > 7
+        main_title = f"{cfg.robot_name}_Act={activation.__name__}"
         fig_grad = plot_layers_distributions(df=df_gradients, value_kw="Grad",
-                                             title=f"{main_title}- Gradients Distributions ", save=save)
+                                             title=f"{main_title}-Gradients Distributions", save=save)
         fig_act = plot_layers_distributions(df=df_activations, value_kw="Activation",
-                                            title=f"{main_title}- Activations Distributions ", save=save)
-        fig_w = plot_layers_distributions(df=df_weights, value_kw="Param_Value",
-                                          title=f"{main_title}- Params Distributions ", save=save)
+                                            title=f"{main_title}-Activations Distributions", save=save)
+        # fig_w = plot_layers_distributions(df=df_weights, value_kw="Param_Value",
+        #                                   title=f"{main_title}- Params Distributions ", save=save)
         fig_grad.show()
         fig_act.show()
-        fig_w.show()
+        # fig_w.show()
 
-        for model_type in model_types:
-            main_title =f"{G_in}--{G_out}_{model_type}-Layers={cfg.num_layers+2}-Hidden_channels={cfg.num_channels}-Act={activation.__name__}"
-            fig_grad = plot_layers_distributions(df=df_gradients[df_gradients["Model Type"] == model_type], value_kw="Grad",
-                                                 title=f"{main_title}- Gradients Distributions ", save=save)
-            fig_act = plot_layers_distributions(df=df_activations[df_activations["Model Type"] == model_type], value_kw="Activation",
-                                                title=f"{main_title}- Activations Distributions ", save=save)
-            fig_grad.show()
-            fig_act.show()
+        # for model_type in model_types:
+        #     main_title =f"{cfg.robot_name}_{model_type}_{Gin}-{Gout}_Layers={cfg.model.num_layers+2}-Hidden_channels=" \
+        #                 f"{cfg.model.num_channels}-Act={activation.__name__}"
+        #     fig_grad = plot_layers_distributions(df=df_gradients[df_gradients["Model Type"] == model_type], value_kw="Grad",
+        #                                          title=f"{main_title}- Gradients Distributions ", save=save)
+        #     fig_act = plot_layers_distributions(df=df_activations[df_activations["Model Type"] == model_type], value_kw="Activation",
+        #                                         title=f"{main_title}- Activations Distributions ", save=save)
+        #     fig_grad.show()
+        #     fig_act.show()
 
-        for fig in [fig_w, fig_act, fig_grad]:
+        for fig in [fig_act, fig_grad]:
             plt.close(fig)
 
 
