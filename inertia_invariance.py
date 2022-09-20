@@ -35,94 +35,63 @@ def reflex_matrix(a):
     d = a.shape[0]
     return np.eye(d) - 2 * ((a @ a.T)/(a.T @ a))
 
+def reflection_transformation(vnorm, point_in_plane):
+    """Generates the Homogenous trasformation matrix of a reflection"""
+    KA = reflex_matrix(vnorm)
+    # The plane position is defined as a function of a point in the plane.
+    tKA = np.squeeze(-2 * vnorm * (-point_in_plane.dot(vnorm)))
+    TK = tr.transform_from(R=KA,p=tKA)
+    return TK
+
 if __name__ == "__main__":
     random_state = np.random.RandomState(42)
     mirror_c = 'r'
     c = 'b'
     tm = TransformManager()
-
-    # a = np.random.random((3, 1))
-    # A_n = np.array([1, 0, 0])[None, :].T
-    A_n = np.random.random((3, 1))
-    KA_w = reflex_matrix(A_n)
-    A_t = np.array([0, 0, 0])
-    TKA_w = tr.transform_from(KA_w, A_t)
-
-    assert np.allclose(KA_w, KA_w.T), "Reflection matrices should be equal to their transpose"
-
-    R_p2o = rt.matrix_from_euler_xyz(random_state.randn(3))
-    K_o = reflex_matrix(np.array([[1], [0], [0]]))
-    I_p = np.diag(np.random.randn(3)**2)
-
-    a = KA_w @ I_p
-    KI_p = KA_w.T @ I_p @ KA_w
-
-    # assert np.allclose(I_p, KI_p), (I_p, KI_p)
-    w_o = np.random.random((3, 1))
-    w_op = KA_w @ w_o
-
-    I_o = R_p2o @ I_p @ R_p2o.T
-    I_op = (K_o @ R_p2o) @ I_p @ (K_o @ R_p2o).T
-    I_op_true = (K_o @ R_p2o) @ I_p @ (K_o @ R_p2o).T
-
-    E_o = w_o.T @ I_o @ w_o
-    E_op = w_o.T @ I_op @ w_o
-
-    # Plot mirror plane
     fig = plt.figure(figsize=(15, 10))
-    ax = plot_box(A2B=tr.transform_from(rt.matrix_from_compact_axis_angle(A_n.flatten()), A_t),
-                  size=[0.01, 1, 1], wireframe=False, alpha=0.1, color="c")
 
-    # Define Original body
-    t_o = np.array([-0.5, 0., 0.])
+    # Define the plane orientation
+    RA_w = rt.matrix_from_compact_axis_angle(rt.random_compact_axis_angle())
+    # The normal plane vector is the X axis of the plane rotation matrix
+    vA_w = RA_w[:, 0:1]
+    pA_w = np.array([0.3, -0.5, 0.3])
+    # The Homogenous transformation matrix of the location of the plane is defined as
+    TA_w = tr.transform_from(RA_w, pA_w)
+    # The Homogenous transformation matrix of reflection w.r.t to the plane is defined as
+    TKA_w = reflection_transformation(vA_w, pA_w)
+    # TKA_w = tr.transform_from(KA_w, tKA_w)
+    tm.add_transform(r'A', "w", TA_w)
+    # Plot mirror plane
+    ax = plot_box(A2B=TA_w, size=[0.001, 2, 2], wireframe=False, alpha=0.1, color="c")
+
+    # Define Original body position t, and orientation R_o2w
+    t_o = np.array([-0.0, 0.1, 0.3])
     R_o2w = rt.active_matrix_from_intrinsic_euler_xyz(random_state.randn(3))
     R_w2o = np.linalg.inv(R_o2w)
-    T_o2w = tr.transform_from(R_o2w, t_o)
+    TKA_o = reflection_transformation(R_w2o @ vA_w, R_w2o @ pA_w)
+    # The object is assumed to be symmetrical w.r.t the YZ plane
+    Kosymm_o = reflex_matrix(np.array([[1], [0], [0]]))
+    To_w = tr.transform_from(R_o2w, t_o)
+    tm.add_transform(r'o', "w", To_w)
     # Plot body
-    plot_object(T_o2w, alpha=0.2, color="b", ax=ax)
+    plot_object(To_w, alpha=0.2, color="b", ax=ax)
 
-    # Symmetry reflection
-    g_n = np.array([[1], [0], [0]])
-    Kg_o = reflex_matrix(g_n)
-    # Symmetry equivalent rotation
-    Rop_w = KA_w @ R_o2w @ Kg_o
-    t_op = KA_w @ t_o
-    T_op2w = tr.transform_from(Rop_w, t_op)
-    plot_object(T_op2w, alpha=0.2, color="r", ax=ax,)
-    plot_lef_handed_axis(TKA_w @ T_o2w, ax=ax, s=0.1, lw=0.01)
+    # Get the configuration of the reflected body, this result in a improper configuration
+    Tobar_w = TKA_w @ To_w  # Configuration of the reflected body in world coordinates.
+    # R_go2w = Tobar_w[:3,:3] @ Kosymm_o  # By using the body symmetry plane we obtain the proper rotation.
+    T_o2w = To_w
+    T_w2o = tr.invert_transform(T_o2w)
+    T_obar2o = TKA_o
+    R_go2o = T_obar2o[:3,:3] @ Kosymm_o
+    R_go2w = R_o2w @ R_go2o
 
-    # Add transformation to history
-    tm.add_transform(r'o', "w", T_o2w)
-    tm.add_transform(r'$\bar{o}$', "w", T_op2w)
-
-    tm.plot_frames_in("w", ax=ax, alpha=0.4, s=0.2)
-
+    Tgo2_w = tr.transform_from(R=R_go2o, p=Tobar_w[:3, 3])
+    plot_lef_handed_axis(Tobar_w, ax=ax, s=0.3, lw=0.005)
+    tm.add_transform('go', 'w', Tgo2_w)
+    plot_object(Tgo2_w, alpha=0.2, color="r", ax=ax)
 
     remove_frame(ax)
     plt.gca().set_aspect("auto")
+    tm.plot_frames_in("w", ax=ax, alpha=0.4, s=0.2)
     fig.show()
-
-    I_p = np.diag(np.random.random((3)) * 10)
-
-
-
-    hat_Ww = Ka_w @ W_w
-    hat_Wo = Ka_w @ R_w2o @ hat_Ww
-
-    # Define frame of principal axes w.r.t body ref frame o
-    theta = np.pi/4
-    euler = np.array([0, 0, theta])
-    R_o2p = rt.active_matrix_from_intrinsic_euler_xyz(euler)
-    R_o2p_neg = rt.active_matrix_from_intrinsic_euler_xyz(-euler)
-    R_p2o = np.linalg.inv(R_o2p)
-
-
-    # Obtain the body frame Inertia Matrix
-    Io = R_p2o @ I_p @ R_p2o.T
-    # Calculate original Kinetic Energy
-    KinE_p = (R_o2p @ Wo).T @ I_p @ (R_o2p @ Wo)
-    KinE_o = (Wo).T @ Io @ (Wo)
-    assert np.allclose(KinE_p, KinE_o), KinE_o - KinE_p
-
-    # Calculate Kinetic Energy of mirrored object.
-    hat_Wo = Ka_w @ Wo
+    print("Hi")

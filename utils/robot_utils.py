@@ -7,9 +7,6 @@ import numpy as np
 import scipy.linalg
 
 from groups.SymmetricGroups import C2, Klein4
-from robots.atlas.AtlasBullet import AtlasBullet
-from robots.bolt.BoltBullet import BoltBullet
-from robots.solo.Solo12Bullet import Solo12Bullet
 from utils.utils import reflex_matrix
 
 
@@ -25,6 +22,7 @@ def get_robot_params(robot_name):
     Gin_model, Gout_model = None, None   # Function approximator selected symmetry groups
 
     if 'bolt' in robot_name.lower():
+        from robots.bolt.BoltBullet import BoltBullet
         robot = BoltBullet()
         perm_q = robot.mirror_joint_idx
         perm_q = np.concatenate((perm_q, np.array(perm_q) + len(perm_q))).tolist()
@@ -36,6 +34,7 @@ def get_robot_params(robot_name):
         Gout_data = C2(h_out)
         Gin_model, Gout_model = Gin_data, Gout_data  # No subgroup of C2 exists
     elif 'atlas' in robot_name.lower():
+        from robots.atlas.AtlasBullet import AtlasBullet
         robot = AtlasBullet()
         perm_q = robot.mirror_joint_idx
         perm_q = np.concatenate((perm_q, np.array(perm_q) + len(perm_q))).tolist()
@@ -47,6 +46,7 @@ def get_robot_params(robot_name):
         Gout_data = C2(h_out)
         Gin_model, Gout_model = Gin_data, Gout_data  # No subgroup of C2 exists
     elif 'solo' in robot_name.lower():
+        from robots.solo.Solo12Bullet import Solo12Bullet
         robot = Solo12Bullet()
         #                  Sagittal Symmetry                      Transversal symmetry
         perm_q = [[3, 4, 5, 0, 1, 2, 9, 10, 11, 6, 7, 8],   [6, 7, 8, 9, 10, 11, 0, 1, 2, 3, 4, 5]]

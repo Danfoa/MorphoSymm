@@ -3,10 +3,12 @@ import sys
 import os
 import pathlib
 import matplotlib.pyplot as plt
+import pandas
 import seaborn as sns
 import pandas as pd
 import numpy as np
 import re
+from datasets.umich_contact_dataset import UmichContactDataset
 
 from utils.utils import cm2inch
 
@@ -34,6 +36,7 @@ def merge_hps(d: dict):
     # new_tr.pop('hc')
     # TR
     new_tr.pop('train_ratio')
+    new_tr.pop('model.lr', None)
     str_hps = pretty_hps(new_tr)
     new_tr['Model Type'] = d['Model Type']
     new_tr['Hyper params'] = str_hps
@@ -43,18 +46,21 @@ def merge_hps(d: dict):
 
 def pretty_hps(d: dict):
     str_list = []
-    d_sorted = {k: v for k, v in sorted(d.items(), key=lambda item: item[0])}
+    d_sorted = {k: v for k, v in sorted(d.items(), key=lambda item: item[0]) if k != 'seed'}
     for key, val in d_sorted.items():
         str_list.append(f'{key}={val}')
 
     translations = {"dataset.augment=True": "Aug",
                     "dataset.augment=False": "",
+                    "dataset.balanced_classes=True": "Bal",
+                    "dataset.balanced_classes=False": "",
+                    "dataset.data_folder=training_splitted": "split",
+                    "dataset.data_folder=training": "",
                     "finetuned=True": 'fine',
                     "finetuned=False": '',
+                    # 'model.inv_dims_scale=0.0': '',
                     'model.inv_dims_scale': 'inv',
                     'model.lr=': 'lr',
-                    'G=C2': r'$\mathcal{G}=\mathcal{C}_2$',
-                    'G=K4': r'$\mathcal{G}=\mathcal{K}_4$',
                     '0.0001': '1e-4',
                     '1e-05': '1e-5',
                     'train_ratio=': 'tr',
@@ -83,7 +89,7 @@ def get_relevant_parameters(*dirs):
     for key, val in all_dir.items():
         if len(val) > 1 or key == 'model':
             rel_dir[key] = val
-    rel_dir.pop('seed')
+    # rel_dir.pop('seed')
     return rel_dir
 
 
@@ -97,7 +103,7 @@ def split_run_name(run_name):
     for p in hp:
         parts = p.split('=')
         for part in parts:
-            if '_' in part and 'model.' not in part and 'dataset.' not in part and 'volatile' not in part:
+            if '_' in part and 'model.' not in part and 'dataset.' not in part and not "folder" in part and not "training" in part:
                 v, k = part.split('_', maxsplit=1)
                 f.extend([v, k])
             else:
@@ -115,34 +121,36 @@ def split_run_name(run_name):
 if __name__ == "__main__":
     print(sys.argv, len(sys.argv))
 
-    # experiments_path = 'experiments/com_sample_eff_Atlas-C2'
-    experiments_path = 'experiments/com_sample_eff_Solo-K4-C2'
-    ignore_hps = [# 'train_ratio=0.5',
+    experiments_path = 'experiments/contact_sample_eff_splitted_shuffled_mini-cheetah'
+    # experiments_path = 'experiments/com_sample_eff_Solo-K4-C2'
+    ignore_hps = [#['model=ECNN', 'augment=True'],
+                  #['model=CNN', 'augment=True'],
+                  # 'train_ratio=0.5',
                   # 'train_ratio=0.6',
                   # 'train_ratio=0.7',
-                  ['scale=0.0', 'augment=True'],
-                  'hc=64', 'hc=128',
-                  'hc=256',
+                  #['scale=0.0', 'augment=True'],
+                  # 'hc=64', 'hc=128', 'hc=512',
                   # 'scale=0.0',
-                  'scale=0.1',
-                  'scale=0.25',
-                  'scale=0.5',
-                  'scale=1.0',
-                  'scale=1.5',
-                  'scale=2.0',
-                  'scale=2.5',
-                  'finetuned=True'
+                  # 'scale=0.25',
+                  # 'scale=0.5',
+                  # 'scale=1.0',
+                  # 'scale=1.5',
+                  # 'scale=2.0',
+                  # 'scale=2.5',
+                  # 'finetuned=True',
+                  # 'balanced_classes=True'
                   ]
     # ignore_hps = ['finetuned', 'scale=0.25', 'scale=0.5', 'scale=1.0', 'scale=1.5', 'scale=2.0', 'scale=2.5']
     # filter_hps = ['hc=512']
     # ignore_hps = []
-    metrics_filter = ['err', 'cos', 'LH', 'RH', 'LF', 'RF',]
-    filter_hps = [#"use_volatile=True",
-                  #'model=ECNN',
+    metrics_filter = ['err', 'cos', 'LH', 'RH', 'LF', 'RF', 'support']
+    filter_hps = [#'finetuned=True',
+                  'model=ECNN',
                   # 'augment=True',
                   #'model=EMLP',
                   ]
     unique_hps = {'finetuned': {True, False},
+                  # 'train_ratio': {0.7},
                   'dataset.augment': {True, False}}
 
     print(f"ignoring runs with {ignore_hps}")
@@ -182,10 +190,9 @@ if __name__ == "__main__":
         hps.append(hp)
         dirs.append(dir)
 
-
     runs = [p.parent.parent.parent for p in metrics_paths]
     u_runs, counts = np.unique(runs, return_counts=True)
-    print(f"{np.sum(counts < 10)} runs are not complete")
+    print(f" - {np.sum(counts < 8)} of the total {len(u_runs)} runs are not complete")
     for run, n_seeds in zip(u_runs, counts):
         if n_seeds < 8:
             print(f"Warning. seeds={n_seeds} : {run}")
@@ -219,6 +226,7 @@ if __name__ == "__main__":
     for c in exp_metrics + ['train_ratio', 'hc']:
         if c in df.columns:
             df[c] = pd.to_numeric(df[c])
+    df.to_csv(out_path / 'test_all_runs.csv')
 
     # Squash all hyperparameters into single column
     plot_df = df[exp_metrics]
@@ -232,39 +240,37 @@ if __name__ == "__main__":
         model_types.reverse()
 
     for metric_name in exp_metrics:
-        ignore = False
+        ignore = not 'loss' in metric_name
         for metric_filter in metrics_filter:
             if metric_filter in metric_name:
                 ignore = True
         if ignore: continue
 
-        if 'jaccard' in metric_name: continue
         fig, ax = plt.subplots(figsize=(cm2inch(W), cm2inch(H)), dpi=210)
         sns.lineplot(data=df, x='train_ratio', y=metric_name,
                      hue='Hyper params', hue_order=model_hps,
-                     style='Model Type', style_order=model_types,
+                     # style='Hyper params', style_order=model_hps,
+                     # hue='Model Type', hue_order=model_types,
                      dashes=True, #markers=markers[:len(model_types)],
-                     ax=ax, ci=100,
-                     # palette=sns.color_palette("mako_r", len(model_hps)),
-                     palette=sns.color_palette("dark:salmon_r", len(model_hps)),
-
+                     ax=ax, ci=90,
+                     palette=sns.color_palette("magma_r", len(model_hps)),
                      )
+
         ax.grid(visible=True, alpha=0.2)
         ax.set(yscale='log')
-        # ax.set(xscale='log')
+        ax.set(xscale='log')
+        # ax.ticklabel_format(style='plain', axis='y')
         pretty_metric_name = metric_name.replace("_", " ")
         title = f'{experiments_path.stem}'
-        fig_title = f'{experiments_path.stem}'.replace('sample_eff_', '').replace('com_', '')\
-            .replace('contact_', '') \
-            .replace('-K4-C2', r' - $\mathcal{G}=\mathcal{K}_4$ vs. $\mathcal{G}=\mathcal{C}_2$ ') \
-            .replace('-K4', r' - $\mathcal{G}=\mathcal{K}_4$') \
-            .replace('-C2', r' - $\mathcal{G}=\mathcal{C}_2$')
+        fig_title = f'{experiments_path.stem}'.replace('sample_eff_', '').replace('contact_', '') \
+                .replace('splitted_', '') \
+                .replace('mini-cheetah', r'Mini-Cheetah $\mathcal{G}\approx\mathcal{C}_2$') + f" [{pretty_metric_name}]"
         ax.set_title(fig_title)
         ax.spines.top.set_visible(False)
         ax.spines.right.set_visible(False)
         # ax.legend(fancybox=True, framealpha=0.5)
         plt.legend(title=None, fontsize=7, fancybox=True, framealpha=0.3)
         plt.tight_layout()
-        plt.savefig(out_path / f'{title}.png')
+        plt.savefig(out_path / f'{title}_{metric_name.replace("/","-")}.png')
         plt.show()
 

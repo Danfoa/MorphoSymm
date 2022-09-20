@@ -1,6 +1,8 @@
 /experiments/
 /media/
 *.pyc
+*.npz
+*.npy
 *.__pycache__
 /.idea
 /.empl_cache/
@@ -8,4 +10,4 @@
 /launch/
 
 output/
-/paper/
+#/paper/

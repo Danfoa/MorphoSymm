@@ -10,7 +10,6 @@ import torch
 from scipy.sparse import issparse
 
 
-
 def check_if_resume_experiment(ckpt_call):
     ckpt_path = pathlib.Path(ckpt_call.dirpath).joinpath(ckpt_call.CHECKPOINT_NAME_LAST + ckpt_call.FILE_EXTENSION)
     best_path = pathlib.Path(ckpt_call.dirpath).joinpath(ckpt_call.filename + ckpt_call.FILE_EXTENSION)
@@ -23,10 +22,12 @@ def check_if_resume_experiment(ckpt_call):
 
     return terminated, ckpt_path, best_path
 
+
 def dense(x):
     if issparse(x):
         return x.todense()
     return x
+
 
 def coo2torch_coo(M: scipy.sparse.coo_matrix):
     density = M.getnnz() / np.prod(M.shape)
@@ -37,6 +38,7 @@ def coo2torch_coo(M: scipy.sparse.coo_matrix):
     else:
         return torch.tensor(np.asarray(M.todense(), dtype=np.float32))
 
+
 def pprint_dict(d: dict):
     str = []
     d_sorted = dict(sorted(d.items()))
@@ -44,8 +46,10 @@ def pprint_dict(d: dict):
         str.append(f"{k}={v}")
     return "-".join(str)
 
+
 def cm2inch(cm):
-    return cm/2.54
+    return cm / 2.54
+
 
 def configure_bullet_simulation(gui=True):
     import pybullet_data
@@ -55,7 +59,7 @@ def configure_bullet_simulation(gui=True):
     from pybullet_utils import bullet_client
 
     BACKGROUND_COLOR = '--background_color_red=%.2f --background_color_green=%.2f --background_color_blue=%.2f' % \
-                       (0.960, 0.960, 0.960)
+                       (1.0, 1.0, 1.0)
 
     if gui:
         pb = bullet_client.BulletClient(connection_mode=GUI, options=BACKGROUND_COLOR)
@@ -142,4 +146,4 @@ if __name__ == "__main__":
 def reflex_matrix(plane_norm_vector):
     aa = np.expand_dims(plane_norm_vector, -1) if plane_norm_vector.shape == (3,) else plane_norm_vector
     d = aa.shape[0]
-    return np.eye(d) - 2 * ((aa @ aa.T)/(aa.T @ aa))
+    return np.eye(d) - 2 * ((aa @ aa.T) / (aa.T @ aa))

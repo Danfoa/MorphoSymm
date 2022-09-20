@@ -36,13 +36,13 @@ def merge_hps(d: dict):
     # new_tr.pop('hc')
     # TR
     new_tr.pop('train_ratio')
-    new_tr.pop('model.lr')
+    new_tr.pop('model.lr', None)
     str_hps = pretty_hps(new_tr)
     new_tr['Model Type'] = d['Model Type']
     new_tr['Hyper params'] = str_hps
     new_tr['train_ratio'] = d['train_ratio']
     # TODO: Remove
-    new_tr['Model Type'] = new_tr['Model Type'].replace('-aug','') if 'ECNN' in  new_tr['Model Type'] else  new_tr['Model Type']
+    new_tr['Model Type'] = new_tr['Model Type'].replace('-aug', '') if 'ECNN' in new_tr['Model Type'] else new_tr['Model Type']
     return new_tr
 
 
@@ -133,25 +133,26 @@ if __name__ == "__main__":
                   #['scale=0.0', 'augment=True'],
                   # 'hc=64', 'hc=128', 'hc=512',
                   # 'scale=0.0',
-                  # 'scale=0.25',
+                  'scale=0.25',
                   'scale=0.5',
                   'scale=1.0',
-                  # 'scale=1.5',
+                  'scale=1.5',
                   'scale=2.0',
-                  # 'scale=2.5',
-                  # 'finetuned=True',
+                  'scale=2.5',
+                  #'finetuned=True',
                   # 'balanced_classes=True'
                   ]
     # ignore_hps = ['finetuned', 'scale=0.25', 'scale=0.5', 'scale=1.0', 'scale=1.5', 'scale=2.0', 'scale=2.5']
     # filter_hps = ['hc=512']
     # ignore_hps = []
     metrics_filter = ['err', 'cos', 'LH', 'RH', 'LF', 'RF', 'support']
-    filter_hps = [#'model=ECNN',
+    filter_hps = ['train_ratio=0.85', #'finetuned=True',
+                  #'model=ECNN',
                   # 'augment=True',
                   #'model=EMLP',
                   ]
     unique_hps = {'finetuned': {True, False},
-                  # 'train_ratio': {0.7},
+                  'train_ratio': {0.85},
                   'dataset.augment': {True, False}}
 
     print(f"ignoring runs with {ignore_hps}")
@@ -191,12 +192,10 @@ if __name__ == "__main__":
         hps.append(hp)
         dirs.append(dir)
 
-
     runs = [p.parent.parent.parent for p in metrics_paths]
     u_runs, counts = np.unique(runs, return_counts=True)
-    print(f"{np.sum(counts < 8)} runs are not complete")
+    print(f" - {np.sum(counts < 8)} of the total {len(u_runs)} runs are not complete")
     for run, n_seeds in zip(u_runs, counts):
-        print(f"- seeds={n_seeds} : {run}")
         if n_seeds < 8:
             print(f"Warning. seeds={n_seeds} : {run}")
 
@@ -263,38 +262,117 @@ if __name__ == "__main__":
     if 'ECNN' in model_types:
         model_types.reverse()
 
-    for metric_full_name in exp_metrics:
-        ignore = False
-        for metric_filter in metrics_filter:
-            if metric_filter in metric_full_name:
-                ignore = True
-        if ignore: continue
+    # df_contact_states = None
+    # for state_name in UmichContactDataset.states_names:
+    #     state_metrics = [c for c in df.columns if f"test_contact_state/{state_name}/" in c] + ['Model Type', 'Hyper params']
+    #     state_metrics_names = [c.split("/")[-1] for c in state_metrics]
+    #     df_state = df[state_metrics].copy()
+    #     df_state.columns = df_state.columns.str.replace(f'test_contact_state/{state_name}/', '')
+    #     metrics = list(df_state.columns)
+    #     df_state.loc[:, 'state'] = state_name
+    #     df_state = df_state.melt(id_vars=['state', 'Model Type', 'Hyper params'], value_vars=metrics, var_name='metric')
+    #     a = np.unique(df_state['metric'])
+    #     if df_contact_states is None:
+    #         df_contact_states = df_state
+    #     else:
+    #         df_contact_states = pandas.concat((df_contact_states, df_state))
+    #
+    # fig, ax = plt.subplots(figsize=(cm2inch(W) * 2.0 * len(np.unique(df_contact_states['metric'])), cm2inch(H)), dpi=210)
+    # b = np.unique(df_contact_states['metric'])
+    # plot = sns.catplot(data=df_contact_states, x='state', y='value', col='metric',
+    #             hue='Model Type', hue_order=model_types, kind="bar",
+    #             sharey='col', errwidth=1.5, linewidth=0,
+    #             # style='Model Type', style_order=model_types,
+    #             # hue='Model Type', hue_order=model_types,
+    #             # dashes=True, #markers=markers[:len(model_types)],
+    #             # ax=ax,  # ci=90,
+    #             palette=sns.color_palette("magma_r", len(model_types)),  **{"alpha": 0.7}
+    #             )
+    # plot.set_xticklabels(rotation=90)
+    # plt.tight_layout()
+    # plt.savefig(out_path / f'contact_state_metrics.png')
+    # plt.show()
 
-        fig, ax = plt.subplots(figsize=(cm2inch(W), cm2inch(H)), dpi=210)
-        sns.lineplot(data=df, x='train_ratio', y=metric_full_name,
-                     # hue='Hyper params', hue_order=model_hps,
-                     style='Hyper params', style_order=model_hps,
-                     hue='Model Type', hue_order=model_types,
-                     dashes=True,  #markers=markers[:len(model_types)],
-                     ax=ax, ci=90,
-                     palette=sns.color_palette("magma_r", len(model_types)),
-                     )
+    df_legs_states = None
+    for leg_name in ["LF", "LH", "RF", "RH", "legs_avg"]:
+        state_metrics = [c for c in df.columns if f"test_{leg_name}/f1" in c] #+ ['test_contact_state/acc', 'Model Type', 'Hyper params']
+        state_metrics += [c for c in df.columns if f"test_{leg_name}/acc" in c] + ['test_contact_state/acc', 'Model Type', 'Hyper params']
+        if leg_name == "legs_avg":
+            state_metrics.remove('test_legs_avg/f1')
+        state_metrics_names = [c.split("/")[-1] for c in state_metrics]
+        df_state = df[state_metrics].copy()
+        df_state.columns = df_state.columns.str.replace(f'test_{leg_name}/', f'Leg-{leg_name}\n')
+        df_state.columns = df_state.columns.str.replace(f'Leg-legs_avg', f'Legs-Avg')
+        df_state.columns = df_state.columns.str.replace(f'test_contact_state/', f'State\n')
+        df_state.columns = df_state.columns.str.replace(f'f1', f'F1')
+        df_state.columns = df_state.columns.str.replace(f'acc', f'Acc')
+        metrics = list(df_state.columns)
+        df_state.loc[:, 'leg'] = leg_name
+        df_state = df_state.melt(id_vars=['leg', 'Model Type', 'Hyper params'], value_vars=metrics, var_name='metric',
+                                 value_name="Metric Score")
+        if df_legs_states is None:
+            df_legs_states = df_state
+        else:
+            df_legs_states = pandas.concat((df_legs_states, df_state))
 
-        ax.grid(visible=True, alpha=0.2)
-        ax.set(yscale='log')
-        # ax.set(xscale='log')
-        # ax.ticklabel_format(style='plain', axis='y')
-        pretty_metric_name = metric_full_name.replace("_", " ")
-        title = f'{experiments_path.stem}'
-        fig_title = f'{experiments_path.stem}'.replace('sample_eff_', '').replace('contact_', '') \
-                .replace('splitted_', '') \
-                .replace('mini-cheetah', r'Mini-Cheetah $\mathcal{G}\approx\mathcal{C}_2$') + f" [{pretty_metric_name}]"
-        ax.set_title(fig_title)
-        ax.spines.top.set_visible(False)
-        ax.spines.right.set_visible(False)
-        # ax.legend(fancybox=True, framealpha=0.5)
-        plt.legend(title=None, fontsize=7, fancybox=True, framealpha=0.3)
-        plt.tight_layout()
-        plt.savefig(out_path / f'{title}_{metric_full_name.replace("/", "-")}.png')
-        plt.show()
+    fig, ax = plt.subplots(figsize=(cm2inch(W) * 2.0, cm2inch(H)), dpi=210)
+    b = np.unique(df_legs_states['metric'])
+    sns.barplot(data=df_legs_states, x='metric', y='Metric Score', order=sorted(np.unique(df_legs_states['metric'])),
+                       hue='Model Type', hue_order=model_types, # kind="bar",
+                       errwidth=1.5, linewidth=0, capsize=.025,
+                       # style='Model Type', style_order=model_types,
+                       # hue='Model Type', hue_order=model_types,
+                       # dashes=True, #markers=markers[:len(model_types)],
+                       ax=ax, ci="sd",
+                       palette=sns.color_palette("magma_r", len(model_types)))#, **{"alpha": 0.7})
 
+    ax.set_ylim(ymin=0.6)
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    ax.yaxis.grid(visible=True, alpha=0.1)
+    ax.set_xlabel('')
+    ax.tick_params(axis='both', which='major', labelsize=9)
+    # ax.set_ylabel('')
+    plt.tight_layout()
+    plt.savefig(out_path / f'legs_contact_state_metrics.png')
+    plt.show()
+
+    # for metric_name in exp_metrics:
+    #     ignore = False
+    #     for metric_filter in metrics_filter:
+    #         if metric_filter in metric_name:
+    #             ignore = True
+    #     if ignore: continue
+    #
+    #     if 'jaccard' in metric_name: continue
+    #     fig, ax = plt.subplots(figsize=(cm2inch(W), cm2inch(H)), dpi=210)
+    #     # sns.lineplot(data=df, x='train_ratio', y=metric_name,
+    #     #              hue='Hyper params', hue_order=model_hps,
+    #     #              style='Model Type', style_order=model_types,
+    #     #              # hue='Model Type', hue_order=model_types,
+    #     #              dashes=True, #markers=markers[:len(model_types)],
+    #     #              ax=ax, ci=90,
+    #     #              # palette=sns.color_palette("magma_r", len(model_types)),
+    #     #              )
+    #     sns.barplot(data=df, x='Hyper params', y=metric_name,
+    #                  hue='Model Type', hue_order=model_types,
+    #                  # style='Model Type', style_order=model_types,
+    #                  # hue='Model Type', hue_order=model_types,
+    #                  # dashes=True, #markers=markers[:len(model_types)],
+    #                  ax=ax, #ci=90,
+    #                  # palette=sns.color_palette("magma_r", len(model_types)),
+    #                  )
+    #     ax.grid(visible=True, alpha=0.2)
+    #     # ax.set(yscale='log')
+    #     # ax.set(xscale='log')
+    #     # ax.ticklabel_format(style='plain', axis='y')
+    #     title = f'{experiments_path.stem}'.replace('sample_eff_', '').replace('com_', '').replace('contact_', '')
+    #     ax.set_title(title)
+    #     ax.spines.top.set_visible(False)
+    #     ax.spines.right.set_visible(False)
+    #     # ax.legend(fancybox=True, framealpha=0.5)
+    #     plt.legend(title=None, fontsize=7, fancybox=True, framealpha=0.3)
+    #     plt.tight_layout()
+    #     plt.savefig(out_path / f'{title}_{metric_name.replace("/","-")}.png')
+    #     plt.show()
+    #
