@@ -3,12 +3,19 @@
 # @Time    : 11/3/22
 # @Author  : Daniel Ordonez 
 # @email   : daniels.ordonez@gmail.com
+import copy
+import pathlib
+
 import numpy as np
 import scipy.linalg
+from scipy import sparse
 
-from groups.SymmetricGroups import C2, Klein4
+from pytransform3d import rotations as rt
+from pytransform3d import transformations as tr
+
+from groups.SparseRepresentation import SparseRep, SparseRepE3
+from groups.SymmetryGroups import C2, Klein4, Sym
 from utils.utils import reflex_matrix
-
 
 def get_robot_params(robot_name):
     """
@@ -18,12 +25,20 @@ def get_robot_params(robot_name):
     :param robot_name:
     :return: robot, Gin_data, Gout_data, Gin_model, Gout_model
     """
-    Gin_data, Gout_data = None, None     # True data symmetry groups
-    Gin_model, Gout_model = None, None   # Function approximator selected symmetry groups
+    rep_E3, rep_qj = None, None                # Morphological Symmetry Representations
+    rep_data_in, rep_data_out = None, None     # Input x and output y group representations
+    rep_model_in, rep_model_out = None, None   # Input x and output y group representations assumed by the model
+    robot = None
+
+    try:
+        from hydra.utils import get_original_cwd
+        resources = pathlib.Path(get_original_cwd()) / 'robots'
+    except:
+        resources = pathlib.Path("robots/")
 
     if 'bolt' in robot_name.lower():
         from robots.bolt.BoltBullet import BoltBullet
-        robot = BoltBullet()
+        robot = BoltBullet(resources=resources / 'bolt/bolt_description')
         perm_q = robot.mirror_joint_idx
         perm_q = np.concatenate((perm_q, np.array(perm_q) + len(perm_q))).tolist()
         refx_q = robot.mirror_joint_signs
@@ -35,7 +50,14 @@ def get_robot_params(robot_name):
         Gin_model, Gout_model = Gin_data, Gout_data  # No subgroup of C2 exists
     elif 'atlas' in robot_name.lower():
         from robots.atlas.AtlasBullet import AtlasBullet
-        robot = AtlasBullet()
+        robot = AtlasBullet(resources=resources / 'atlas/atlas_description')
+        # Configure E3 group actions, due to sagittal symmety
+        n_sagittal = np.array([0, 1, 0])  # Normal vector to reflection/symmetry plane w.r.t base frame
+        R_s = reflex_matrix(n_sagittal)
+        R_s = sparse.coo_matrix(R_s)
+        G_E3 = C2(generator=R_s)
+        rep_E3 = SparseRepE3(G_E3)
+
         perm_q = robot.mirror_joint_idx
         perm_q = np.concatenate((perm_q, np.array(perm_q) + len(perm_q))).tolist()
         refx_q = robot.mirror_joint_signs
@@ -47,62 +69,91 @@ def get_robot_params(robot_name):
         Gin_model, Gout_model = Gin_data, Gout_data  # No subgroup of C2 exists
     elif 'solo' in robot_name.lower():
         from robots.solo.Solo12Bullet import Solo12Bullet
-        robot = Solo12Bullet()
+        robot = Solo12Bullet(resources=resources / 'solo/solo_description')
+        # Configure E3 group actions
+        n_sagittal = np.array([0, 1, 0])  # Normal vector to reflection/symmetry plane.
+        n_transversal = np.array([1, 0, 0])  # Normal vector to reflection/symmetry plane.
+        R_s = reflex_matrix(n_sagittal)
+        R_t = reflex_matrix(n_transversal)
+        R_s, R_t = sparse.coo_matrix(R_s), sparse.coo_matrix(R_t)
+
+        K4_E3 = Klein4(generators=[R_s, R_t])
+        rep_E3 = SparseRepE3(K4_E3)
+        # Configure qj (joint-space) group actions
         #                  Sagittal Symmetry                      Transversal symmetry
-        perm_q = [[3, 4, 5, 0, 1, 2, 9, 10, 11, 6, 7, 8],   [6, 7, 8, 9, 10, 11, 0, 1, 2, 3, 4, 5]]
+        perm_q = [[3, 4, 5, 0, 1, 2, 9, 10, 11, 6, 7, 8], [6, 7, 8, 9, 10, 11, 0, 1, 2, 3, 4, 5]]
+        # Reflections are determined by joint frame predefined orientation.
         refx_q = [[-1, 1, 1, -1, 1, 1, -1, 1, 1, -1, 1, 1], [1, -1, -1, 1, -1, -1, 1, -1, -1, 1, -1, -1]]
-        perm_q = [p + (np.array(p) + len(p)).tolist() for p in perm_q]
-        refx_q = [e + e for e in refx_q]
 
-        g_sagittal = C2.oneline2matrix(oneline_notation=perm_q[0], reflexions=refx_q[0])
-        g_transversal = C2.oneline2matrix(oneline_notation=perm_q[1], reflexions=refx_q[1])
-        g_sagittal_out = C2.oneline2matrix(oneline_notation=[0, 1, 2, 3, 4, 5],    reflexions=[1, -1, 1, -1,  1, -1])
-        g_transversal_out = C2.oneline2matrix(oneline_notation=[0, 1, 2, 3, 4, 5], reflexions=[-1, 1, 1,  1, -1, -1])
+        # Ground truth generalized coordinates Symmetry Group.
+        g_sagittal = Sym.oneline2matrix(oneline_notation=perm_q[0], reflexions=refx_q[0])
+        g_transversal = Sym.oneline2matrix(oneline_notation=perm_q[1], reflexions=refx_q[1])
+        K4_qj = Klein4(generators=[g_sagittal, g_transversal])
+        rep_qj = SparseRep(K4_qj)
 
-        # Original structure symmetry groups
-        Gin_data = Klein4(generators=[g_sagittal, g_transversal])
-        Gout_data = Klein4(generators=[g_sagittal_out, g_transversal_out])
+        rep_data_in = 2 * SparseRep(K4_qj)
+        rep_data_out = SparseRepE3(K4_E3) + SparseRepE3(K4_E3, pseudovector=True)
 
-        if 'c2' in robot_name.lower():   # Data has still Klein4, Model "knows" only C2 symmetry
-            Gin_model = C2(g_sagittal)
-            Gout_model = C2(g_sagittal_out)
-        else:
-            Gin_model, Gout_model = Gin_data, Gout_data
+        # Configure symmetries the model will see, in case the subgroup C2 is used
+        if 'c2' in robot_name.lower():
+            C2_E3 = C2(generator=R_s)
+            C2_qj = C2(generator=g_sagittal)
+            G_E3, G_qj = C2_E3, C2_qj
+        else:  # Klein four-group
+            G_E3, G_qj = K4_E3, K4_qj
+
+        # Compute representation for a vector x=[qj, dqj].T (joint position and joint velocity) for CoM estimation
+        req_qj = SparseRep(G_qj)
+        rep_x = req_qj + req_qj
+
+        # Compute representation for y=[l, k], the CoM linear `l` and angular `k` momentum.
+        rep_l = SparseRepE3(G_E3, pseudovector=False)
+        rep_k = SparseRepE3(G_E3, pseudovector=True)
+        rep_y = rep_l + rep_k
+
+        rep_model_in, rep_model_out = rep_x, rep_y
+
     elif "mit" in robot_name.lower() or "cheetah" in robot_name.lower():
-        # Joint Space
+        # Configure E3 group actions
+        n_sagittal = np.array([0, 1, 0])  # Normal vector to reflection/symmetry plane w.r.t base frame
+        R_s = reflex_matrix(n_sagittal)
+        R_s = sparse.coo_matrix(R_s)
+        G_E3 = C2(generator=R_s)
+        rep_E3 = SparseRepE3(G_E3)
+        # Configure qj (joint-space) group actions
         #        ____RF___|___LF____|___RH______|____LH____|
         # q    = [ 0, 1, 2,  3, 4, 5,  6,  7,  8, 9, 10, 11]
-        perm_q = [ 3, 4, 5,  0, 1, 2,  9, 10, 11,  6, 7,  8]
-        refx_q = [-1, 1, 1, -1, 1, 1, -1,  1,  1, -1, 1,  1]
-        perm_q = np.concatenate((perm_q, np.array(perm_q) + len(perm_q))).tolist()
-        refx_q = np.concatenate((refx_q, refx_q)).tolist()
-        # IMU acceleration and angular velocity
-        na = np.array([0, 1, 0])   # Normal vector to reflection/symmetry plane.
-        Rr = reflex_matrix(na)     # Reflection matrix
-        refx_a_IMU = np.squeeze(Rr @ np.ones((3, 1))).astype(np.int).tolist()
-        refx_w_IMU = np.squeeze((-Rr) @ np.ones((3, 1))).astype(np.int).tolist()
-        perm_a_IMU, perm_w_IMU  = [24, 25, 26], [27, 28, 29]
-        # Foot relative positions and velocities
-        #            ____RF___|___LF____|___RH______|____LH____|
-        # pf=        [0, 1, 2,  3, 4, 5,  6,  7,  8, 9, 10, 11]
-        perm_foots = [3, 4, 5,  0, 1, 2,  9, 10, 11, 6,  7,  8]
-        refx_foots = scipy.linalg.block_diag(*[Rr] * 4) @ np.ones((12, 1))  # Hips and IMU frames xz planes are coplanar
-        refx_foots = np.squeeze(refx_foots).tolist()
-        perm_foots = np.concatenate((perm_foots, np.array(perm_foots) + len(perm_foots))).astype(np.int)
-        refx_foots = np.concatenate((refx_foots, refx_foots)).astype(np.int)
+        perm_q = [3, 4, 5, 0, 1, 2, 9, 10, 11, 6, 7, 8]
+        # Reflections are determined by joint frame predefined orientation, hips need to be reflected.
+        refx_q = [-1, 1, 1, -1, 1, 1, -1, 1, 1, -1, 1, 1]
+        g_qj_sagittal = Sym.oneline2matrix(oneline_notation=perm_q, reflexions=refx_q)
+        G_qj = C2(g_qj_sagittal)
+        rep_qj = SparseRep(G_qj)
 
-        perm = perm_q + perm_a_IMU + perm_w_IMU
-        perm += (perm_foots + len(perm)).tolist()
-        refx = refx_q + refx_a_IMU + refx_w_IMU + refx_foots.tolist()
+        # Configure input x and output y representations
+        # x = [qj, dqj, a, w, pf, vf] - a: linear IMU acc, w: angular IMU velocity, pf:feet positions, vf:feet velocity
+        rep_a = SparseRepE3(G_E3, pseudovector=False)
+        rep_w = SparseRepE3(G_E3, pseudovector=True)
 
-        h_in = C2.oneline2matrix(oneline_notation=perm, reflexions=refx)
-        Gin_data = C2(h_in)
-        # One hot encoding of 16 contact_hp_ecnn states.
-        h_out = C2.oneline2matrix(oneline_notation=[0, 2, 1, 3, 8, 10, 9, 11, 4, 6, 5, 7, 12, 14, 13, 15])
-        Gout_data = C2(h_out)
+        # Configure pf, vf ∈ R^12  representations composed of reflections and permutations
+        n_legs = 4
+        rep_legs_reflected = n_legs * SparseRepE3(G_E3)    # Same representation as the hips ref frames are collinear with base.
+        G_legs_reflected = rep_legs_reflected.G
+        g_q_perm = Sym.oneline2matrix(oneline_notation=perm_q)  # Permutation swapping legs.
+        G_pf = C2(generator=g_q_perm @ G_legs_reflected.discrete_generators[0])
+        rep_pf = SparseRep(G_pf)
+        rep_vf = SparseRep(G_pf)
 
-        Gin_model, Gout_model = Gin_data, Gout_data  # No subgroup of C2 exists
+        # x   = [ qj   ,  dqj   ,   a   ,   w   ,   pf   ,   vf  ]
+        rep_x = rep_qj + rep_qj + rep_a + rep_w + rep_pf + rep_vf
+        # y : 16 dimensional contact state with following symmetry. See paper abstract.
+        g_y = C2.oneline2matrix(oneline_notation=[0, 2, 1, 3, 8, 10, 9, 11, 4, 6, 5, 7, 12, 14, 13, 15])
+        G_y = C2(g_y)
+        rep_y = SparseRep(G_y)
+
+        rep_data_in, rep_data_out = rep_x, rep_y
+        rep_model_in, rep_model_out = rep_x, rep_y
     else:
         raise NotImplementedError()
 
-    return robot, Gin_data, Gout_data, Gin_model, Gout_model
+    return robot, rep_data_in, rep_data_out, rep_model_in, rep_model_out, rep_E3, rep_qj

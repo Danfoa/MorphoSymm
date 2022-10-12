@@ -8,19 +8,16 @@ from typing import Collection, Tuple, Union, Optional, List
 import numpy as np  # Numpy library
 import scipy.spatial.transform
 import torch
+from hydra.utils import get_original_cwd
 from pinocchio import Quaternion, Force, JointModelFreeFlyer
 from pinocchio.robot_wrapper import RobotWrapper
 from pybullet_utils.bullet_client import BulletClient
 
 from ..AccelerationBounds import BatchedContraintAccelerationBound
 from ..PinBulletWrapper import PinBulletWrapper, ControlMode
-from robot_properties_solo.resources import Resources
-
 
 class Solo8Bullet(PinBulletWrapper):
-    # URDF and meshes paths
-    resources = Resources(robot_name="solo8", robot_family="solo")
-
+    urdf_subpath = 'urdf/solo8.urdf'
     # Servo variables.
     # tau = I * Kt * N
     MOTOR_TORQUE_COST = 0.025  # [Nm/A]
@@ -39,15 +36,15 @@ class Solo8Bullet(PinBulletWrapper):
     ALLOWED_CONTACT_JOINTS_NAMES = ["FL_KFE", "FR_KFE", "HL_KFE", "HR_KFE"]
     JOINT_NAMES = ["FL_HFE", "FL_KFE", "FR_HFE", "FR_KFE", "HL_HFE", "HL_KFE", "HR_HFE", "HR_KFE"]
 
-    def __init__(self, control_mode=ControlMode('torque'), power_coeff=1.0,
+    def __init__(self, resources:pathlib.Path, control_mode=ControlMode('torque'), power_coeff=1.0,
                  reference_robot: Optional['PinBulletWrapper']=None, gen_xacro=False, useFixedBase=False, **kwargs):
         self._mass = np.NAN
         self.power_coeff = power_coeff
         if gen_xacro:
-            import robot_properties_bolt.utils
-            robot_properties_bolt.utils.build_xacro_files(self.resources.resources_dir)
+            import robot_properties_solo.utils
+            robot_properties_solo.utils.build_xacro_files(self.resources.resources_dir)
         # Super initialization: will call load_bullet_robot and load_pinocchio_robot
-        super(Solo8Bullet, self).__init__(control_mode=control_mode, useFixedBase=useFixedBase,
+        super(Solo8Bullet, self).__init__(resources=resources, control_mode=control_mode, useFixedBase=useFixedBase,
                                           reference_robot=reference_robot, **kwargs)
 
         self._max_servo_torque = np.array([self.MOTOR_TORQUE_COST * self.MOTOR_GEAR_REDUCTION *
@@ -72,9 +69,11 @@ class Solo8Bullet(PinBulletWrapper):
             assert sys.getrefcount(pin_robot.data) <= 2
         else:
             # time.sleep(np.random.rand() * 5)
-            urdf_path = self.resources.urdf_path
-            meshes_path = self.resources.meshes_path
-            pin_robot = RobotWrapper.BuildFromURDF(urdf_path, meshes_path, JointModelFreeFlyer(), verbose=True)
+            urdf_path = self.resources / self.urdf_subpath
+            assert urdf_path.exists(), f"Cannot find urdf file {urdf_path.absolute()}"
+            meshes_path = self.resources
+            pin_robot = RobotWrapper.BuildFromURDF(str(urdf_path.absolute()), str(meshes_path.absolute()),
+                                                   JointModelFreeFlyer(), verbose=True)
             pin_robot.model.rotorInertia[6:] = self.MOTOR_INERTIA
             pin_robot.model.rotorGearRatio[6:] = self.MOTOR_GEAR_REDUCTION
             print(" -- Done")
@@ -84,15 +83,15 @@ class Solo8Bullet(PinBulletWrapper):
 
     def load_bullet_robot(self, base_pos=None, base_ori=None) -> int:
         if base_ori is None: base_ori = [0, 0, 0, 1]
-        # if base_pos is None: base_pos = [0, 0, 0.35]
         if base_pos is None: base_pos = [0, 0, 0.95]
 
-        urdf_path = self.resources.urdf_path
-        meshes_path = self.resources.package_path
+        urdf_path = self.resources / self.urdf_subpath
+        assert urdf_path.exists(), f"Cannot find urdf file {urdf_path.absolute()}"
+        meshes_path = self.resources
 
         # Load the robot for PyBullet
-        self.bullet_client.setAdditionalSearchPath(meshes_path)
-        self.robot_id = self.bullet_client.loadURDF(urdf_path,
+        self.bullet_client.setAdditionalSearchPath(str(meshes_path.absolute()))
+        self.robot_id = self.bullet_client.loadURDF(str(urdf_path.absolute()),
                                                     basePosition=base_pos,
                                                     baseOrientation=base_ori,
                                                     flags=self.bullet_client.URDF_USE_INERTIA_FROM_FILE |

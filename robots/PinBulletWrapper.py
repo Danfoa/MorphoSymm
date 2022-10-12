@@ -8,6 +8,7 @@ Copyright (C) 2018-2019, New York University , Max Planck Gesellschaft
 Copyright note valid unless otherwise stated in individual files.
 All rights reserved.
 """
+import pathlib
 from abc import ABC, abstractmethod
 from enum import auto
 from strenum import StrEnum
@@ -37,6 +38,7 @@ class JointInfo:
     idx_q: -1
     idx_dq: -1
 
+# TODO: Remove dependency StrEnum
 class ControlMode(StrEnum):
     TORQUE = 'torque'
     ACC = 'acceleration'
@@ -60,8 +62,8 @@ class PinBulletWrapper(ABC):
         endeff_names (:obj:`list` of :obj:`str`): Names of the end-effectors.
     """
 
-    def __init__(self, control_mode=ControlMode('torque'), useFixedBase=False,
-                 reference_robot: Optional['PinBulletWrapper'] = None,
+    def __init__(self, resources: pathlib.Path, control_mode=ControlMode('torque'),
+                 useFixedBase=False, reference_robot: Optional['PinBulletWrapper'] = None,
                  feet_lateral_friction=0.95, feet_spinning_friction=0.5, **kwargs):
         """Initializes the wrapper.
 
@@ -81,6 +83,7 @@ class PinBulletWrapper(ABC):
         self._feet_lateral_friction = feet_lateral_friction
         self._feet_spinning_friction = feet_spinning_friction
         # Initialize Pinocchio Robot.
+        self.resources = resources
         self.pinocchio_robot = self.load_pinocchio_robot(reference_robot)
         self.control_mode = control_mode
         self.nq = self.pinocchio_robot.nq

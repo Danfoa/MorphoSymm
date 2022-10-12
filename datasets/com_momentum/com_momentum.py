@@ -12,7 +12,7 @@ from scipy.sparse import issparse
 from torch.utils.data import Dataset
 from torch.utils.data._utils.collate import default_collate
 
-from groups.SymmetricGroups import Sym
+from groups.SymmetryGroups import Sym
 from utils.utils import dense
 
 log = logging.getLogger(__name__)

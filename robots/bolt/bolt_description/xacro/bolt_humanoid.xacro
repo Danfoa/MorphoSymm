@@ -1,0 +1,89 @@
+<?xml version="1.0" ?>
+<robot name="bolt_humanoid"
+
+  xmlns:controller="http://playerstage.sourceforge.net/gazebo/xmlschema/#controller"
+  xmlns:interface="http://playerstage.sourceforge.net/gazebo/xmlschema/#interface"
+  xmlns:sensor="http://playerstage.sourceforge.net/gazebo/xmlschema/#sensor"
+  xmlns:xacro="http://playerstage.sourceforge.net/gazebo/xmlschema/#interface">
+
+  <xacro:macro name="bolt_humanoid_full" params="mesh_ext color_name color opacity new_leg has_passive_ankle">
+
+    <link name="base_link">
+      <!-- BASE LINK INERTIAL -->
+      <inertial>
+          <origin xyz="0 0 0" rpy="0 0 0" />
+          <mass value="0.61436936"/>
+          <!-- The base is extremely symmetrical. -->
+          <inertia ixx="0.00578574" ixy="0.0" ixz="0.0"
+                                    iyy="0.01938108" iyz="0.0"
+                                                    izz="0.02476124"
+          />
+      </inertial>
+      <!-- BASE LINK VISUAL -->
+      <visual>
+          <origin xyz="0 0 0" rpy="0 0 0" />
+          <geometry>
+            <mesh filename="package://robot_properties_bolt/resources/meshes/${mesh_ext}/bolt_body.${mesh_ext}"/>
+          </geometry>
+          <material name="${color_name}">
+              <color rgba="${color} ${opacity}"/>
+          </material>
+      </visual>
+      <!-- BASE LINK COLLISION -->
+      <collision>
+          <origin xyz="0 0 0" rpy="0 0 0" />
+          <geometry>
+            <mesh filename="package://robot_properties_bolt/resources/meshes/${mesh_ext}/bolt_body.${mesh_ext}"/>
+          </geometry>
+          <material name="${color_name}">
+              <color rgba="${color} ${opacity}"/>
+          </material>
+      </collision>
+      <!-- Bullet specific paramters -->
+      <contact>
+        <lateral_friction value="1.0"/>
+        <restitution value="0.5"/>
+      </contact>
+    </link> <!-- END BASE LINK -->
+
+    <!-- Include the upper body -->
+    <xacro:include filename="upper_body.xacro"/>
+
+    <!-- Include the upper body -->
+    <xacro:upper_body
+        mesh_ext="${mesh_ext}"
+        color_name="${color_name}"
+        color="${color}"
+        opacity="${opacity}"/>
+
+    <!-- Include the legs -->
+    <xacro:include filename="leg.xacro"/>
+
+    <!-- Include the front left leg -->
+    <xacro:leg
+        prefix="FL"
+        is_front="true"
+        is_right="false"
+        has_side_motion="true"
+        mesh_ext="${mesh_ext}"
+        color_name="${color_name}"
+        color="${color}"
+        opacity="${opacity}"
+        new_leg="${new_leg}"
+        has_passive_ankle="${has_passive_ankle}"/>
+
+    <!-- Include the front right leg -->
+    <xacro:leg
+        prefix="FR"
+        is_front="true"
+        is_right="true"
+        has_side_motion="true"
+        mesh_ext="${mesh_ext}"
+        color_name="${color_name}"
+        color="${color}"
+        opacity="${opacity}"
+        new_leg="${new_leg}"
+        has_passive_ankle="${has_passive_ankle}"/>
+
+  </xacro:macro>
+</robot>

@@ -22,7 +22,7 @@ from tensorboardX import SummaryWriter
 from torch.utils.data._utils.collate import default_collate
 from tqdm import tqdm
 
-from groups.SymmetricGroups import C2
+from groups.SymmetryGroups import C2
 from utils.utils import reflex_matrix, coo2torch_coo
 import deep_contact_estimator
 

@@ -9,7 +9,8 @@ import torch
 import torch.nn.functional as F
 from torch.utils.data.dataloader import default_collate
 
-from nn.EquivariantModules import BasisLinear, EquivariantBlock, LinearBlock, EMLP, MLP
+from nn.EquivariantModules import BasisLinear
+from nn.EMLP import EMLP, MLP, LinearBlock, EquivariantBlock
 
 import logging
 log = logging.getLogger(__name__)

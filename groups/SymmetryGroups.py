@@ -105,7 +105,8 @@ class C2(Sym):
         @param generator: (d, d) generators in matrix form, where `d` is the dimension
         of the Vector Space and action representations.
         """
-        super().__init__([generator])
+        generators = [generator] if not isinstance(generator, list) else generator
+        super().__init__(generators)
         assert len(self.discrete_generators) == 1, "C2 must contain only one generator (without counting the identity)"
 
         h = self.discrete_generators[0]

@@ -1,2 +1,1 @@
-pytorch-lightning torch hydra-core emlp
-sympy
+pytorch-lightning torch hydra-core emlp pytransform3d pinocchio=2.6.3 strenum gym bullet_utils

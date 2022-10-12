@@ -13,13 +13,15 @@ from zipfile import BadZipFile
 
 import numpy as np
 import torch
-import torch.nn.functional as F
 from emlp import Group
-from emlp.reps.representation import Rep, Vector
+from emlp.reps.representation import Rep
 from emlp.reps.representation import Base as BaseRep
 from scipy.sparse import issparse
+from torch.nn import functional as F
+from torch.nn.modules.utils import _single
 
-from groups.SemiDirectProduct import SemiDirectProduct, SparseRep
+from groups.SemiDirectProduct import SemiDirectProduct
+from groups.SparseRepresentation import SparseRep
 from utils.emlp_cache import EMLPCache
 from utils.utils import slugify, coo2torch_coo
 
@@ -30,6 +32,7 @@ class BasisLinear(torch.nn.Module):
     """
     Group-equivariant linear layer
     """
+
     def __init__(self, rep_in: BaseRep, rep_out: BaseRep, bias=True):
         super().__init__()
 
@@ -73,8 +76,6 @@ class BasisLinear(torch.nn.Module):
         EquivariantModel.test_module_equivariance(module=self, rep_in=self.rep_in, rep_out=self.rep_out)
         # Add hook to backward pass
         self.register_full_backward_hook(EquivariantModel.backward_hook)
-
-
 
     def forward(self, x):
         """
@@ -161,27 +162,122 @@ class BasisLinear(torch.nn.Module):
         return super(BasisLinear, self).to(*args, **kwargs)
 
 
-class EquivariantBlock(torch.nn.Module):
+class BasisConv1d(torch.nn.Module):
+    from torch.nn.common_types import _size_1_t
 
-    def __init__(self, rep_in: BaseRep, rep_out: BaseRep, with_bias=True, activation=torch.nn.Identity):
-        super(EquivariantBlock, self).__init__()
+    def __init__(self, rep_in: BaseRep, rep_out: BaseRep, kernel_size: _size_1_t, stride: _size_1_t = 1,
+                 padding: Union[str, _size_1_t] = 0, dilation: _size_1_t = 1, groups: int = 1,
+                 bias: bool = True) -> None:
+        super().__init__()
 
-        # TODO: Optional Batch Normalization
-        self.linear = BasisLinear(rep_in, rep_out, with_bias)
-        self.activation = activation()
-        self._preact = None   # Debug variable holding last linear activation Tensor, useful for logging.
-        EquivariantModel.test_module_equivariance(self, rep_in, rep_out)
+        # Original Implementation Parameters ___________________________________________________________
+        self.kernel_size_ = int(kernel_size)
+        self.stride_ = _single(stride)
+        self.padding_ = padding if isinstance(padding, str) else _single(padding)
+        self.dilation_ = _single(dilation)
+        self.groups_ = groups
 
-    def forward(self, x, **kwargs):
-        self._preact = self.linear(x)
-        return self.activation(self._preact)
+        # Custom parameters ____________________________________________________________________________
+        G = SemiDirectProduct(Gin=rep_in.G, Gout=rep_out.G)
+        self.repW = SparseRep(G)
+        self.rep_in = rep_in
+        self.rep_out = rep_out
 
-    def unfreeze_equivariance(self):
-        self.linear.unfreeze_equivariance()
+        # Avoid recomputing W when basis coefficients have not changed.
+        self._new_coeff, self._new_bias_coeff = True, True
+
+        # Compute the nullspace
+        Q = self.repW.equivariant_basis()
+        self._sum_basis_sqrd = Q.power(2).sum() if issparse(Q) else np.sum(np.power(Q))
+        basis = coo2torch_coo(Q) if issparse(Q) else torch.tensor(np.asarray(Q))
+        self.basis = torch.nn.Parameter(basis, requires_grad=False)
+
+        # Create the network parameters. Coefficients for each base, and kernel dim
+        self.basis_coeff = torch.nn.Parameter(torch.rand(self.basis.shape[1], self.kernel_size_), requires_grad=True)
+
+        if bias:
+            Qbias = rep_out.equivariant_basis()
+            bias_basis = coo2torch_coo(Qbias) if issparse(Qbias) else torch.tensor(np.asarray(Qbias))
+            self.bias_basis = torch.nn.Parameter(bias_basis, requires_grad=False)
+            self.bias_basis_coeff = torch.nn.Parameter(torch.randn((self.bias_basis.shape[-1])), requires_grad=True)
+        else:
+            self.bias_basis, self.bias_basis_coeff = None, None
+
+        self.reset_parameters()
+        # Check Equivariance.
+        EquivariantModel.test_module_equivariance(module=self, rep_in=self.rep_in, rep_out=self.rep_out,
+                                                  in_shape=(1, rep_in.G.d, 2))
+        # Add hook to backward pass
+        self.register_full_backward_hook(EquivariantModel.backward_hook)
+
+    def forward(self, x):
+        if x.device != self.weight.device:
+            self._new_coeff, self._new_bias_coeff = True, True
+        return F.conv1d(input=x, weight=self.weight, bias=self.bias, stride=self.stride_, padding=self.padding_,
+                        dilation=self.dilation_, groups=self.groups_)
+
+    @property
+    def weight(self):
+        # if self._new_coeff:
+        self._weight = torch.matmul(self.basis, self.basis_coeff).reshape(
+            (self.rep_out.G.d, self.rep_in.G.d, self.kernel_size_))
+        self._new_coeff = False
+        return self._weight
+
+    @property
+    def bias(self):
+        if self.bias_basis is not None:
+            # if self._new_bias_coeff:
+            self._bias = torch.matmul(self.bias_basis, self.bias_basis_coeff).reshape((self.rep_out.G.d,))
+            self._new_bias_coeff = False
+            return self._bias
+        return None
+
+    def reset_parameters(self, mode="fan_in", activation="ReLU"):
+        # Compute the constant coming from the derivative of the activation. Torch return the square root of this value
+        gain = torch.nn.init.calculate_gain(nonlinearity=activation.lower())
+        # Get input out dimensions.
+        dim_in, dim_out = self.rep_in.G.d, self.rep_out.G.d
+        # Gain due to parameter sharing scheme from equivariance constrain
+        lambd = self._sum_basis_sqrd
+        if mode.lower() == "fan_in":
+            basis_coeff_variance = dim_out / lambd
+        elif mode.lower() == "fan_out":
+            basis_coeff_variance = dim_in / lambd
+        elif mode.lower() == "harmonic_mean":
+            basis_coeff_variance = 2. / ((lambd / dim_out) + (lambd / dim_in))
+        elif mode.lower() == "arithmetic_mean":
+            basis_coeff_variance = ((dim_in + dim_out) / 2.) / lambd
+        elif "normal" in mode.lower():
+            split = mode.split('l')
+            std = 0.1 if len(split) == 1 else float(split[1])
+            torch.nn.init.normal_(self.basis_coeff, 0, std)
+            return
+        else:
+            raise NotImplementedError(f"{mode} is not a recognized mode for Kaiming initialization")
+
+        self.init_std = gain * math.sqrt(basis_coeff_variance)
+        bound = math.sqrt(3.0) * self.init_std
+
+        prev_basis_coeff = torch.clone(self.basis_coeff)
+        torch.nn.init.uniform_(self.basis_coeff, -bound, bound)
+        if self.bias_basis is not None:
+            torch.nn.init.zeros_(self.bias_basis_coeff)
+
+        self._new_coeff, self._new_bias_coeff = True, True
+        assert not torch.allclose(prev_basis_coeff, self.basis_coeff), "Ups, smth is wrong."
+
+    def __repr__(self):
+        string = f"E-Conv1D G[{self.repW.G}]-W{self.rep_out.size() * self.rep_in.size()}-" \
+                 f"Wtrain:{self.basis.shape[-1]}={self.basis_coeff.shape[0] / np.prod(self.repW.size()) * 100:.1f}%" \
+                 f"-init_std:{self.init_std:.3f}"
+        return string
+
 
 class EquivariantModel(torch.nn.Module):
 
-    def __init__(self, rep_in: BaseRep, rep_out: BaseRep, hidden_group: Group, cache_dir: Optional[Union[str, pathlib.Path]] = None):
+    def __init__(self, rep_in: BaseRep, rep_out: BaseRep, hidden_group: Group,
+                 cache_dir: Optional[Union[str, pathlib.Path]] = None):
         super(EquivariantModel, self).__init__()
         self.rep_in = rep_in
         self.rep_out = rep_out
@@ -237,7 +333,6 @@ class EquivariantModel(torch.nn.Module):
             log.info(f"Cache loaded for: {list(Rep.solcache.keys())}")
         except Exception as e:
             log.warning(f"Error while loading cache from {model_cache_file}: \n {e}")
-
 
     def save_cache_file(self):
         if self.cache_dir is None:
@@ -302,170 +397,3 @@ class EquivariantModel(torch.nn.Module):
 
     # def __repr__(self):
     #     return f'{self.model_class}: {self.rep_in.G}-{self.rep_out.G}'
-
-
-class EMLP(EquivariantModel):
-    """ Equivariant MultiLayer Perceptron.
-        If the input channels argument is an int, uses the hands off uniform_rep heuristic.
-        If the channels argument is a representation, uses this representation for the hidden layers.
-        Individual layer representations can be set explicitly by using a list of ints or a list of
-        representations, rather than use the same for each hidden layer.
-
-        Args:
-            rep_in (Rep): input representation
-            rep_out (Rep): output representation
-            hidden_group (Group): symmetry group
-            ch (int or list[int] or Rep or list[Rep]): number of channels in the hidden layers
-            num_layers (int): number of hidden layers
-
-        Returns:
-            Module: the EMLP objax module."""
-
-    def __init__(self, rep_in, rep_out, hidden_group, ch=64, num_layers=3, with_bias=True, activation=torch.nn.ReLU,
-                 cache_dir=None, init_mode="fan_in", inv_dims_scale=1.0):
-        super().__init__(rep_in, rep_out, hidden_group, cache_dir)
-        logging.info("Initing EMLP (PyTorch)")
-        self.activations = activation
-        self.hidden_channels = ch
-        self.n_layers = num_layers
-        self.init_mode = init_mode
-        self.inv_dims_scale = inv_dims_scale
-        # Parse channels as a single int, a sequence of ints, a single Rep, a sequence of Reps
-        rep_inter_in = rep_in
-        rep_inter_out = rep_out
-        inv_in, inv_out = rep_in.G.n_inv_dims/rep_in.G.d, rep_out.G.n_inv_dims/rep_out.G.d
-        inv_ratios = np.linspace(inv_in, inv_out, num_layers + 3, endpoint=True) * self.inv_dims_scale
-
-        layers = []
-        for n, inv_ratio in zip(range(num_layers + 1), inv_ratios[1:-1]):
-            rep_inter_out = SparseRep(self.hidden_group.canonical_group(ch, inv_dims=math.ceil(ch * inv_ratio)))
-            layer = EquivariantBlock(rep_in=rep_inter_in, rep_out=rep_inter_out, with_bias=with_bias,
-                                     activation=self.activations)
-            layers.append(layer)
-            rep_inter_in = rep_inter_out
-        # Add last layer
-        linear_out = BasisLinear(rep_in=rep_inter_in, rep_out=rep_out, bias=False)
-        layers.append(linear_out)
-
-        # input_layer = layers[0].linear
-        # W = input_layer.weight.detach().numpy()
-        # b = input_layer.bias.detach().numpy()
-
-        self.net = torch.nn.Sequential(*layers)
-        self.reset_parameters(init_mode=self.init_mode)
-        EquivariantModel.test_module_equivariance(self, rep_in, rep_out)
-        self.save_cache_file()
-
-    def forward(self, x):
-        return self.net(x)
-
-    def get_hparams(self):
-        return {'num_layers': len(self.net),
-                'hidden_ch': self.hidden_channels,
-                'activation': str(self.activations.__class__.__name__),
-                'Repin': str(self.rep_in),
-                'Repout': str(self.rep_in),
-                'init_mode': str(self.init_mode),
-                'inv_dim_scale': self.inv_dims_scale,
-                }
-
-    def reset_parameters(self, init_mode=None):
-        assert init_mode is not None or self.init_mode is not None
-        self.init_mode = init_mode if init_mode is not None else self.init_mode
-        for module in self.net:
-            if isinstance(module, EquivariantBlock):
-                module.linear.reset_parameters(mode=self.init_mode, activation=module.activation.__class__.__name__.lower())
-            elif isinstance(module, BasisLinear):
-                module.reset_parameters(mode=self.init_mode, activation="Linear")
-        log.info(f"EMLP initialized with mode: {self.init_mode}")
-
-    def unfreeze_equivariance(self, num_layers=1):
-        assert num_layers >= 1, num_layers
-        # Freeze most of model parameters.
-        for parameter in self.parameters():
-            parameter.requires_grad = False
-
-        for e_layer in self.net[-num_layers:]:
-            e_layer.unfreeze_equivariance()
-
-class LinearBlock(torch.nn.Module):
-
-    def __init__(self, dim_in, dim_out, with_bias=True, activation=torch.nn.Identity):
-        super().__init__()
-
-        # TODO: Optional Batch Normalization
-        self.linear = torch.nn.Linear(in_features=dim_in, out_features=dim_out, bias=with_bias)
-        self.activation = activation()
-        self._preact = None   # Debug variable holding last linear activation Tensor, useful for logging.
-
-    def forward(self, x, **kwargs):
-        self._preact = self.linear(x)
-        return self.activation(self._preact)
-
-
-class MLP(torch.nn.Module):
-    """ Standard baseline MLP. Representations and group are used for shapes only. """
-
-    def __init__(self, d_in, d_out, ch=128, num_layers=3, activation=torch.nn.ReLU, with_bias=True, init_mode="fan_in"):
-        super().__init__()
-        self.d_in = d_in
-        self.d_out = d_out
-        self.init_mode = init_mode
-        self.hidden_channels = ch
-        self.activation = activation
-
-        logging.info("Initing MLP")
-
-        dim_in = self.d_in
-        dim_out = ch
-        layers = []
-        for n in range(num_layers + 1):
-            dim_out = ch
-            layer = LinearBlock(dim_in=dim_in, dim_out=dim_out, with_bias=with_bias, activation=activation)
-            # init
-            # torch.nn.init.kaiming_uniform_(layer.linear.weight, mode=init_mode,
-            #                                nonlinearity=activation.__name__.lower())
-            dim_in = dim_out
-            layers.append(layer)
-        # Add last layer
-        linear_out = torch.nn.Linear(in_features=dim_out, out_features=self.d_out, bias=with_bias)
-        # init.
-        # torch.nn.init.kaiming_uniform_(linear_out.weight, mode=init_mode, nonlinearity="linear")
-        layers.append(linear_out)
-
-        self.net = torch.nn.Sequential(*layers)
-        self.reset_parameters(init_mode=self.init_mode)
-
-    def forward(self, x):
-        y = self.net(x)
-        return y
-
-    def get_hparams(self):
-        return {'num_layers': len(self.net),
-                'hidden_ch': self.hidden_channels,
-                'init_mode': self.init_mode}
-
-    def reset_parameters(self, init_mode=None):
-        assert init_mode is not None or self.init_mode is not None
-        self.init_mode = self.init_mode if init_mode is None else init_mode
-        for module in self.net:
-            if isinstance(module, LinearBlock):
-                tensor = module.linear.weight if isinstance(module, LinearBlock) else module.weight
-                activation = module.activation.__class__.__name__
-            elif isinstance(module, torch.nn.Linear):
-                tensor = module.weight
-                activation = "Linear"
-            else:
-                raise NotImplementedError(module.__class__.__name__)
-
-            if "fan_in" == self.init_mode or "fan_out" == self.init_mode:
-                torch.nn.init.kaiming_uniform_(tensor, mode=self.init_mode, nonlinearity=activation.lower())
-            elif 'normal' in self.init_mode.lower():
-                split = self.init_mode.split('l')
-                std = 0.1 if len(split) == 1 else float(split[1])
-                tensor = module.linear.weight if isinstance(module, LinearBlock) else module.weight
-                torch.nn.init.normal_(tensor, 0, std)
-            else:
-                raise NotImplementedError(self.init_mode)
-
-        log.info(f"MLP initialized with mode: {self.init_mode}")

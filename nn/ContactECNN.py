@@ -12,10 +12,10 @@ import torch
 import torch.nn as nn
 from scipy.sparse import issparse
 
-from groups.SemiDirectProduct import SparseRep
-from groups.SymmetricGroups import C2
-from nn.EquivariantModules import EquivariantBlock, BasisLinear, EMLP, EquivariantModel
-from nn.EConv1d import BasisConv1d
+from groups.SparseRepresentation import SparseRep
+from groups.SymmetryGroups import C2
+from nn.EquivariantModules import BasisLinear, EquivariantModel, BasisConv1d
+from nn.EMLP import EMLP, EquivariantBlock
 from emlp.groups import Group
 from emlp.reps.representation import Rep, Vector
 from scipy.sparse import block_diag
