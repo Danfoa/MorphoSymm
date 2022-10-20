@@ -2,7 +2,7 @@
 job_name: ${exp_name}_${robot_name}/model=${model.model_type}_train_ratio=${dataset.train_ratio}
 name: "contact"
 
-data_folder: "training"
+data_folder: "training_splitted"
 
 contact_type: "contact"
 

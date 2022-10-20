@@ -61,44 +61,18 @@ class Solo8Bullet(PinBulletWrapper):
         self._pos_neutral = None
 
     def load_pinocchio_robot(self, reference_robot: Optional['PinBulletWrapper']=None) -> RobotWrapper:
-        if reference_robot is not None:
-            import sys
-            assert np.all(self.joint_names == reference_robot.joint_names), "Invalid reference RobotWrapper"
-            pin_robot = copy.copy(reference_robot.pinocchio_robot)
-            pin_robot.data = copy.deepcopy(reference_robot.pinocchio_robot.data)
-            assert sys.getrefcount(pin_robot.data) <= 2
-        else:
-            # time.sleep(np.random.rand() * 5)
-            urdf_path = self.resources / self.urdf_subpath
-            assert urdf_path.exists(), f"Cannot find urdf file {urdf_path.absolute()}"
-            meshes_path = self.resources
-            pin_robot = RobotWrapper.BuildFromURDF(str(urdf_path.absolute()), str(meshes_path.absolute()),
-                                                   JointModelFreeFlyer(), verbose=True)
-            pin_robot.model.rotorInertia[6:] = self.MOTOR_INERTIA
-            pin_robot.model.rotorGearRatio[6:] = self.MOTOR_GEAR_REDUCTION
-            print(" -- Done")
-
-        self._mass = float(np.sum([i.mass for i in pin_robot.model.inertias]))  # [kg]
+        pin_robot = super(Solo8Bullet, self).load_pinocchio_robot(reference_robot=reference_robot)
+        pin_robot.model.rotorInertia[6:] = self.MOTOR_INERTIA
+        pin_robot.model.rotorGearRatio[6:] = self.MOTOR_GEAR_REDUCTION
         return pin_robot
 
     def load_bullet_robot(self, base_pos=None, base_ori=None) -> int:
         if base_ori is None: base_ori = [0, 0, 0, 1]
         if base_pos is None: base_pos = [0, 0, 0.95]
 
-        urdf_path = self.resources / self.urdf_subpath
-        assert urdf_path.exists(), f"Cannot find urdf file {urdf_path.absolute()}"
-        meshes_path = self.resources
+        robot_id = super(Solo8Bullet, self).load_bullet_robot(base_pos, base_ori)
 
-        # Load the robot for PyBullet
-        self.bullet_client.setAdditionalSearchPath(str(meshes_path.absolute()))
-        self.robot_id = self.bullet_client.loadURDF(str(urdf_path.absolute()),
-                                                    basePosition=base_pos,
-                                                    baseOrientation=base_ori,
-                                                    flags=self.bullet_client.URDF_USE_INERTIA_FROM_FILE |
-                                                          self.bullet_client.URDF_USE_SELF_COLLISION,
-                                                    useFixedBase=self.useFixedBase)
-
-        return self.robot_id
+        return robot_id
 
     def configure_bullet_simulation(self, bullet_client: BulletClient, world, base_pos=None, base_ori=None):
         super(Solo8Bullet, self).configure_bullet_simulation(bullet_client, world, base_pos, base_ori)
@@ -110,8 +84,11 @@ class Solo8Bullet(PinBulletWrapper):
         self.bullet_ids_allowed_floor_contacts += [self.joint_aux_vars[j].bullet_id for j in self.ALLOWED_CONTACT_JOINTS_NAMES]
 
         num_joints = self.bullet_client.getNumJoints(self.robot_id)
-        robot_color = [0.227, 0.356, 0.450, 1.0]
-        left_leg_color = [0.427, 0.521, 0.592, 1.0]
+        robot_color = [0.054, 0.415, 0.505, 1.0]
+        FL_leg_color = [0.698, 0.376, 0.082, 1.0]
+        FR_leg_color = [0.260, 0.263, 0.263, 1.0]
+        HL_leg_color = [0.800, 0.480, 0.000, 1.0]
+        HR_leg_color = [0.710, 0.703, 0.703, 1.0]
         endeff_color = [0, 0, 0, 1]
         for i in range(num_joints):
             link_name = self.bullet_client.getJointInfo(self.robot_id, i)[12].decode("UTF-8")
@@ -119,10 +96,14 @@ class Solo8Bullet(PinBulletWrapper):
 
             if "FOOT" in link_name:
                 color = endeff_color
-            elif 'L' in joint_name:
-                color = left_leg_color
-            elif 'R' in joint_name:
-                color = robot_color
+            elif 'FL' in joint_name:
+                color = FL_leg_color
+            elif 'FR' in joint_name:
+                color = FR_leg_color
+            elif 'HL' in joint_name:
+                color = HL_leg_color
+            elif 'HR' in joint_name:
+                color = HR_leg_color
             else:
                 color = robot_color
 

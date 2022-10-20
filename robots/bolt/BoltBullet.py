@@ -180,17 +180,18 @@ class BoltBullet(PinBulletWrapper):
         left_leg_pos = np.array([-0.2, 0.78539816, -1.57079633])
         right_leg_pos = np.array([0.2, 0.78539816, -1.57079633])
 
-        left_leg_pos_offset = np.random.rand(3) * [+np.deg2rad(10), np.deg2rad(15), -np.deg2rad(25)] if random else [0, 0, 0]
-        right_leg_pos_offset = np.random.rand(3) * [-np.deg2rad(10), -np.deg2rad(25), np.deg2rad(25)] if random else [0, 0, 0]
+        left_leg_pos_offset = np.random.rand(3) * [+np.deg2rad(30), np.deg2rad(25), -np.deg2rad(35)] if random else [0, 0, 0]
+        right_leg_pos_offset = np.random.rand(3) * [-np.deg2rad(30), -np.deg2rad(25), np.deg2rad(35)] if random else [0, 0, 0]
         leg_vel = np.array([0.0, 0.0, 0.0])
         leg_vel_offset1 = np.random.uniform(-np.deg2rad(3), np.deg2rad(3), 3) if random else [0, 0, 0]
         leg_vel_offset2 = np.random.uniform(-np.deg2rad(3), np.deg2rad(3), 3) if random else [0, 0, 0]
 
         base_ori = [0, 0, 0, 1]
         if random:
-            pitch = np.random.uniform(low=-np.deg2rad(7), high=np.deg2rad(0))
-            base_ori = scipy.spatial.transform.Rotation.from_euler("xyz", [0, pitch, 0]).as_quat()
-            # base_ori = self.bullet_client.getQuaternionFromEuler([0, pitch, 0])
+            pitch = np.random.uniform(low=-np.deg2rad(9), high=np.deg2rad(9))
+            roll = np.random.uniform(low=-np.deg2rad(5), high=np.deg2rad(5))
+            yaw = np.random.uniform(low=-np.deg2rad(10), high=np.deg2rad(10))
+            base_ori = scipy.spatial.transform.Rotation.from_euler("xyz", [roll, pitch, yaw]).as_quat()
 
         q_legs = np.concatenate((left_leg_pos + left_leg_pos_offset, right_leg_pos + right_leg_pos_offset))
         dq_legs = np.concatenate((leg_vel + leg_vel_offset1, leg_vel + leg_vel_offset2))

@@ -15,7 +15,7 @@ from pytransform3d import transformations as tr
 
 from groups.SparseRepresentation import SparseRep, SparseRepE3
 from groups.SymmetryGroups import C2, Klein4, Sym
-from utils.utils import reflex_matrix
+from utils.utils import reflection_matrix
 
 def get_robot_params(robot_name):
     """
@@ -39,42 +39,65 @@ def get_robot_params(robot_name):
     if 'bolt' in robot_name.lower():
         from robots.bolt.BoltBullet import BoltBullet
         robot = BoltBullet(resources=resources / 'bolt/bolt_description')
-        perm_q = robot.mirror_joint_idx
-        perm_q = np.concatenate((perm_q, np.array(perm_q) + len(perm_q))).tolist()
-        refx_q = robot.mirror_joint_signs
-        refx_q = np.concatenate((refx_q, refx_q)).tolist()
-        h_in = C2.oneline2matrix(oneline_notation=perm_q, reflexions=refx_q)
-        Gin_data = C2(h_in)
-        h_out = C2.oneline2matrix(oneline_notation=[0, 1, 2, 3, 4, 5], reflexions=[1, -1, 1, -1, 1, -1])
-        Gout_data = C2(h_out)
-        Gin_model, Gout_model = Gin_data, Gout_data  # No subgroup of C2 exists
+        n_sagittal = np.array([0, 1, 0])  # Normal vector to reflection/symmetry plane w.r.t base frame
+        R_s = reflection_matrix(n_sagittal)
+        R_s = sparse.coo_matrix(R_s)
+        G_E3 = C2(generator=R_s)
+        rep_E3 = SparseRepE3(G_E3)
+
+        # Configure qj (joint-space) group actions
+        #        |___ R __|___ L ___|
+        perm_q = [3,  4, 5,  0, 1, 2]
+        refx_q = [-1, 1, 1, -1, 1, 1]
+        g_qj_sagittal = Sym.oneline2matrix(oneline_notation=perm_q, reflexions=refx_q)
+        G_qj = C2(g_qj_sagittal)
+        rep_qj = SparseRep(G_qj)
+
+        # Compute representation for a vector x=[qj, dqj].T (joint position and joint velocity) for CoM estimation
+        rep_x = rep_qj + rep_qj
+        # Compute representation for y=[l, k], the CoM linear `l` and angular `k` momentum.
+        rep_l = SparseRepE3(G_E3, pseudovector=False)
+        rep_k = SparseRepE3(G_E3, pseudovector=True)
+        rep_y = rep_l + rep_k
+
+        rep_model_in, rep_model_out = rep_x, rep_y
+        rep_data_in, rep_data_out = rep_model_in, rep_model_out  # C2 has only the trivial group as subgroup
+
     elif 'atlas' in robot_name.lower():
         from robots.atlas.AtlasBullet import AtlasBullet
         robot = AtlasBullet(resources=resources / 'atlas/atlas_description')
         # Configure E3 group actions, due to sagittal symmety
         n_sagittal = np.array([0, 1, 0])  # Normal vector to reflection/symmetry plane w.r.t base frame
-        R_s = reflex_matrix(n_sagittal)
+        R_s = reflection_matrix(n_sagittal)
         R_s = sparse.coo_matrix(R_s)
         G_E3 = C2(generator=R_s)
         rep_E3 = SparseRepE3(G_E3)
 
+        # Configure qj (joint-space) group actions
         perm_q = robot.mirror_joint_idx
-        perm_q = np.concatenate((perm_q, np.array(perm_q) + len(perm_q))).tolist()
         refx_q = robot.mirror_joint_signs
-        refx_q = np.concatenate((refx_q, refx_q)).tolist()
-        h_in = C2.oneline2matrix(oneline_notation=perm_q, reflexions=refx_q)
-        Gin_data = C2(h_in)
-        h_out = C2.oneline2matrix(oneline_notation=[0, 1, 2, 3, 4, 5], reflexions=[1, -1, 1, -1, 1, -1])
-        Gout_data = C2(h_out)
-        Gin_model, Gout_model = Gin_data, Gout_data  # No subgroup of C2 exists
+        g_qj_sagittal = Sym.oneline2matrix(oneline_notation=perm_q, reflexions=refx_q)
+        G_qj = C2(g_qj_sagittal)
+        rep_qj = SparseRep(G_qj)
+
+        # Compute representation for a vector x=[qj, dqj].T (joint position and joint velocity) for CoM estimation
+        rep_x = rep_qj + rep_qj
+        # Compute representation for y=[l, k], the CoM linear `l` and angular `k` momentum.
+        rep_l = SparseRepE3(G_E3, pseudovector=False)
+        rep_k = SparseRepE3(G_E3, pseudovector=True)
+        rep_y = rep_l + rep_k
+
+        rep_model_in, rep_model_out = rep_x, rep_y
+        rep_data_in, rep_data_out = rep_model_in, rep_model_out  # C2 has only the trivial group as subgroup
+
     elif 'solo' in robot_name.lower():
         from robots.solo.Solo12Bullet import Solo12Bullet
         robot = Solo12Bullet(resources=resources / 'solo/solo_description')
         # Configure E3 group actions
         n_sagittal = np.array([0, 1, 0])  # Normal vector to reflection/symmetry plane.
         n_transversal = np.array([1, 0, 0])  # Normal vector to reflection/symmetry plane.
-        R_s = reflex_matrix(n_sagittal)
-        R_t = reflex_matrix(n_transversal)
+        R_s = reflection_matrix(n_sagittal)
+        R_t = reflection_matrix(n_transversal)
         R_s, R_t = sparse.coo_matrix(R_s), sparse.coo_matrix(R_t)
 
         K4_E3 = Klein4(generators=[R_s, R_t])
@@ -116,7 +139,7 @@ def get_robot_params(robot_name):
     elif "mit" in robot_name.lower() or "cheetah" in robot_name.lower():
         # Configure E3 group actions
         n_sagittal = np.array([0, 1, 0])  # Normal vector to reflection/symmetry plane w.r.t base frame
-        R_s = reflex_matrix(n_sagittal)
+        R_s = reflection_matrix(n_sagittal)
         R_s = sparse.coo_matrix(R_s)
         G_E3 = C2(generator=R_s)
         rep_E3 = SparseRepE3(G_E3)

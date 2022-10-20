@@ -7,7 +7,9 @@ import pathlib
 import numpy as np
 import scipy.sparse
 import torch
+from pytransform3d import transformations as tr, rotations as rt
 from scipy.sparse import issparse
+
 
 
 def check_if_resume_experiment(ckpt_call):
@@ -143,7 +145,41 @@ if __name__ == "__main__":
     assert is_canonical_permutation(P)
 
 
-def reflex_matrix(plane_norm_vector):
+def reflection_matrix(plane_norm_vector):
     aa = np.expand_dims(plane_norm_vector, -1) if plane_norm_vector.shape == (3,) else plane_norm_vector
     d = aa.shape[0]
     return np.eye(d) - 2 * ((aa @ aa.T) / (aa.T @ aa))
+
+
+def homogenousMatrix(R: np.ndarray, T=np.zeros(3)):
+    X = np.zeros((4, 4), dtype=R.dtype)
+    X[3, 3] = 1
+    X[:, 3] = T
+    X[:3, :3] = R
+    return X
+
+
+def reflection_transformation(vnorm, point_in_plane):
+    """Generates the Homogenous trasformation matrix of a reflection"""
+    if vnorm.ndim == 1:
+        vnorm = np.expand_dims(vnorm, axis=1)
+    KA = reflection_matrix(vnorm)
+    # The plane position is defined as a function of a point in the plane.
+    tKA = np.squeeze(-2 * vnorm * (-point_in_plane.dot(vnorm)))
+    TK = tr.transform_from(R=KA, p=tKA)
+    return TK
+
+
+def matrix_to_quat_xyzw(R):
+    assert R.shape == (3, 3)
+    return rt.quaternion_xyzw_from_wxyz(rt.quaternion_from_matrix(R))
+
+def quat_xyzw_to_matrix(q):
+    assert q.shape == (4,)
+    return rt.matrix_from_quaternion(rt.quaternion_wxyz_from_xyzw(q))
+
+def SE3_2_gen_coordinates(X):
+    assert X.shape == (4, 4)
+    pos = X[:3, 3]
+    quat = matrix_to_quat_xyzw(X[:3, :3])
+    return np.concatenate((pos, quat))

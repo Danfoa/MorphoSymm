@@ -8,13 +8,14 @@ Copyright (C) 2018-2019, New York University , Max Planck Gesellschaft
 Copyright note valid unless otherwise stated in individual files.
 All rights reserved.
 """
+import copy
 import pathlib
 from abc import ABC, abstractmethod
 from enum import auto
 from strenum import StrEnum
 from math import pi
 from typing import Collection, Optional, List, Tuple, Union
-from pinocchio import pinocchio_pywrap as pin
+from pinocchio import pinocchio_pywrap as pin, JointModelFreeFlyer
 from scipy.linalg import inv, pinv
 import gym
 import numpy as np
@@ -481,14 +482,46 @@ class PinBulletWrapper(ABC):
         Returns:
             RobotWrapper: Instance of your pinocchio robot.
         """
-        raise NotImplementedError("You forgot to implement function returning the `pinocchio.RobotWrapper`")
+        assert self.resources is not None, "You must provide the robot resources path containing meshes and urdf files"
+        assert self.urdf_subpath is not None, "Provide a subpath to urdf file inside of resources directory"
+        if reference_robot is not None:
+            import sys
+            assert np.all(self.joint_names == reference_robot.joint_names), "Invalid reference RobotWrapper"
+            pin_robot = copy.copy(reference_robot.pinocchio_robot)
+            pin_robot.data = copy.deepcopy(reference_robot.pinocchio_robot.data)
+            assert sys.getrefcount(pin_robot.data) <= 2
+        else:
+            # time.sleep(np.random.rand() * 5)
+            urdf_path = self.resources / self.urdf_subpath
+            assert urdf_path.exists(), f"Cannot find urdf file {urdf_path.absolute()}"
+            meshes_path = self.resources
+            pin_robot = RobotWrapper.BuildFromURDF(str(urdf_path.absolute()), str(meshes_path.absolute()),
+                                                   JointModelFreeFlyer(), verbose=True)
+        self._mass = float(np.sum([i.mass for i in pin_robot.model.inertias]))  # [kg]
+        return pin_robot
+
 
     def load_bullet_robot(self, base_pos=None, base_ori=None) -> int:
         """
         Function to load and configure the pinocchio instance of your robot.
             int: Bullet robot body id.
         """
-        raise NotImplementedError("You forgot to implement function loading the robot to bullet")
+        assert self.resources is not None, "You must provide the robot resources path containing meshes and urdf files"
+        assert self.urdf_subpath is not None, "Provide a subpath to urdf file inside of resources directory"
+
+        urdf_path = self.resources / self.urdf_subpath
+        assert urdf_path.exists(), f"Cannot find urdf file {urdf_path.absolute()}"
+        meshes_path = self.resources
+
+        # Load the robot for PyBullet
+        self.bullet_client.setAdditionalSearchPath(str(meshes_path.absolute()))
+        self.robot_id = self.bullet_client.loadURDF(str(urdf_path.absolute()),
+                                                    basePosition=base_pos,
+                                                    baseOrientation=base_ori,
+                                                    flags=self.bullet_client.URDF_USE_INERTIA_FROM_FILE |
+                                                          self.bullet_client.URDF_USE_SELF_COLLISION,
+                                                    useFixedBase=self.useFixedBase)
+        return self.robot_id
 
     @abstractmethod
     def get_init_config(self, random=False):

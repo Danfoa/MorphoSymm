@@ -22,8 +22,9 @@ from hydra.utils import get_original_cwd
 
 
 class AtlasBullet(PinBulletWrapper):
+    urdf_subpath = "atlas_v4_with_multisense.urdf"
 
-    def __init__(self, control_mode=ControlMode('torque'), power_coeff=1.0,
+    def __init__(self,  resources: pathlib.Path, control_mode=ControlMode('torque'), power_coeff=1.0,
                  reference_robot: Optional['PinBulletWrapper'] = None,
                  gen_xacro=False, useFixedBase=False, **kwargs):
         self._mass = np.NAN
@@ -32,44 +33,17 @@ class AtlasBullet(PinBulletWrapper):
             raise NotImplementedError()
 
         # Super initialization: will call load_bullet_robot and load_pinocchio_robot
-        super(AtlasBullet, self).__init__(control_mode=control_mode, useFixedBase=useFixedBase,
+        super(AtlasBullet, self).__init__(resources=resources, recontrol_mode=control_mode, useFixedBase=useFixedBase,
                                           reference_robot=reference_robot, **kwargs)
 
         self._masses = [M.mass for M in self.pinocchio_robot.model.inertias][1:]
 
-    def load_pinocchio_robot(self, reference_robot: Optional['PinBulletWrapper'] = None) -> RobotWrapper:
-        if reference_robot is not None:
-            import sys
-            assert np.all(self.joint_names == reference_robot.joint_names), "Invalid reference RobotWrapper"
-            pin_robot = copy.copy(reference_robot.pinocchio_robot)
-            pin_robot.data = copy.deepcopy(reference_robot.pinocchio_robot.data)
-            assert sys.getrefcount(pin_robot.data) <= 2
-        else:
-            urdf_path = self.resources.joinpath("atlas_v4_with_multisense.urdf")
-            meshes_path = self.resources
-            with cwd(get_original_cwd()):
-                pin_robot = RobotWrapper.BuildFromURDF(str(urdf_path), str(meshes_path), JointModelFreeFlyer())
-
-        self._mass = float(np.sum([i.mass for i in pin_robot.model.inertias]))  # [kg]
-        return pin_robot
-
     def load_bullet_robot(self, base_pos=None, base_ori=None) -> int:
         if base_ori is None: base_ori = [0, 0, 0, 1]
         if base_pos is None: base_pos = [0, 0, 0.35]
-        urdf_path = self.resources.joinpath("atlas_v4_with_multisense.urdf")
-        meshes_path = self.resources
 
-        with cwd(get_original_cwd()):
-            # Load the robot for PyBullet
-            self.bullet_client.setAdditionalSearchPath(str(meshes_path))
-            self.robot_id = self.bullet_client.loadURDF(str(urdf_path),
-                                                        basePosition=base_pos,
-                                                        baseOrientation=base_ori,
-                                                        flags=self.bullet_client.URDF_USE_INERTIA_FROM_FILE |
-                                                              self.bullet_client.URDF_USE_SELF_COLLISION,
-                                                        useFixedBase=self.useFixedBase)
-
-        return self.robot_id
+        robot_id = super(AtlasBullet, self).load_bullet_robot(base_pos, base_ori)
+        return robot_id
 
     def configure_bullet_simulation(self, bullet_client: BulletClient, world, base_pos=None, base_ori=None):
         super(AtlasBullet, self).configure_bullet_simulation(bullet_client, world, base_pos, base_ori)
@@ -181,10 +155,6 @@ class AtlasBullet(PinBulletWrapper):
         if np.isnan(self._mass):
             return super().mass
         return self._mass
-
-    @property
-    def resources(self):
-        return pathlib.Path(get_original_cwd()).joinpath('robots/atlas/atlas_description').absolute()
 
 
 # Hack because I dont want to install ros to build a single description package.

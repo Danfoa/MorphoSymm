@@ -5,7 +5,7 @@ defaults:
   - model: emlp
 
 # TODO: Make distinctions between. Trainer Args, Model Psecific Args, Program Args
-robot_name: 'bolt'
+robot_name: 'solo12'
 seed: -1
 exp_name: 'tests'
 

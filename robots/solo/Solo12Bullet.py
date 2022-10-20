@@ -60,7 +60,7 @@ class Solo12Bullet(Solo8Bullet):
 
     @property
     def mirror_joint_signs(self) -> List:
-            # ["FR_HAA", "FR_HFE", "FR_KFE", "FL_HAA", "FL_HFE", "FL_KFE", "HR_HAA", "HR_HFE", "HR_KFE", "HL_HAA", "HL_HFE",  "HL_KFE"]
+               # ["FR_HAA", "FR_HFE", "FR_KFE", "FL_HAA", "FL_HFE", "FL_KFE", "HR_HAA", "HR_HFE", "HR_KFE", "HL_HAA", "HL_HFE",  "HL_KFE"]
         return [-1.0, 1.0, 1.0, -1.0, 1.0, 1.0, -1.0, 1.0, 1.0, -1.0, 1.0, 1.0]
 
     @property
@@ -70,8 +70,8 @@ class Solo12Bullet(Solo8Bullet):
     def get_init_config(self, random=False):
 
         leg_pos = np.array([0.0, 0.8, -1.6])
-        leg_pos_offset1 = np.random.rand(3) * [np.deg2rad(10), -np.deg2rad(15), -np.deg2rad(15)] if random else np.zeros(3)
-        leg_pos_offset2 = np.random.rand(3) * [np.deg2rad(10), np.deg2rad(15), np.deg2rad(15)] if random else np.zeros(3)
+        leg_pos_offset1 = np.random.rand(3) * [np.deg2rad(20), -np.deg2rad(20), -np.deg2rad(25)] if random else np.zeros(3)
+        leg_pos_offset2 = np.random.rand(3) * [np.deg2rad(20), np.deg2rad(20), np.deg2rad(25)] if random else np.zeros(3)
         leg_vel = np.array([0.0, 0.0, 0.0])
         leg_vel_offset1 = np.random.uniform(-np.deg2rad(3), np.deg2rad(3), 3) if random else np.zeros(3)
         leg_vel_offset2 = np.random.uniform(-np.deg2rad(3), np.deg2rad(3), 3) if random else np.zeros(3)
