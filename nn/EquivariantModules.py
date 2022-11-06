@@ -276,12 +276,10 @@ class BasisConv1d(torch.nn.Module):
 
 class EquivariantModel(torch.nn.Module):
 
-    def __init__(self, rep_in: BaseRep, rep_out: BaseRep, hidden_group: Group,
-                 cache_dir: Optional[Union[str, pathlib.Path]] = None):
+    def __init__(self, rep_in: BaseRep, rep_out: BaseRep, cache_dir: Optional[Union[str, pathlib.Path]] = None):
         super(EquivariantModel, self).__init__()
         self.rep_in = rep_in
         self.rep_out = rep_out
-        self.hidden_group = hidden_group
         self.cache_dir = cache_dir
 
         # Cache dir
@@ -383,6 +381,8 @@ class EquivariantModel(torch.nn.Module):
             g_y_true = g_out @ y
             if not torch.allclose(g_y_true, g_y_pred, atol=1e-4, rtol=1e-4):
                 max_error = torch.max(g_y_true - g_y_pred).item()
+                g_in_np = g_in.squeeze(0).numpy()
+                g_out_np = g_out.squeeze(0).numpy()
                 error = (g_y_true - g_y_pred).detach().numpy()
                 raise RuntimeError(f"{module}\nis not equivariant to in/out group generators\n"
                                    f"max(f(g·x) - g·y) = {np.max(error)}")

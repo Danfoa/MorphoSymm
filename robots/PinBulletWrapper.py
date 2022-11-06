@@ -9,8 +9,10 @@ Copyright note valid unless otherwise stated in individual files.
 All rights reserved.
 """
 import copy
+import os
 import pathlib
 from abc import ABC, abstractmethod
+from contextlib import contextmanager
 from enum import auto
 from strenum import StrEnum
 from math import pi
@@ -474,8 +476,6 @@ class PinBulletWrapper(ABC):
         else:
             raise NotImplementedError()
 
-
-
     def load_pinocchio_robot(self, reference_robot: Optional['PinBulletWrapper'] = None) -> RobotWrapper:
         """
         Function to load and configure the pinocchio instance of your robot.
@@ -495,8 +495,9 @@ class PinBulletWrapper(ABC):
             urdf_path = self.resources / self.urdf_subpath
             assert urdf_path.exists(), f"Cannot find urdf file {urdf_path.absolute()}"
             meshes_path = self.resources
-            pin_robot = RobotWrapper.BuildFromURDF(str(urdf_path.absolute()), str(meshes_path.absolute()),
-                                                   JointModelFreeFlyer(), verbose=True)
+            with cwd(pathlib.Path(__file__).parent.parent):
+                pin_robot = RobotWrapper.BuildFromURDF(str(urdf_path.absolute()), str(meshes_path.absolute()),
+                                                       JointModelFreeFlyer(), verbose=True)
         self._mass = float(np.sum([i.mass for i in pin_robot.model.inertias]))  # [kg]
         return pin_robot
 
@@ -515,12 +516,13 @@ class PinBulletWrapper(ABC):
 
         # Load the robot for PyBullet
         self.bullet_client.setAdditionalSearchPath(str(meshes_path.absolute()))
-        self.robot_id = self.bullet_client.loadURDF(str(urdf_path.absolute()),
-                                                    basePosition=base_pos,
-                                                    baseOrientation=base_ori,
-                                                    flags=self.bullet_client.URDF_USE_INERTIA_FROM_FILE |
-                                                          self.bullet_client.URDF_USE_SELF_COLLISION,
-                                                    useFixedBase=self.useFixedBase)
+        with cwd(pathlib.Path(__file__).parent.parent):
+            self.robot_id = self.bullet_client.loadURDF(str(urdf_path.absolute()),
+                                                        basePosition=base_pos,
+                                                        baseOrientation=base_ori,
+                                                        flags=self.bullet_client.URDF_USE_INERTIA_FROM_FILE |
+                                                              self.bullet_client.URDF_USE_SELF_COLLISION,
+                                                        useFixedBase=self.useFixedBase)
         return self.robot_id
 
     @abstractmethod
@@ -816,3 +818,13 @@ class PinBulletWrapper(ABC):
         np.set_printoptions(precision=3)
         # log.debug(tau)
         return tau
+
+# Hack because I dont want to install ros to build a single description package.
+@contextmanager
+def cwd(path):
+    oldpwd = os.getcwd()
+    os.chdir(path)
+    try:
+        yield
+    finally:
+        os.chdir(oldpwd)

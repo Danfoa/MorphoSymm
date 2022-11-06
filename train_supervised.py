@@ -1,7 +1,7 @@
-import copy
 import os
 
 import torch
+from torch.utils.data import DataLoader
 from torch.utils.data.sampler import WeightedRandomSampler
 
 os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
@@ -10,8 +10,7 @@ import pandas as pd
 import numpy as np
 
 from datasets.com_momentum.com_momentum import COMMomentum
-from datasets.umich_contact_dataset import UmichContactDataset
-from nn.EquivariantModules import MLP, EMLP
+from nn.EMLP import MLP, EMLP
 from utils.robot_utils import get_robot_params
 
 import hydra
@@ -32,8 +31,6 @@ except ImportError:
     from yaml import Loader, Dumper
 
 import pathlib
-from deep_contact_estimator.src.contact_cnn import *
-from deep_contact_estimator.utils.data_handler import *
 from nn.ContactECNN import ContactECNN
 
 import logging
@@ -41,18 +38,26 @@ import logging
 log = logging.getLogger(__name__)
 
 
-def get_model(cfg, Gin=None, Gout=None, cache_dir=None):
+def get_model(cfg, rep_in=None, rep_out=None, cache_dir=None):
     if "ecnn" in cfg.model_type.lower():
-        model = ContactECNN(SparseRep(Gin), SparseRep(Gout), Gin, cache_dir=cache_dir, dropout=cfg.dropout,
-                            init_mode=cfg.init_mode, inv_dim_scale=cfg.inv_dims_scale)
+        model = ContactECNN(rep_in, rep_out, cache_dir=cache_dir, dropout=cfg.dropout,
+                            init_mode=cfg.init_mode, inv_dim_scale=cfg.inv_dims_scale, bias=cfg.bias)
     elif "cnn" == cfg.model_type.lower():
+        try:
+            import sys
+            deep_contact_estimator_path = pathlib.Path(__file__).parent / 'datasets/contact_dataset/'
+            assert deep_contact_estimator_path.exists(), deep_contact_estimator_path
+            sys.path.append(str(deep_contact_estimator_path / 'deep-contact-estimator/src'))
+            from contact_cnn import contact_cnn
+        except ImportError as e:
+            raise ImportError("Deep Contact Estimator submodule not initialized, run `git submodule init`") from e
         model = contact_cnn()
     elif "emlp" == cfg.model_type.lower():
-        model = EMLP(rep_in=SparseRep(Gin), rep_out=SparseRep(Gout), hidden_group=Gout, num_layers=cfg.num_layers,
+        model = EMLP(rep_in=rep_in, rep_out=rep_out, num_layers=cfg.num_layers,
                      ch=cfg.num_channels, init_mode=cfg.init_mode, activation=torch.nn.ReLU,
                      with_bias=cfg.bias, cache_dir=cache_dir, inv_dims_scale=cfg.inv_dims_scale).to(dtype=torch.float32)
     elif 'mlp' == cfg.model_type.lower():
-        model = MLP(d_in=Gin.d, d_out=Gout.d, num_layers=cfg.num_layers, init_mode=cfg.init_mode,
+        model = MLP(d_in=rep_in.d, d_out=rep_out.d, num_layers=cfg.num_layers, init_mode=cfg.init_mode,
                     ch=cfg.num_channels, with_bias=cfg.bias, activation=torch.nn.ReLU).to(dtype=torch.float32)
     else:
         raise NotImplementedError(cfg.model_type)
@@ -61,6 +66,8 @@ def get_model(cfg, Gin=None, Gout=None, cache_dir=None):
 
 def get_datasets(cfg, device, root_path):
     if cfg.dataset.name == "contact":
+        from datasets.contact_dataset.umich_contact_dataset import UmichContactDataset
+        assert 'cnn' in cfg.model.model_type.lower(), "Only CNN models are supported for contact dataset"
         train_dataset = UmichContactDataset(data_name="train.npy",
                                             label_name="train_label.npy", train_ratio=cfg.dataset.train_ratio,
                                             augment=cfg.dataset.augment,
@@ -98,21 +105,21 @@ def get_datasets(cfg, device, root_path):
                                      collate_fn=lambda x: val_dataset.collate_fn(x), num_workers=cfg.num_workers)
 
     elif cfg.dataset.name == "com_momentum":
-        robot, Gin_data, Gout_data, Gin_model, Gout_model, = get_robot_params(cfg.robot_name)
+        robot, rep_data_in, rep_data_out, rep_model_in, rep_model_out, rep_E3, rep_qj = get_robot_params(cfg.robot_name)
         robot_name = cfg.robot_name.lower()
         robot_name = robot_name if '-' not in robot_name else robot_name.split('-')[0]
         data_path = root_path.joinpath(f"datasets/com_momentum/{robot_name}")
         # Training only sees the model symmetries
-        train_dataset = COMMomentum(robot, Gin=Gin_model, Gout=Gout_model, type='train', samples=cfg.dataset.samples,
+        train_dataset = COMMomentum(robot, rep_in=rep_model_in, rep_out=rep_model_out, type='train', samples=cfg.dataset.samples,
                                     train_ratio=cfg.dataset.train_ratio, angular_momentum=cfg.dataset.angular_momentum,
                                     standarizer=cfg.dataset.standarize, augment=cfg.dataset.augment,
                                     data_path=data_path, dtype=torch.float32, device=device)
         # Test and validation use theoretical symmetry group, and training set standarization
-        test_dataset = COMMomentum(robot, Gin=Gin_data, Gout=Gout_data, type='test', samples=cfg.dataset.samples,
+        test_dataset = COMMomentum(robot, rep_in=rep_data_in, rep_out=rep_data_out, type='test', samples=cfg.dataset.samples,
                                    train_ratio=cfg.dataset.train_ratio, angular_momentum=cfg.dataset.angular_momentum,
                                    data_path=data_path,
                                    augment='hard', dtype=torch.float32, device=device, standarizer=train_dataset.standarizer)
-        val_dataset = COMMomentum(robot, Gin=Gin_data, Gout=Gout_data, type='val', samples=cfg.dataset.samples,
+        val_dataset = COMMomentum(robot, rep_in=rep_data_in, rep_out=rep_data_out, type='val', samples=cfg.dataset.samples,
                                   train_ratio=cfg.dataset.train_ratio, angular_momentum=cfg.dataset.angular_momentum,
                                   data_path=data_path, augment=True, dtype=torch.float32, device=device, standarizer=train_dataset.standarizer)
 
@@ -243,7 +250,7 @@ def main(cfg: DictConfig):
         train_dataloader, val_dataloader, test_dataloader = dataloaders
 
         # Prepare model
-        model = get_model(cfg.model, Gin=train_dataset.Gin, Gout=train_dataset.Gout, cache_dir=cache_dir)
+        model = get_model(cfg.model, rep_in=train_dataset.rep_in, rep_out=train_dataset.rep_out, cache_dir=cache_dir)
         log.info(model)
 
         # Prepare Lightning

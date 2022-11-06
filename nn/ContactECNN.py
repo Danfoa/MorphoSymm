@@ -25,12 +25,12 @@ log = logging.getLogger(__name__)
 
 class ContactECNN(EquivariantModel):
 
-    def __init__(self, rep_in: Rep, rep_out: Rep, hidden_group: Group, window_size=150, cache_dir=None, dropout=0.5,
-                 init_mode="fan_in", inv_dim_scale=1.0):
-        super(ContactECNN, self).__init__(rep_in, rep_out, hidden_group, cache_dir)
+    def __init__(self, rep_in: Rep, rep_out: Rep, window_size=150, cache_dir=None, dropout=0.5,
+                 init_mode="fan_in", inv_dim_scale=0.0, bias=True):
+        super(ContactECNN, self).__init__(rep_in, rep_out, cache_dir)
         self.rep_in = rep_in
         self.rep_out = rep_out
-        self.hidden_G = hidden_group
+        self.hidden_G = rep_in.G
         self.init_mode = init_mode
         self.window_size = window_size
         self.dropout = dropout
@@ -46,27 +46,29 @@ class ContactECNN(EquivariantModel):
         rep_ch_64_2 = SparseRep(self.hidden_G.canonical_group(64, inv_dims=ceil(64 * inv_ratios[2])))
         rep_ch_128_1 = SparseRep(self.hidden_G.canonical_group(128, inv_dims=ceil(128 * inv_ratios[3])))
         rep_ch_128_2 = SparseRep(self.hidden_G.canonical_group(128, inv_dims=ceil(128 * inv_ratios[4])))
+
         # Group of the flatten feature vector, must comply with the 2D symmetry.
         block2_out_window = int(window_size/4)
         G = C2(generator=block_diag([rep_ch_128_2.G.discrete_generators[0]]*block2_out_window))
+
         # MLP reps
         rep_in_mlp = SparseRep(G)
         rep_ch_2048 = SparseRep(self.hidden_G.canonical_group(2048, inv_dims=ceil(2048 * inv_ratios[5])))
         rep_ch_512 = SparseRep(self.hidden_G.canonical_group(512, inv_dims=ceil(512 * inv_ratios[6])))
 
         self.block1 = nn.Sequential(
-            BasisConv1d(rep_in=self.rep_in, rep_out=rep_ch_64_1, kernel_size=3, stride=1, padding=1),
+            BasisConv1d(rep_in=self.rep_in, rep_out=rep_ch_64_1, kernel_size=3, stride=1, padding=1, bias=bias),
             nn.ReLU(),
-            BasisConv1d(rep_in=rep_ch_64_1, rep_out=rep_ch_64_2, kernel_size=3, stride=1, padding=1),
+            BasisConv1d(rep_in=rep_ch_64_1, rep_out=rep_ch_64_2, kernel_size=3, stride=1, padding=1, bias=bias),
             nn.ReLU(),
             nn.Dropout(p=self.dropout),
             nn.MaxPool1d(kernel_size=2, stride=2)
         )
 
         self.block2 = nn.Sequential(
-            BasisConv1d(rep_in=rep_ch_64_2, rep_out=rep_ch_128_1, kernel_size=3, stride=1, padding=1),
+            BasisConv1d(rep_in=rep_ch_64_2, rep_out=rep_ch_128_1, kernel_size=3, stride=1, padding=1, bias=bias),
             nn.ReLU(),
-            BasisConv1d(rep_in=rep_ch_128_1, rep_out=rep_ch_128_2, kernel_size=3, stride=1, padding=1),
+            BasisConv1d(rep_in=rep_ch_128_1, rep_out=rep_ch_128_2, kernel_size=3, stride=1, padding=1, bias=bias),
             nn.ReLU(),
             nn.Dropout(p=self.dropout),
             nn.MaxPool1d(kernel_size=2, stride=2)

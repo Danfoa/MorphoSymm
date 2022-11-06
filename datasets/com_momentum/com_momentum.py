@@ -8,10 +8,12 @@ from typing import Union
 import numpy as np
 import torch
 import torch.nn.functional as F
+from emlp.reps.representation import Rep
 from scipy.sparse import issparse
 from torch.utils.data import Dataset
 from torch.utils.data._utils.collate import default_collate
 
+from groups.SparseRepresentation import SparseRep
 from groups.SymmetryGroups import Sym
 from utils.utils import dense
 
@@ -59,7 +61,7 @@ class Standarizer:
 
 class COMMomentum(Dataset):
 
-    def __init__(self, robot, Gin: Sym, Gout: Sym, type='train',
+    def __init__(self, robot, rep_in: SparseRep, rep_out: SparseRep, type='train',
                  angular_momentum=True, standarizer: Union[bool, Standarizer] = True, augment=False,
                  train_ratio=0.7, test_ratio=0.15, val_ratio=0.15, samples=100000,
                  dtype=torch.float32, data_path="datasets/com_momentum", device='cpu', debug=False):
@@ -70,12 +72,12 @@ class COMMomentum(Dataset):
         self.robot = robot
         self.normalize = True if isinstance(standarizer, Standarizer) else standarizer
 
-        self.Gin = Gin
-        self.Gout = Gout
-        self.group_actions = [(np.asarray(gin.todense()), np.asarray(gout.todense())) for gin, gout in zip(self.Gin.discrete_actions,
-                                                                                   self.Gout.discrete_actions)]
+        self.rep_in = rep_in
+        self.rep_out = rep_out
+        self.group_actions = [(np.asarray(gin.todense()), np.asarray(gout.todense())) for gin, gout in zip(self.rep_in.G.discrete_actions,
+                                                                                   self.rep_out.G.discrete_actions)]
         augmentation_actions = []
-        for gin, gout in zip(self.Gin.discrete_actions, self.Gout.discrete_actions):
+        for gin, gout in zip(self.rep_in.G.discrete_actions, self.rep_out.G.discrete_actions):
             augmentation_actions.append((torch.tensor(np.asarray(dense(gin))).to(device),
                                          torch.tensor(np.asarray(dense(gout))).to(device)))
         self.t_group_actions = augmentation_actions
@@ -140,8 +142,8 @@ class COMMomentum(Dataset):
         X_mean, Y_mean, X_std, Y_std = 0., 0., 1., 1.
         if self.normalize:
             # TODO: Obtain analytic formula for mean and std along orbit of discrete and continuous groups.
-            X_aug = np.vstack([X] + [np.asarray(g @ X.T).T for g in self.Gin.discrete_actions])
-            Y_aug = np.vstack([Y[:, :idx]] + [np.asarray(g @ Y[:, :idx].T).T for g in self.Gout.discrete_actions])
+            X_aug = np.vstack([X] + [np.asarray(g @ X.T).T for g in self.rep_in.G.discrete_actions])
+            Y_aug = np.vstack([Y[:, :idx]] + [np.asarray(g @ Y[:, :idx].T).T for g in self.rep_out.G.discrete_actions])
             X_mean = np.mean(X_aug, axis=0)
             Y_mean = np.mean(Y_aug[:, :idx], axis=0)
             X_std = np.std(X_aug, axis=0)
@@ -164,7 +166,7 @@ class COMMomentum(Dataset):
 
             non_equivariance_detected = False
             # Get all possible group actions
-            for g_in, g_out in zip(self.Gin.discrete_actions[1:], self.Gout.discrete_actions[1:]):
+            for g_in, g_out in zip(self.rep_in.G.discrete_actions[1:], self.rep_out.G.discrete_actions[1:]):
                 g_in, g_out = (g_in.todense(), g_out.todense()) if issparse(g_in) else (g_in, g_out)
                 gx, gy = np.asarray(g_in) @ x, np.asarray(g_out) @ y
                 x_orbit.append(gx)

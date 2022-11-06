@@ -157,12 +157,4 @@ class AtlasBullet(PinBulletWrapper):
         return self._mass
 
 
-# Hack because I dont want to install ros to build a single description package.
-@contextmanager
-def cwd(path):
-    oldpwd = os.getcwd()
-    os.chdir(path)
-    try:
-        yield
-    finally:
-        os.chdir(oldpwd)
+

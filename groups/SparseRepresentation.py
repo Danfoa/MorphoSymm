@@ -41,7 +41,7 @@ class SparseRep(BaseRep):
             #     return VH[rank:].conj().T
             if self.G.is_sparse:
                 # P = self.G.discrete_generators[0]
-                Q = self.sparse_equivariant_basis()
+                Q = self.sparse_equivariant_basis_gen_permutation()
                 # Q2 = self.sparse_equivariant_basis2()
                 # assert np.allclose(Q, Q2)
             else:
@@ -73,13 +73,15 @@ class SparseRep(BaseRep):
     def size(self):
         return self.G.d
 
-    def sparse_equivariant_basis(self):
+    def sparse_equivariant_basis_gen_permutation(self):
         """
         Custom code to obtain the equivariant basis, without the need to do eigendecomposition. Allowing to compute the
-        basis of very large matrix without running into memory or complexity issues
+        basis of very large matrix without running into memory or complexity issues.
+        This code only works for regular representations that can be represented as a generalized permutation matrix.
+        This covers most cases of interest in Discrete Morphological Symmetries, specially in the internal symmetry
+        representations of equivariant NNs, where we have control over the nature of the representation.
         - Modified code from: shorturl.at/kuvBD
-        TODO: Extend to cope with multi group actions, currently works only for C2
-        :param P: (n,n) Generalized Permutation matrix with +-1 entries
+        :param P: (n,n) Generalized Permutation matrix with `+-c` entries where `c` is a scalar constant.
         :return: Q: (n, b) `b` Eigenvectors of the fix-point equation
         """
         P = self.G.discrete_generators[0]
@@ -92,10 +94,15 @@ class SparseRep(BaseRep):
         for i, h in enumerate(self.G.discrete_actions[1:]):
             orbits.append((h @ orbits[0]).tocoo().astype(np.int))
 
-        # cols_itr = np.asarray([m.col for m in orbits]).T
+        # Extract the data from the orbit of w: G(w) = G(w) = [c_1*w_1, c_10*w_10, ... , c_50*w_50]
+        # Rows iter describes the orbit G(w) locations/idx e.g., [w_1, w_10,...,w_50]
         rows_itr = np.asarray([m.row for m in orbits]).T
+        # Data iter describes the orbit G(w) scalar coefficients e.g., [c_1, c_10,...,c_50]
         data_itr = np.asarray([m.data for m in orbits]).T
 
+        # Orbits are permutation invariant: [c_1*w_1, c_10*w_10, ... , c_50*w_50] := [c_50*w_50,..., c_10*w_10, c_1*w_1]
+        # By extracting the location of the orbits we can ignore repeated orbits
+        # A set is viable alternative to account for repeated orbits but has a higher memory cost
         pending_dims = np.ones((n,), dtype=np.bool)
 
         pbar = tqdm(total=len(pending_dims), disable=False, dynamic_ncols=True, maxinterval=20, position=0, leave=True,
@@ -105,27 +112,38 @@ class SparseRep(BaseRep):
         n_orbit = 0
         eig_cols, eig_rows, eig_data = [], [], []
 
-        # TODO: Improve code readability and efficiency
-        # TODO: COO format admits repeated entries, we just need to qualize after avoiding all this problem.
-        # +1 is added in order to keep the sign of dimensions 0, otherwise its lost.
-        u_orbits = [np.unique((r+1) * d) for r, d in zip(rows_itr, data_itr)]
-        inv_dims = [u.item() for u in u_orbits if len(u) == 1]
-        if len(inv_dims) > 0:
-            eig_rows.extend(np.asarray(inv_dims) - 1)
-            eig_cols.extend(range(len(inv_dims)))
-            eig_data.extend(list(np.ones(len(inv_dims))))
-            n_orbit = len(inv_dims)
-            pending_dims[np.asarray(inv_dims) - 1] = False
-            pbar.update(len(inv_dims))
+        # # TODO: Improve code readability and efficiency
+        # # TODO: COO format admits repeated entries, we just need to qualize after avoiding all this problem.
+        # # +1 is added in order to keep the sign of dimensions 0, otherwise its lost.
+        # u_orbits = [np.unique((r+1) * d) for r, d in zip(rows_itr, data_itr)]
+        # inv_dims = [u.item() for u in u_orbits if len(u) == 1]
+        # if len(inv_dims) > 0:
+        #     eig_rows.extend(np.asarray(inv_dims) - 1)
+        #     eig_cols.extend(range(len(inv_dims)))
+        #     eig_data.extend(list(np.ones(len(inv_dims))))
+        #     n_orbit = len(inv_dims)
+        #     pending_dims[np.asarray(inv_dims, dtype=np.int) - 1] = False
+        #     pbar.update(len(inv_dims))
 
-        for idxs, vals in zip(rows_itr, data_itr):
-            if pending_dims[idxs[0]]:
-                eig_rows.extend(idxs)
-                eig_cols.extend([n_orbit] * len(idxs))
-                eig_data.extend(vals)
-                pending_dims[idxs] = False
+        for w_idx, w_coeff in zip(rows_itr, data_itr):
+            if pending_dims[w_idx[0]]:
+                u_idx = set(w_idx)
+                orbit = {}
+                if len(u_idx) != len(w_idx):  # Dealing with invariant dimensions cases
+                    for idx, val in zip(w_idx, w_coeff):
+                        if idx in orbit:
+                            orbit[idx] = 0 if val != orbit[idx] else val
+                        else:
+                            orbit[idx] = val
+                else:                         # Equivariant dimensions alone
+                    orbit = {idx: val for idx, val in zip(w_idx, w_coeff)}
+
+                eig_rows.extend(orbit.keys())
+                eig_cols.extend([n_orbit] * len(orbit))
+                eig_data.extend(orbit.values())
+                pending_dims[list(orbit.keys())] = False
                 n_orbit += 1
-                pbar.update(len(idxs))
+                pbar.update(len(orbit))
 
         assert not np.any(pending_dims), "There seems to be dimensions not included into the Null Space"
         pbar.set_description(f"{n_orbit} eigenvectors found")
@@ -141,6 +159,8 @@ class SparseRep(BaseRep):
 
     def __add__(self, other):
         """ Direct sum (⊕) of representations. """
+        # TODO: Keep lazy SumRep representation to partition the solution of the fix-point equation in the case of
+        # non generalized-matrix representations.
         assert isinstance(self, SparseRep) and isinstance(other, SparseRep), f"{type(self)} != {type(other)}"
         G_class = type(self.G)
         G = G_class([sparse.block_diag((self.rho(g1), other.rho(g2))) for g1, g2 in zip(self.G.discrete_generators,

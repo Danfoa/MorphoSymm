@@ -14,9 +14,11 @@ max_epochs: 60
 batch_size: 30
 window_size: 150
 
-
-train_ratio: 0.7
-test_ratio: 0.15
+# Dataset is already partitioned in training-val data and test data separatedly
+# this is why we use 15 % of the train-val data for validation the rest for training
+# and why the ratio for testing is set to 1, to use all of the test data
+train_ratio: 0.85
+test_ratio: 1
 val_ratio: 0.15
 
 shuffle: True

@@ -15,7 +15,26 @@ import scipy
 import sklearn
 import torch
 import torch.nn.functional as F
-from deep_contact_estimator.utils.data_handler import contact_dataset
+
+from sklearn.metrics import precision_score
+from sklearn.metrics import recall_score
+from sklearn.metrics import jaccard_score
+from sklearn.metrics import confusion_matrix
+
+import pathlib
+import sys
+
+try:
+    deep_contact_estimator_path = pathlib.Path(__file__).parent.absolute()
+    assert deep_contact_estimator_path.exists()
+    sys.path.append(str(deep_contact_estimator_path / 'deep-contact-estimator/utils'))
+    sys.path.append(str(deep_contact_estimator_path / 'deep-contact-estimator/src'))
+    from data_handler import contact_dataset
+    from contact_cnn import contact_cnn   # just to trigger the error here
+except ImportError as e:
+    raise ImportError("Deep Contact Estimator submodule not initialized, run `git submodule init`\n") from e
+
+# from deep_contact_estimator.utils.data_handler import contact_dataset
 from pytorch_lightning import Trainer
 from sklearn.metrics import confusion_matrix
 from torch.utils.data._utils.collate import default_collate
@@ -23,12 +42,10 @@ from tqdm import tqdm
 
 from groups.SymmetryGroups import C2
 from utils.utils import reflection_matrix, coo2torch_coo
-import deep_contact_estimator
 
 
 class UmichContactDataset(contact_dataset):
-    # dataset_path = pathlib.Path(deep_contact_estimator.__file__).parents[1].joinpath('dataset')
-    dataset_path = pathlib.Path(__file__).parents[1]
+    dataset_path = pathlib.Path(__file__).parent
     leg_names = ["RF", "LF", "RH", "LH"]
     states_names = ['-', 'LH', 'RH', 'RH-LH', 'LF', 'LF-LH', 'LF-RH', 'LF-RH-LH', 'RF', 'RF-LH', 'RF-RH', 'RF-RH-LH',
                     'RF-LF', 'RF-LF-LH', 'RF-LF-RH', 'RF-LF-RH-LH']
@@ -62,14 +79,14 @@ class UmichContactDataset(contact_dataset):
 
         self.contact_state_freq = self.get_class_frequency()
 
-        self.Gin, self.Gout = self.get_in_out_groups()
+        self.rep_in, self.rep_out = self.get_in_out_symmetry_groups_reps()
         self.augment = augment
         self.n_contact_states = 16
         # if self.augment:
             # self._hin = coo2torch_coo(self.Gin.discrete_generators[0])
             # self._hout = coo2torch_coo(self.Gout.discrete_generators[0])
-        self.hin = torch.tensor(self.Gin.discrete_generators[0].todense(), device=device)
-        self.hout = torch.tensor(self.Gout.discrete_generators[0].todense(), device=device)
+        self.hin = torch.tensor(self.rep_in.G.discrete_generators[0].todense(), device=device)
+        self.hout = torch.tensor(self.rep_out.G.discrete_generators[0].todense(), device=device)
 
         if use_class_imbalance_w:
             self.class_weights = 1 - self.contact_state_freq if loss_class_weights is None else loss_class_weights
@@ -118,7 +135,6 @@ class UmichContactDataset(contact_dataset):
         return metrics
 
     def test_metrics(self, y_pred, y_gt, trainer: Trainer, model, log_imgs=False, prefix="test_"):
-        from deep_contact_estimator.src.test import compute_precision, compute_jaccard
         model.eval()
 
         # acc_dir = self.compute_metrics(y_pred, y_gt)
@@ -129,12 +145,12 @@ class UmichContactDataset(contact_dataset):
         gt_arr = y_gt.detach().cpu().numpy()
 
         # test_acc, acc_per_leg, bin_pred_arr, bin_gt_arr, pred_arr, gt_arr = self.compute_accuracy(dataloader, model)
-        precision_of_class, precision_of_legs, precision_of_all_legs = compute_precision(bin_pred_arr, bin_gt_arr,
-                                                                                         pred_arr, gt_arr)
+        precision_of_class, precision_of_legs, precision_of_all_legs = self.compute_precision(bin_pred_arr, bin_gt_arr,
+                                                                                              pred_arr, gt_arr)
         f1score_of_class = sklearn.metrics.f1_score(gt_arr, pred_arr, average='weighted')
 
-        jaccard_of_class, jaccard_of_legs, jaccard_of_all_legs = compute_jaccard(bin_pred_arr, bin_gt_arr, pred_arr,
-                                                                                 gt_arr)
+        jaccard_of_class, jaccard_of_legs, jaccard_of_all_legs = self.compute_jaccard(bin_pred_arr, bin_gt_arr,
+                                                                                      pred_arr, gt_arr)
         confusion_mat, rates = self.compute_confusion_mat(bin_pred_arr, bin_gt_arr, pred_arr, gt_arr)
 
         TPR = [rates[f'{k}/TP'] / np.sum(bin_gt_arr[:, i] == 1) for i, k in enumerate(self.leg_names)]
@@ -222,51 +238,16 @@ class UmichContactDataset(contact_dataset):
         return x.unsqueeze(-1).bitwise_and(mask).ne(0).byte()
 
     @staticmethod
-    def get_in_out_groups():
-        # Joint Space
-        #        ____RF___|___LF____|___RH______|____LH____|
-        # q    = [ 0, 1, 2,  3, 4, 5,  6,  7,  8, 9, 10, 11]
-        perm_q = [3, 4, 5, 0, 1, 2, 9, 10, 11, 6, 7, 8]
-        refx_q = [-1, 1, 1, -1, 1, 1, -1, 1, 1, -1, 1, 1]
-        perm_q = np.concatenate((perm_q, np.array(perm_q) + len(perm_q))).tolist()
-        refx_q = np.concatenate((refx_q, refx_q)).tolist()
-
-        # IMU acceleration and angular velocity
-        na = np.array([0, 1, 0])  # Normal vector to reflection/symmetry plane.
-        Rr = reflection_matrix(na)  # Reflection matrix
-        refx_a_IMU = np.squeeze(Rr @ np.ones((3, 1))).astype(np.int).tolist()
-        refx_w_IMU = np.squeeze((-Rr) @ np.ones((3, 1))).astype(np.int).tolist()
-        perm_a_IMU, perm_w_IMU = [24, 25, 26], [27, 28, 29]
-
-        # Foot relative positions and velocities
-        #            ____RF___|___LF____|___RH______|____LH____|
-        # pf=        [0, 1, 2,  3, 4, 5,  6,  7,  8, 9, 10, 11]
-        perm_foots = [3, 4, 5, 0, 1, 2, 9, 10, 11, 6, 7, 8]
-        refx_foots = scipy.linalg.block_diag(*[Rr] * 4) @ np.ones((12, 1))  # Hips and IMU frames xz planes are coplanar
-        refx_foots = np.squeeze(refx_foots).tolist()
-        perm_foots = np.concatenate((perm_foots, np.array(perm_foots) + len(perm_foots))).astype(np.int)
-        refx_foots = np.concatenate((refx_foots, refx_foots)).astype(np.int)
-
-        # Final permutation and reflections
-        perm = perm_q + perm_a_IMU + perm_w_IMU
-        perm += (perm_foots + len(perm)).tolist()
-        refx = refx_q + refx_a_IMU + refx_w_IMU + refx_foots.tolist()
-
-        # Group instantiation.
-        h_in = C2.oneline2matrix(oneline_notation=perm, reflexions=refx)
-        Gin_data = C2(h_in)
-        # One hot encoding of 16 contact_hp_ecnn states.
-        h_out = C2.oneline2matrix(oneline_notation=[0, 2, 1, 3, 8, 10, 9, 11, 4, 6, 5, 7, 12, 14, 13, 15])
-        Gout_data = C2(h_out)
-
-        return Gin_data, Gout_data
+    def get_in_out_symmetry_groups_reps():
+        from utils.robot_utils import get_robot_params
+        robot, rep_data_in, rep_data_out, rep_model_in, rep_model_out, rep_E3, rep_qj = get_robot_params("mit")
+        return rep_data_in, rep_data_out
 
     def get_full_paths(self, data_name, label_name, train_ratio: float = 0.7, val_ratio: float = 0.7) -> (pathlib.Path, pathlib.Path):
 
-
-        folder_path = pathlib.Path(self.dataset_path.joinpath(f'{self.partition}/numpy_train_ratio={train_ratio:.3f}'))
-        training_mat_path = pathlib.Path(self.dataset_path.joinpath(f'{self.partition}/mat'))
-        test_mat_path = pathlib.Path(self.dataset_path.joinpath(f'{self.partition}/mat_test'))
+        folder_path = pathlib.Path(self.dataset_path / f'{self.partition}/numpy_train_ratio={train_ratio:.3f}')
+        training_mat_path = pathlib.Path(self.dataset_path / f'{self.partition}/mat')
+        test_mat_path = pathlib.Path(self.dataset_path / f'{self.partition}/mat_test')
 
         data_path = folder_path.joinpath(data_name)
         label_path = folder_path.joinpath(label_name)
@@ -364,7 +345,7 @@ class UmichContactDataset(contact_dataset):
         print(f"\nCreating dataset partition: train:{train_ratio}, val:{val_ratio} from {data_path}")
         (train_data, val_data), (train_label, val_label) = UmichContactDataset.load_and_split_mat_files(data_path=train_val_data_path,
                                                                                                         partitions_ratio=(train_ratio, val_ratio),
-                                                                                                        partitions_name=("train", "test"))
+                                                                                                        partitions_name=("train", "val"))
         print(f"\nCreating dataset test from {test_data_path}")
         (test_data,), (test_label,) = UmichContactDataset.load_and_split_mat_files(data_path=test_data_path,
                                                                                    partitions_ratio=(1.0,),
@@ -454,6 +435,28 @@ class UmichContactDataset(contact_dataset):
             rates[f'{leg_name}/TN'] = tn
 
         return confusion_mat, rates
+
+    @staticmethod
+    def compute_precision(bin_pred_arr, bin_gt_arr, pred_arr, gt_arr):
+
+        precision_of_class = precision_score(gt_arr, pred_arr, average='weighted')
+        precision_of_all_legs = precision_score(bin_gt_arr.flatten(), bin_pred_arr.flatten())
+        precision_of_legs = []
+        for i in range(4):
+            precision_of_legs.append(precision_score(bin_gt_arr[:, i], bin_pred_arr[:, i]))
+
+        return precision_of_class, precision_of_legs, precision_of_all_legs
+
+    @staticmethod
+    def compute_jaccard(bin_pred_arr, bin_gt_arr, pred_arr, gt_arr):
+
+        jaccard_of_class = jaccard_score(gt_arr, pred_arr, average='weighted')
+        jaccard_of_all_legs = jaccard_score(bin_gt_arr.flatten(), bin_pred_arr.flatten())
+        jaccard_of_legs = []
+        for i in range(4):
+            jaccard_of_legs.append(jaccard_score(bin_gt_arr[:, i], bin_pred_arr[:, i]))
+
+        return jaccard_of_class, jaccard_of_legs, jaccard_of_all_legs
 
     def plot_statistics(self):
         import seaborn as sns

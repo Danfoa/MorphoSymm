@@ -10,8 +10,13 @@ Expect changes to the code structure and API, as we intend to improve readabilit
 
 # On discrete symmetries of robotic systems: A data-driven and group-theoretic analysis
 
-![Morpholoigal symmetry states of the quadruped robot Solo](https://user-images.githubusercontent.com/8356912/191269534-af143f29-1f46-4009-858b-72a63b5c67ac.gif)
 
+
+
+ ![Morpholoigal symmetry states of the quadruped robot Solo](https://user-images.githubusercontent.com/8356912/191269534-af143f29-1f46-4009-858b-72a63b5c67ac.gif)  
+ ![atlas-symmetries_anim_static](https://user-images.githubusercontent.com/8356912/200183197-94242c57-bd9d-41cb-8a0b-509dceef5cb9.gif)
+ ![bolt-symmetries_anim_static](https://user-images.githubusercontent.com/8356912/200183086-98d636d7-75b2-4744-b77f-99b3a1ec8e39.gif)  |
+ 
 A 3D interactive version of this animation is intended to be made public for all robots used in this project, functioning as an educational tool to have a clear understanding of the 
 morphological symmetries. For the moment a functional script for Solo and its K4 group can be run on `paper/robot_visualization.py`
 

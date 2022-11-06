@@ -53,25 +53,6 @@ class BoltBullet(PinBulletWrapper):
         self._pos_upper_limit = None
         self._pos_neutral = None
 
-    def load_pinocchio_robot(self, reference_robot: Optional['PinBulletWrapper']=None) -> RobotWrapper:
-        if reference_robot is not None:
-            import sys
-            assert np.all(self.joint_names == reference_robot.joint_names), "Invalid reference RobotWrapper"
-            pin_robot = copy.copy(reference_robot.pinocchio_robot)
-            pin_robot.data = copy.deepcopy(reference_robot.pinocchio_robot.data)
-            assert sys.getrefcount(pin_robot.data) <= 2
-        else:
-            urdf_path = self.resources / self.urdf_subpath
-            assert urdf_path.exists(), f"Cannot find urdf file {urdf_path.absolute()}"
-            meshes_path = self.resources
-            pin_robot = RobotWrapper.BuildFromURDF(str(urdf_path.absolute()), str(meshes_path.absolute()),
-                                                   JointModelFreeFlyer(), verbose=True)
-            pin_robot.model.rotorInertia[6:] = self.MOTOR_INERTIA
-            pin_robot.model.rotorGearRatio[6:] = self.MOTOR_GEAR_REDUCTION
-
-        self._mass = float(np.sum([i.mass for i in pin_robot.model.inertias]))  # [kg]
-        return pin_robot
-
     def load_bullet_robot(self, base_pos=None, base_ori=None) -> int:
         if base_ori is None: base_ori = [0, 0, 0, 1]
         if base_pos is None: base_pos = [0, 0, 0.35]

@@ -26,12 +26,13 @@ class EMLP(EquivariantModel):
         Returns:
             Module: the EMLP objax module."""
 
-    def __init__(self, rep_in, rep_out, hidden_group, ch=64, num_layers=3, with_bias=True, activation=torch.nn.ReLU,
-                 cache_dir=None, init_mode="fan_in", inv_dims_scale=1.0):
-        super().__init__(rep_in, rep_out, hidden_group, cache_dir)
+    def __init__(self, rep_in, rep_out, ch=64, num_layers=3, with_bias=True, activation=torch.nn.ReLU,
+                 cache_dir=None, init_mode="fan_in", inv_dims_scale=0.0):
+        super().__init__(rep_in, rep_out, cache_dir)
         logging.info("Initing EMLP (PyTorch)")
         self.activations = activation
         self.hidden_channels = ch
+        self.hidden_group = rep_in.G
         self.n_layers = num_layers
         self.init_mode = init_mode
         self.inv_dims_scale = inv_dims_scale
