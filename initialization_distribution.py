@@ -201,7 +201,7 @@ def main(cfg: DictConfig):
             else:
                 raise NotImplementedError(model_type)
 
-            dataset = COMMomentum(robot, Gin=Gin, Gout=Gout, type='train', samples=1000)
+            dataset = COMMomentum(robot, rep_in=Gin, rep_out=Gout, type='train', samples=1000)
             data_loader = DataLoader(dataset, batch_size=512, collate_fn=lambda x: dataset.collate_fn(x))
 
             for i, init_mode in enumerate(init_modes):

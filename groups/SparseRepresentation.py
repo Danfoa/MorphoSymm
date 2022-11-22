@@ -1,3 +1,4 @@
+import copy
 import logging
 import sys
 from typing import Union
@@ -194,3 +195,8 @@ class SparseRepE3(SparseRep):
             det = np.linalg.det(M.todense())
             return M * det
         return M
+
+    def set_pseudovector(self, acts_on_pseudovector):
+        tmp = copy.copy(self)
+        tmp.pseudovector = acts_on_pseudovector
+        return tmp

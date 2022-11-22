@@ -11,12 +11,25 @@ Expect changes to the code structure and API, as we intend to improve readabilit
 # On discrete symmetries of robotic systems: A data-driven and group-theoretic analysis
 
 
+## Example dynamical systems with Discrete Morphological Symmetries 
+The following is a non-exhaustive list of dynamical systems with Discrete Morphological Symmetries. Each example can be
+reproduced in a 3D interactive environment running:
+```
+cd [...]/RobotEquivariantNN
+python paper/robot_visualization.py robot=<ROBOT_NAME> gui=True debug=False
+```
+### $\mathcal{G}=\mathcal{C}_2$: Reflection Symmetry
+|                                                              Solo-C2   	                                                               |                                                                Atlas   	                                                                |                                                                Bolt   	                                                                |                                                                A1 	                                                                |   
+|:--------------------------------------------------------------------------------------------------------------------------------------:|:---------------------------------------------------------------------------------------------------------------------------------------:|:--------------------------------------------------------------------------------------------------------------------------------------:|:----------------------------------------------------------------------------------------------------------------------------------:|
+| 	![solo-symmetries_anim_static](https://user-images.githubusercontent.com/8356912/203265566-ca07eb13-8b50-4ee1-ada7-6ebc985c4e30.gif)  | 	 ![atlas-symmetries_anim_static](https://user-images.githubusercontent.com/8356912/200183197-94242c57-bd9d-41cb-8a0b-509dceef5cb9.gif) |  ![bolt-symmetries_anim_static](https://user-images.githubusercontent.com/8356912/200183086-98d636d7-75b2-4744-b77f-99b3a1ec8e39.gif)  | ![a1-symmetries_anim_static](https://user-images.githubusercontent.com/8356912/203263932-1258a540-41d9-4b3d-9eb3-b67a840a7f5a.gif) | 	        
+ |                                                             **Cassie**   	                                                             |                                                             **Baxter**   	                                                              |                                                               **HyQ**-C2  	                                                               |                                                                ---	                                                                |   
+| ![cassie-symmetries_anim_static](https://user-images.githubusercontent.com/8356912/203263954-331759e7-72da-4530-b5f1-a51c328b8ad6.gif) | ![baxter-symmetries_anim_static](https://user-images.githubusercontent.com/8356912/203263946-7252bcd3-e4e5-48a4-842e-906b50df9122.gif)  | ![hyq-c2-symmetries_anim_static](https://user-images.githubusercontent.com/8356912/203263960-ee553b56-f781-40ac-8daa-d7e1c59f10e7.gif) |                                                               ------                                                               |
 
+### $\mathcal{G}=\mathcal{K}_4$: Klein-Four Symmetry
+|                                                     Solo   	                                                      |                                                                HyQ   	                                                                | ----   	 | ---- 	 |   
+|:-----------------------------------------------------------------------------------------------------------------:|:-------------------------------------------------------------------------------------------------------------------------------------:|:--------:|:------:|
+| 	![Solo-K4](https://user-images.githubusercontent.com/8356912/191269534-af143f29-1f46-4009-858b-72a63b5c67ac.gif) | 	 ![hyq-symmetries_anim_static](https://user-images.githubusercontent.com/8356912/203263962-3ee004db-f2f9-468c-ba89-04f3cd316c0d.gif) |  -----   | -----  | 	        
 
- ![Morpholoigal symmetry states of the quadruped robot Solo](https://user-images.githubusercontent.com/8356912/191269534-af143f29-1f46-4009-858b-72a63b5c67ac.gif)  
- ![atlas-symmetries_anim_static](https://user-images.githubusercontent.com/8356912/200183197-94242c57-bd9d-41cb-8a0b-509dceef5cb9.gif)
- ![bolt-symmetries_anim_static](https://user-images.githubusercontent.com/8356912/200183086-98d636d7-75b2-4744-b77f-99b3a1ec8e39.gif)  |
- 
 A 3D interactive version of this animation is intended to be made public for all robots used in this project, functioning as an educational tool to have a clear understanding of the 
 morphological symmetries. For the moment a functional script for Solo and its K4 group can be run on `paper/robot_visualization.py`
 

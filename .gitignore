@@ -10,3 +10,4 @@
 /.pytest_cache/
 output/
 *numpy_*
+*.xz

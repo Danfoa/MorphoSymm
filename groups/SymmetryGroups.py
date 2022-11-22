@@ -100,12 +100,12 @@ class Sym(Group):
 
 class C2(Sym):
 
-    def __init__(self, generator):
+    def __init__(self, generators):
         """
-        @param generator: (d, d) generators in matrix form, where `d` is the dimension
+        @param generators: (d, d) generators in matrix form, where `d` is the dimension
         of the Vector Space and action representations.
         """
-        generators = [generator] if not isinstance(generator, list) else generator
+        generators = [generators] if not isinstance(generators, list) else generators
         super().__init__(generators)
         assert len(self.discrete_generators) == 1, "C2 must contain only one generator (without counting the identity)"
 
@@ -157,7 +157,7 @@ class C2(Sym):
 
         H = Sym.oneline2matrix(oneline_notation=p.tolist(), reflexions=r.tolist())
         # HH = np.asarray(H.todense())
-        G = C2(generator=H)
+        G = C2(generators=H)
         assert G.n_inv_dims == inv_dims, G.n_inv_dims
         return G
 

@@ -49,7 +49,7 @@ class ContactECNN(EquivariantModel):
 
         # Group of the flatten feature vector, must comply with the 2D symmetry.
         block2_out_window = int(window_size/4)
-        G = C2(generator=block_diag([rep_ch_128_2.G.discrete_generators[0]]*block2_out_window))
+        G = C2(generators=block_diag([rep_ch_128_2.G.discrete_generators[0]] * block2_out_window))
 
         # MLP reps
         rep_in_mlp = SparseRep(G)

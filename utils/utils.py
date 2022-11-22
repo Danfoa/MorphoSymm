@@ -53,7 +53,7 @@ def cm2inch(cm):
     return cm / 2.54
 
 
-def configure_bullet_simulation(gui=True):
+def configure_bullet_simulation(gui=True, debug=False):
     import pybullet_data
     from pybullet import GUI, DIRECT, COV_ENABLE_GUI, COV_ENABLE_SEGMENTATION_MARK_PREVIEW, \
         COV_ENABLE_DEPTH_BUFFER_PREVIEW, \
@@ -67,7 +67,7 @@ def configure_bullet_simulation(gui=True):
         pb = bullet_client.BulletClient(connection_mode=GUI, options=BACKGROUND_COLOR)
     else:
         pb = bullet_client.BulletClient(connection_mode=DIRECT)
-    pb.configureDebugVisualizer(COV_ENABLE_GUI, 0)
+    pb.configureDebugVisualizer(COV_ENABLE_GUI, debug)
     pb.configureDebugVisualizer(COV_ENABLE_SEGMENTATION_MARK_PREVIEW, 0)
     pb.configureDebugVisualizer(COV_ENABLE_DEPTH_BUFFER_PREVIEW, 0)
     pb.configureDebugVisualizer(COV_ENABLE_MOUSE_PICKING, 0)
@@ -174,7 +174,7 @@ def matrix_to_quat_xyzw(R):
     assert R.shape == (3, 3)
     return rt.quaternion_xyzw_from_wxyz(rt.quaternion_from_matrix(R))
 
-def quat_xyzw_to_matrix(q):
+def quat_xyzw_to_SO3(q):
     assert q.shape == (4,)
     return rt.matrix_from_quaternion(rt.quaternion_wxyz_from_xyzw(q))
 

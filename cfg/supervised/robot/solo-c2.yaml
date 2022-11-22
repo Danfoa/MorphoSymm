@@ -1,0 +1,10 @@
+
+defaults:
+  - solo
+
+G: C2
+# E3: Euclidean Group symmetries____________________________________
+n_reflex: [[0, 1, 0]]   # normal vector to reflection planes
+perm_qj: [[3, 4, 5, 0, 1, 2, 9, 10, 11, 6, 7, 8]]
+# Reflections are determined by joint frame predefined orientation.
+refx_qj: [[-1, 1, 1, -1, 1, 1, -1, 1, 1, -1, 1, 1]]

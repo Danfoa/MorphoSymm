@@ -24,8 +24,9 @@ def draw_vector(pb, origin, vector, v_color, scale=1.0):
                                           length=v_norm,
                                           rgbaColor=v_color,
                                           specularColor=[0.4, .4, 0], )
+    cone_path = pathlib.Path(__file__).parent.parent / "paper/stl_files/Cone.obj"
     vector_head_id = pb.createVisualShape(shapeType=pb.GEOM_MESH,
-                                          fileName="paper/stl_files/Cone.obj",
+                                          fileName=str(cone_path),
                                           rgbaColor=v_color,
                                           specularColor=[0.4, .4, 0],
                                           meshScale=np.array([1, 1, 1]) * (vector_radius * 2 * 30))
@@ -108,3 +109,49 @@ def generate_rotating_view_gif(pb, cam_target_pose, cam_distance, save_path: pat
     clip = ImageSequenceClip(list(frames), fps=fps)
     clip.write_gif(file_path, fps=fps, loop=0)
     print(f"Animation saved to {file_path.absolute()}")
+
+
+# Setup debug sliders
+def setup_debug_sliders(pb, robot):
+    for i, joint_name in enumerate(robot.joint_names):
+        bullet_joint_id = robot.joint_aux_vars[joint_name].bullet_id
+        joint_info = pb.getJointInfo(robot.robot_id, bullet_joint_id)
+        joint_name = joint_info[1].decode("UTF-8")
+        lower_limit, upper_limit = joint_info[8], joint_info[9]
+        pb.addUserDebugParameter(paramName=f"{joint_name}_{i}", rangeMin=lower_limit, rangeMax=upper_limit, startValue=0.0)
+
+# Read param values
+def listen_update_robot_sliders(pb, robot):
+    import time
+    while True:
+        pb_q = np.zeros(pb.getNumJoints(robot.robot_id))
+        for i, joint_name in enumerate(robot.joint_names):
+            bullet_joint_id = robot.joint_aux_vars[joint_name].bullet_id
+            pb_q[bullet_joint_id] = pb.readUserDebugParameter(itemUniqueId=i)
+            pb.resetJointState(robot.robot_id, bullet_joint_id, pb_q[bullet_joint_id])
+        time.sleep(0.1)
+
+def tint_robot(pb, robot):
+    robot_color = [0.054, 0.415, 0.505, 1.0]
+    FL_leg_color = [0.698, 0.376, 0.082, 1.0]
+    FR_leg_color = [0.260, 0.263, 0.263, 1.0]
+    HL_leg_color = [0.800, 0.480, 0.000, 1.0]
+    HR_leg_color = [0.710, 0.703, 0.703, 1.0]
+    endeff_color = [0, 0, 0, 1]
+    for i in range(pb.getNumJoints(robot.robot_id)):
+        link_name = pb.getJointInfo(robot.robot_id, i)[12].decode("UTF-8")
+        joint_name = pb.getJointInfo(robot.robot_id, i)[1].decode("UTF-8")
+        if link_name in robot.endeff_names or (joint_name in robot.endeff_names):
+            color = endeff_color
+        elif np.any([s in joint_name.lower() for s in ["fl_", "left"]]):
+            color = FL_leg_color
+        elif np.any([s in joint_name.lower() for s in ["fr_", "right"]]):
+            color = FR_leg_color
+        elif np.any([s in joint_name.lower() for s in ["rl_", "hl_", "left"]]):
+            color = HL_leg_color
+        elif np.any([s in joint_name.lower() for s in ["rr_", "hr_", "right"]]):
+            color = HR_leg_color
+        else:
+            color = robot_color
+        pb.changeVisualShape(objectUniqueId=robot.robot_id, linkIndex=i, rgbaColor=color, specularColor=[0, 0, 0])
+    pb.changeVisualShape(objectUniqueId=robot.robot_id, linkIndex=-1, rgbaColor=robot_color, specularColor=[0, 0, 0])

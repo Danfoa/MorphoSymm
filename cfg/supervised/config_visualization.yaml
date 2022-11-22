@@ -1,0 +1,29 @@
+
+defaults:
+  - _self_
+  - robot: 'solo'
+
+# TODO: Make distinctions between. Trainer Args, Model Psecific Args, Program Args
+debug: False
+make_gif: False
+gui: True
+
+hydra:
+  output_subdir: null  # disable hydra output directory
+  job:
+    chdir: False
+  job_logging:
+    version: 1
+    colorlog: True
+    formatters:
+      simple:
+        format: '[%(levelname)s][%(name)s] %(message)s'
+    handlers:
+      console:
+        class: logging.StreamHandler
+        formatter: simple
+        stream: ext://sys.stdout
+    root:
+      handlers: [console]
+
+    disable_existing_loggers: false

@@ -1,0 +1,18 @@
+defaults:
+  - base_robot
+
+robot_name: baxter
+
+G: C2
+hip_height: 1.0
+init_q: [ 0., 0., 0.0, 0.0, 0, 0.0, 1.0, 0.1, 0.3, 0., -0.3, -0.1, 0.1, 0.4, -1.0, 0.1, -0.3, 0., 0.3, 0.1, 0.1, -0.4,]
+endeff_names: ['left_endpoint', 'right_endpoint']
+angle_sweep: null
+
+# E3: Euclidean Group symmetries____________________________________
+n_reflex: [[0, 1, 0]]   # normal vector to reflection planes
+# QJ: Joint Space symmetries____________________________________
+#         HEAD|__________LEFT__________|_______RIGHT_________|
+perm_qj: [[ 0, 8, 9, 10, 11, 12, 13, 14, 1, 2, 3, 4, 5, 6, 7]]
+# Reflections are determined by joint frame predefined orientation.
+refx_qj: [[-1, -1, 1, -1, 1, -1,  1, -1, -1, 1, -1, 1, -1,  1, -1]]

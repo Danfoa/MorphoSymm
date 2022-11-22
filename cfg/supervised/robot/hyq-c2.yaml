@@ -1,0 +1,16 @@
+
+defaults:
+  - hyq
+
+G: C2
+
+# E3: Euclidean Group symmetries____________________________________
+n_reflex: [[0, 1, 0]]   # normal vector to reflection planes
+# QJ: Joint Space symmetries____________________________________
+#        ____LF___|___LH____|___RF______|____RH____|
+# q    = [ 0, 1, 2,  3, 4, 5,  6,  7,  8, 9, 10, 11]
+# Configure qj (joint-space) group actions
+#                  Sagittal Symmetry
+perm_qj: [[6, 7, 8, 9, 10, 11, 0, 1, 2, 3, 4, 5]]
+# Reflections are determined by joint frame predefined orientation.
+refx_qj: [[1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]]
