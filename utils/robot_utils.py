@@ -85,7 +85,7 @@ def get_robot_params(robot_name):
         resources = pathlib.Path("robots/")
 
     if 'bolt' in robot_name.lower():
-        from robots.bolt.BoltBullet import BoltBullet
+        from robots.BoltBullet import BoltBullet
         robot = BoltBullet(resources=resources / 'bolt/bolt_description')
         n_sagittal = np.array([0, 1, 0])  # Normal vector to reflection/symmetry plane w.r.t base frame
         R_s = reflection_matrix(n_sagittal)
@@ -112,7 +112,7 @@ def get_robot_params(robot_name):
         rep_data_in, rep_data_out = rep_model_in, rep_model_out  # C2 has only the trivial group as subgroup
 
     elif 'atlas' in robot_name.lower():
-        from robots.atlas.AtlasBullet import AtlasBullet
+        from robots.AtlasBullet import AtlasBullet
         robot = AtlasBullet(resources=resources / 'atlas/atlas_description')
         # Configure E3 group actions, due to sagittal symmety
         n_sagittal = np.array([0, 1, 0])  # Normal vector to reflection/symmetry plane w.r.t base frame

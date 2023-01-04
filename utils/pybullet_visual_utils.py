@@ -107,7 +107,7 @@ def generate_rotating_view_gif(pb, cam_target_pose, cam_distance, save_path: pat
 
     file_path = save_path / f'{file_name}.gif'
     clip = ImageSequenceClip(list(frames), fps=fps)
-    clip.write_gif(file_path, fps=fps, loop=0)
+    clip.write_gif(file_path, fps=fps, loop=True)
     print(f"Animation saved to {file_path.absolute()}")
 
 

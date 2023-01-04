@@ -1,17 +1,12 @@
 # coding: utf8
-import copy
 import pathlib
-from math import pi
-from typing import Collection, Tuple, Union, Optional, List
+from typing import Collection, Optional, List
 
 import numpy as np  # Numpy library
 import scipy.spatial.transform
-from pinocchio import Quaternion, Force, JointModelFreeFlyer
-from pinocchio.robot_wrapper import RobotWrapper
-from pybullet_utils.bullet_client import BulletClient
 
 from .SoloBullet import Solo8Bullet
-from ..PinBulletWrapper import PinBulletWrapper
+from robots.PinBulletWrapper import PinBulletWrapper
 
 
 class Solo12Bullet(Solo8Bullet):
@@ -70,7 +65,7 @@ class Solo12Bullet(Solo8Bullet):
     def get_init_config(self, random=False):
 
         leg_pos = np.array([0.0, 0.8, -1.6])
-        leg_pos_offset1 = np.random.rand(3) * [np.deg2rad(20), -np.deg2rad(20), -np.deg2rad(25)] if random else np.zeros(3)
+        leg_pos_offset1 = np.random.rand(3) * [np.deg2rad(20), np.deg2rad(20), np.deg2rad(25)] if random else np.zeros(3)
         leg_pos_offset2 = np.random.rand(3) * [np.deg2rad(20), np.deg2rad(20), np.deg2rad(25)] if random else np.zeros(3)
         leg_vel = np.array([0.0, 0.0, 0.0])
         leg_vel_offset1 = np.random.uniform(-np.deg2rad(3), np.deg2rad(3), 3) if random else np.zeros(3)

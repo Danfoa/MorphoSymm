@@ -13,8 +13,7 @@ from pinocchio import Quaternion, Force, JointModelFreeFlyer
 from pinocchio.robot_wrapper import RobotWrapper
 from pybullet_utils.bullet_client import BulletClient
 
-from ..AccelerationBounds import BatchedContraintAccelerationBound
-from ..PinBulletWrapper import PinBulletWrapper, ControlMode
+from robots.PinBulletWrapper import PinBulletWrapper
 
 class Solo8Bullet(PinBulletWrapper):
     urdf_subpath = 'urdf/solo8.urdf'
@@ -36,13 +35,13 @@ class Solo8Bullet(PinBulletWrapper):
     ALLOWED_CONTACT_JOINTS_NAMES = ["FL_KFE", "FR_KFE", "HL_KFE", "HR_KFE"]
     JOINT_NAMES = ["FL_HFE", "FL_KFE", "FR_HFE", "FR_KFE", "HL_HFE", "HL_KFE", "HR_HFE", "HR_KFE"]
 
-    def __init__(self, resources:pathlib.Path, control_mode=ControlMode('torque'), power_coeff=1.0,
+    def __init__(self, resources:pathlib.Path, power_coeff=1.0,
                  reference_robot: Optional['PinBulletWrapper']=None, gen_xacro=False, useFixedBase=False, **kwargs):
         self._mass = np.NAN
         self.power_coeff = power_coeff
         if gen_xacro:
             import robot_properties_solo.utils
-            robot_properties_solo.utils.build_xacro_files(self.resources.resources_dir)
+            robot_properties_solo.utils.build_xacro_files(self.robot_name.resources_dir)
         # Super initialization: will call load_bullet_robot and load_pinocchio_robot
         super(Solo8Bullet, self).__init__(resources=resources, control_mode=control_mode, useFixedBase=useFixedBase,
                                           reference_robot=reference_robot, **kwargs)

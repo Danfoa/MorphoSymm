@@ -45,7 +45,6 @@ class JointInfo:
     acc_lim: np.Inf
     tau_lim: np.Inf
 
-
 class PinBulletWrapper:
     """[summary]
 
@@ -104,6 +103,7 @@ class PinBulletWrapper:
         for joint, joint_name in zip(self.pinocchio_robot.model.joints, self.pinocchio_robot.model.names):
             if joint.idx_q == -1: continue  # Ignore universe
             if joint.nq == 7: continue      # Ignore floating-base
+            log.info(f"Joint[{joint_name}] - DoF(nq):{joint.nq}, idx_q:{joint.idx_q}, idx_v:{joint.idx_v}")
             self.joint_aux_vars[joint_name] = JointInfo(pin_id=joint.id, bullet_id=np.NAN, idx_q=joint.idx_q,
                                                         idx_dq=joint.idx_v, pos_lims=(-np.Inf, np.Inf),
                                                         vel_lim=np.Inf, acc_lim=np.Inf, tau_lim=np.Inf)
@@ -455,14 +455,3 @@ class PinBulletWrapper:
             np.array((6,1)) vector of linear and angular acceleration
         """
         return np.concatenate((self.base_linacc, self.base_angacc))
-
-
-# Hack because I dont want to install ros to build a single description package.
-@contextmanager
-def cwd(path):
-    oldpwd = os.getcwd()
-    os.chdir(path)
-    try:
-        yield
-    finally:
-        os.chdir(oldpwd)

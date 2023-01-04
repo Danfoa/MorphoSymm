@@ -6,11 +6,12 @@ from typing import Collection, Tuple, Union, Optional, List
 
 import numpy as np  # Numpy library
 import scipy.spatial.transform
-from pinocchio import Quaternion, Force, JointModelFreeFlyer
-from pinocchio.robot_wrapper import RobotWrapper
+# from pinocchio import Quaternion, Force, JointModelFreeFlyer
+# from pinocchio.robot_wrapper import RobotWrapper
 from pybullet_utils.bullet_client import BulletClient
-
-from ..PinBulletWrapper import PinBulletWrapper, ControlMode
+from robot_descriptions.loaders.pinocchio import load_robot_description as pin_load_robot_description
+from robot_descriptions.loaders.pybullet import load_robot_description as pb_load_robot_description
+from robots.PinBulletWrapper import PinBulletWrapper, ControlMode
 
 class BoltBullet(PinBulletWrapper):
     urdf_subpath = 'urdf/bolt.urdf'
@@ -36,7 +37,7 @@ class BoltBullet(PinBulletWrapper):
         self.power_coeff = power_coeff
         if gen_xacro:
             import robot_properties_bolt.utils
-            robot_properties_bolt.utils.build_xacro_files(self.resources['resources'])
+            robot_properties_bolt.utils.build_xacro_files(self.robot_name['resources'])
             # Super initialization: will call load_bullet_robot and load_pinocchio_robot
         super(BoltBullet, self).__init__(resources=resources, control_mode=control_mode, useFixedBase=useFixedBase,
                                          reference_robot=reference_robot, **kwargs)
@@ -58,9 +59,9 @@ class BoltBullet(PinBulletWrapper):
         if base_pos is None: base_pos = [0, 0, 0.35]
         if self.useFixedBase: base_pos[2] += self.hip_height
 
-        urdf_path = self.resources / self.urdf_subpath
+        urdf_path = self.robot_name / self.urdf_subpath
         assert urdf_path.exists(), f"Cannot find urdf file {urdf_path.absolute()}"
-        meshes_path = self.resources
+        meshes_path = self.robot_name
 
         # Load the robot for PyBullet
         self.bullet_client.setAdditionalSearchPath(str(meshes_path.absolute()))
@@ -72,7 +73,7 @@ class BoltBullet(PinBulletWrapper):
                                                     useFixedBase=self.useFixedBase)
         return self.robot_id
 
-    def configure_bullet_simulation(self, bullet_client: BulletClient, world, base_pos=None, base_ori=None):
+    def configure_bupin_load_robot_descriptionllet_simulation(self, bullet_client: BulletClient, world, base_pos=None, base_ori=None):
         super(BoltBullet, self).configure_bullet_simulation(bullet_client, world, base_pos, base_ori)
         # Initial config
         q0, dq0 = self.get_init_config(random=False)

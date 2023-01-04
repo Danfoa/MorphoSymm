@@ -1,1 +1,1 @@
-pytorch-lightning torch hydra-core emlp pytransform3d pinocchio=2.6.3 strenum gym bullet_utils
+pytorch-lightning=>1.7.7 pybullet torch=>1.12.1 hydra-core emlp pytransform3d pinocchio=>2.6.12

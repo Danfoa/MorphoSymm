@@ -13,10 +13,7 @@ from pinocchio import Quaternion, Force, JointModelFreeFlyer
 from pinocchio.robot_wrapper import RobotWrapper
 from pybullet_utils.bullet_client import BulletClient
 
-from ..AccelerationBounds import BatchedContraintAccelerationBound
-from ..PinBulletWrapper import PinBulletWrapper, ControlMode
-from robot_properties_solo.resources import Resources
-
+from robots.PinBulletWrapper import PinBulletWrapper
 # Terrible hack, should modify
 from hydra.utils import get_original_cwd
 
@@ -24,7 +21,7 @@ from hydra.utils import get_original_cwd
 class AtlasBullet(PinBulletWrapper):
     urdf_subpath = "atlas_v4_with_multisense.urdf"
 
-    def __init__(self,  resources: pathlib.Path, control_mode=ControlMode('torque'), power_coeff=1.0,
+    def __init__(self,  resources: pathlib.Path, power_coeff=1.0,
                  reference_robot: Optional['PinBulletWrapper'] = None,
                  gen_xacro=False, useFixedBase=False, **kwargs):
         self._mass = np.NAN
@@ -32,8 +29,9 @@ class AtlasBullet(PinBulletWrapper):
         if gen_xacro:
             raise NotImplementedError()
 
+        p = self.mirror_joint_idx()
         # Super initialization: will call load_bullet_robot and load_pinocchio_robot
-        super(AtlasBullet, self).__init__(resources=resources, recontrol_mode=control_mode, useFixedBase=useFixedBase,
+        super(AtlasBullet, self).__init__(robot_name='atlas', useFixedBase=useFixedBase, hip_height=0.85,
                                           reference_robot=reference_robot, **kwargs)
 
         self._masses = [M.mass for M in self.pinocchio_robot.model.inertias][1:]
@@ -85,10 +83,6 @@ class AtlasBullet(PinBulletWrapper):
                                     0.78679, 0.52360, 0.65764, 2.35637, 0.70000, 0.80000, 0.17436, 0.52360, 0.65764,
                                     2.35637, 0.70000, 0.80000]
         return self._joint_lower_limits, self._joint_upper_limits
-
-    @property
-    def hip_height(self) -> float:
-        return 1.0  # [m]
 
     @property
     def joint_names(self) -> List:
@@ -157,4 +151,6 @@ class AtlasBullet(PinBulletWrapper):
         return self._mass
 
 
-
+    def mirror_joint_idx(self):
+        r_idx = [self.joint_names.index(j) for j in self.mirrored_joint_names]
+        return r_idx

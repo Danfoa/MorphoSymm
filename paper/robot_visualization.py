@@ -3,17 +3,19 @@ import os
 import pathlib
 import time
 
+import hydra
 import numpy as np
 from PIL import Image
+from omegaconf import DictConfig
 from pytransform3d import rotations as rt
 from pytransform3d import transformations as tr
 
-from utils.pybullet_visual_utils import draw_vector, plot_reflection_plane, generate_rotating_view_gif
-from utils.robot_utils import get_robot_params
-from utils.utils import configure_bullet_simulation, matrix_to_quat_xyzw, SE3_2_gen_coordinates, quat_xyzw_to_matrix
+from groups.SparseRepresentation import SparseRepE3
+from utils.pybullet_visual_utils import draw_vector, plot_reflection_plane, generate_rotating_view_gif, tint_robot
+from utils.robot_utils import get_robot_params, load_robot_and_symmetries
+from utils.utils import configure_bullet_simulation, matrix_to_quat_xyzw, SE3_2_gen_coordinates, quat_xyzw_to_SO3
 
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
-
 
 
 def display_robots_and_vectors(pb, robot, base_confs, Gq, Gdq, Ghg, Ghg_pin, forces, forces_points, surface_normals,
@@ -21,7 +23,7 @@ def display_robots_and_vectors(pb, robot, base_confs, Gq, Gdq, Ghg, Ghg_pin, for
     """
     Plot side by side robots with different configutations, CoM momentums and expected CoM after an action g
     """
-    pb.resetSimulation()
+    # pb.resetSimulation()
 
     # Display origin.
     # draw_vector(pb, np.zeros(3), np.asarray([.1, 0, 0]), v_color=[1, 0, 0, 1])
@@ -29,7 +31,7 @@ def display_robots_and_vectors(pb, robot, base_confs, Gq, Gdq, Ghg, Ghg_pin, for
     # draw_vector(pb, np.zeros(3), np.asarray([0, 0, .1]), v_color=[0, 0, 1, 1])
 
     plane_height = robot.hip_height / 4.0
-    plane_size = (0.01, robot.hip_height / 2,  robot.hip_height / 4)
+    plane_size = (0.01, robot.hip_height / 2, robot.hip_height / 4)
 
     # Sagittal plane
     X_g_sagittal = GX_g_bar[1]
@@ -54,9 +56,12 @@ def display_robots_and_vectors(pb, robot, base_confs, Gq, Gdq, Ghg, Ghg_pin, for
         q_js, dq_js, XB_w, hg_B, ghg_B, rho_X_gbar = Gq[i], Gdq[i], base_confs[i], Ghg[i], Ghg_pin[i], GX_g_bar[i]
         RB_w = XB_w[:3, :3]
         tB_w = XB_w[:3, 3]
-        grobot = robot if i == 0 else copy.copy(robot)
-        grobot.configure_bullet_simulation(pb, world=None)
-        robots.append(grobot)
+        grobot = robot
+        if i > 0:
+            grobot = robot if i == 0 else copy.copy(robot)
+            grobot.configure_bullet_simulation(pb, world=None)
+            tint_robot(pb, grobot)
+            robots.append(grobot)
         # Place robots in env
         base_q = SE3_2_gen_coordinates(XB_w)
         # Set positions:
@@ -102,52 +107,45 @@ def display_robots_and_vectors(pb, robot, base_confs, Gq, Gdq, Ghg, Ghg_pin, for
     print("a")
 
 
-if __name__ == "__main__":
+@hydra.main(config_path='../cfg/supervised', config_name='config_visualization')
+def main(cfg: DictConfig):
+    robot, rep_E3, rep_QJ = load_robot_and_symmetries(robot_cfg=cfg.robot, debug=cfg.debug)
+    
+    robot_cfg = cfg.robot
+    # Representations acting on the linear `l` and angular `k` component of CoM momentum `h`
+    rep_l = rep_E3
+    rep_k = rep_E3.set_pseudovector(True)
+    rep_h = rep_l + rep_k
 
-    robot_name = "Bolt"  # "Solo12"
-    # robot_name = "Bolt"  # "Solo12"
+    # Representation acting on x=[q, dq]
+    rep_x = rep_QJ + rep_QJ
 
-    robot_name = robot_name.lower()
-    robot, rep_data_in, rep_data_out, rep_model_in, rep_model_out, rep_E3, rep_qj = get_robot_params(robot_name)
-
-    offset = 1.5
-    cam_target_pose = [0, offset/2, robot.hip_height]
-    if robot_name == "atlas":
-        feet1, feet2 = 23, 29
-        offset = 2.5
-        cam_target_pose = [0, offset/2, robot.hip_height]
+    # 3D animation visualization parameters
+    offset = 3.3 * robot.hip_height
+    if len(rep_E3.G.discrete_actions) == 2:
+        cam_target_pose = [0, offset / 2, robot.hip_height/2]
         rep_E3_offsets = [[0, offset, 0]]
-    elif robot_name == "solo12":
-        feet1, feet2 = 7, 11
-        cam_target_pose = [offset/2, offset/2, robot.hip_height]
+    elif len(rep_E3.G.discrete_actions) == 4:
+        cam_target_pose = [offset / 2, offset / 2, robot.hip_height/2]
         rep_E3_offsets = [[0, offset, 0], [offset, 0, 0], [offset, offset, 0]]
-    elif robot_name == "bolt":
-        feet1, feet2 = 3, 7
-        rep_E3_offsets = [[0, offset, 0]]
-    else:
-        raise NotImplementedError(f"Robot {robot_name} not implemented")
 
-    pb = configure_bullet_simulation(gui=True)
+    pb = configure_bullet_simulation(gui=cfg.gui, debug=cfg.debug)
     robot.configure_bullet_simulation(pb, world=None)
-
+    tint_robot(pb, robot)
     # Notation: [Variable]_[reference frame of variable] e.g, R_w : Rotation R in world w coordinates.
     # R: Rotation 3x3, T: Translation: 3x1, K: Reflection 3x3, X: Homogenous Matrix 4x4
 
     # Get initial random configuration of the system
-    q, dq = robot.get_init_config(random=True)
-    #       |-----FL--------|------FR---------||-----HL--------|------HR--------|
-    # q[7:] = [0.1, 1.65, -1.9, -0.45, 0.7, -1.0, 0.35, 0.7, -1.0, -0.2, 1.8, -1.6]
+    q, dq = robot.get_init_config(random=True, angle_sweep=robot_cfg.angle_sweep)
+    robot.reset_state(q, dq)
 
     # Specify the configuration of the original robot base
     # Keep a "null" notation for computation of hb in Base reference frame.
     rB_w = np.array(q[:3])
-    RB_w = rt.active_matrix_from_intrinsic_euler_xyz(q[3:6])
-    # RB_w = rt.active_matrix_from_intrinsic_euler_xyz([np.deg2rad(-10), np.deg2rad(-5), np.deg2rad(-5)])
+    RB_w = quat_xyzw_to_SO3(q[3:7])
     XB_w = tr.transform_from(R=RB_w, p=rB_w)
     XBnull_w = tr.transform_from(R=np.eye(3), p=rB_w)
 
-    q[3:7] = SE3_2_gen_coordinates(XB_w)[3:7]
-    robot.reset_state(q, dq)
 
     # x: is the concatenation of q and dq. That is the state vector.
     x = np.concatenate((q[7:], dq[6:]))
@@ -155,34 +153,36 @@ if __name__ == "__main__":
     # Compute the robot COM momentum in base `B` coordinates
     hg_B = robot.pinocchio_robot.centroidalMomentum(q=np.concatenate((SE3_2_gen_coordinates(XBnull_w), q[7:])),
                                                     v=np.concatenate((np.zeros(6), dq[6:]))).np.astype(np.float64)
-
-    # TODO: (remove) For visualization purposes we make the vectors fixed and clear from the top view
+    # Note: For visualization purposes we make the vectors fixed and clear from the top view
     hg_B = np.array([0.1, 0.1, 0.0, -0.0, -0.2, -0.2])
 
     # Define a ground-reaction/contact force on two of the system links:
     # Points of application of forces in Base coordinates on the feets of the robot.
     R_B2w = RB_w
     R_w2B = np.linalg.inv(R_B2w)
-    rf1_w, quatf1_w = (np.array(x) for x in pb.getLinkState(robot.robot_id, feet1)[0:2])
-    rf2_w, quatf2_w = (np.array(x) for x in pb.getLinkState(robot.robot_id, feet2)[0:2])
-    Rf1_w, Rf2_w = quat_xyzw_to_matrix(quatf1_w), quat_xyzw_to_matrix(quatf2_w)
-    if "solo" in robot_name.lower() or "bolt" in robot_name.lower():
+
+    end_effectors = np.random.choice(robot.bullet_ids_allowed_floor_contacts, 2, replace=False)
+    rf1_w, quatf1_w = (np.array(x) for x in pb.getLinkState(robot.robot_id, end_effectors[0])[0:2])
+    rf2_w, quatf2_w = (np.array(x) for x in pb.getLinkState(robot.robot_id, end_effectors[1])[0:2])
+    Rf1_w, Rf2_w = quat_xyzw_to_SO3(quatf1_w), quat_xyzw_to_SO3(quatf2_w)
+    if not np.any([s in robot.robot_name for s in ["atlas"]]):
         Rf1_w = np.eye(3)
         Rf2_w = np.eye(3)
-    f1_w = Rf1_w[:, 2] + np.random.random(3)  # Rf_w[:, 2] := Surface normal
-    f2_w = Rf2_w[:, 2] + np.random.random(3)
+    f1_w = Rf1_w[:, 2] + [2 * np.random.rand() - 1, 2 * np.random.rand() - 1,
+                          np.random.rand()]  # Rf_w[:, 2] := Surface normal
+    f2_w = Rf2_w[:, 2] + [2 * np.random.rand() - 1, 2 * np.random.rand() - 1, np.random.rand()]
     # For visualization purposes we make the forces proportional to the robot height
-    f1_w = f1_w / np.linalg.norm(f1_w) * robot.hip_height * .5
-    f2_w = f2_w / np.linalg.norm(f2_w) * robot.hip_height * .5
+    f1_w = f1_w / np.linalg.norm(f1_w) * robot_cfg.hip_height * .4
+    f2_w = f2_w / np.linalg.norm(f2_w) * robot_cfg.hip_height * .4
 
     # _________________________________________________________________________________________________________________
     # Define the list holding the orbits of all the proprioceptive and exteroceptive measurements
     Gx, Ghg_B, Gy_B, GXB_w, GX_g_bar = [x], [hg_B], [hg_B], [XB_w], [tr.transform_from(R=np.eye(3), p=np.zeros(3))]
     Gf1_w, Gf2_w, Gr1_w, Gr2_w, GRf1_w, GRf2_w = [f1_w], [f2_w], [rf1_w], [rf2_w], [Rf1_w], [Rf2_w]
 
-    for rho_x_g, rho_y_g, rho_qj_g, rho_E3_g_bar, rho_E3_r in zip(rep_data_in.G.discrete_actions[1:],
-                                                                  rep_data_out.G.discrete_actions[1:],
-                                                                  rep_qj.G.discrete_actions[1:],
+    for rho_x_g, rho_y_g, rho_qj_g, rho_E3_g_bar, rho_E3_r in zip(rep_x.G.discrete_actions[1:],
+                                                                  rep_h.G.discrete_actions[1:],
+                                                                  rep_QJ.G.discrete_actions[1:],
                                                                   rep_E3.G.discrete_actions[1:],
                                                                   rep_E3_offsets):
         # This example assumes we are working with the CoM experiment
@@ -225,27 +225,22 @@ if __name__ == "__main__":
                                forces=[Gf1_w, Gf2_w], forces_points=[Gr1_w, Gr2_w], surface_normals=[GRf1_w, GRf2_w],
                                GX_g_bar=GX_g_bar, offset=offset)
 
+    save_path = pathlib.Path("paper")
+    save_path.mkdir(exist_ok=True)
 
-    # save_path = pathlib.Path("paper")
-    # save_path.mkdir(exist_ok=True)
-    #
-    # frontal_view_matrix = pb.computeViewMatrixFromYawPitchRoll(
-    #     cameraTargetPosition=cam_target_pose, distance=offset, upAxisIndex=2, roll=0, pitch=-0, yaw=90)
-    # frontal_projection_matrix = pb.computeProjectionMatrixFOV(fov=80, aspect=1.0, nearVal=0.1, farVal=5.0)
-    #
-    # front_img_arr = pb.getCameraImage(int(2*812), int(2*812), viewMatrix=frontal_view_matrix,
-    #                                   projectionMatrix=frontal_projection_matrix, shadow=1,
-    #                                   lightDirection=[0, 0, 0.5], lightDistance=1.0,
-    #                                   renderer=pb.ER_TINY_RENDERER)[2]
-    # im = Image.fromarray(front_img_arr)
-    # im.save(save_path / f"images/{robot_name}/{robot_name}_front_symmetry_view.png")
-
-    # generate_rotating_view_gif(pb, cam_target_pose=cam_target_pose, cam_distance=offset * 2,
-    #                            save_path=save_path / 'animations', yaw_sin_amplitude=15,
-    #                            file_name=f"{robot_name}-symmetries_anim_static")
-    # print("Done enjoy your gif :). I hope you learned something new")
+    if cfg.make_gif:
+        cam_distance = offset * 1.8
+        generate_rotating_view_gif(pb, cam_target_pose=cam_target_pose, cam_distance=cam_distance,
+                                   save_path=save_path / 'animations',
+                                   yaw_sin_amplitude=np.rad2deg(np.arctan(robot_cfg.hip_height*0.8 / cam_distance)),
+                                   file_name=f"{robot.robot_name}-{rep_E3.G}-symmetries_anim_static")
+        print("Done enjoy your gif :). I hope you learned something new")
 
     for _ in range(500):
-        time.sleep(0.5)
+        time.sleep(0.1)
 
     pb.disconnect()
+
+
+if __name__ == '__main__':
+    main()

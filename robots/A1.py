@@ -15,7 +15,7 @@ from pybullet_utils.bullet_client import BulletClient
 
 from robot_descriptions.loaders.pinocchio import load_robot_description as pin_load_robot_description
 from robot_descriptions.loaders.pybullet import load_robot_description as pb_load_robot_description
-from ..PinBulletWrapper import PinBulletWrapper, ControlMode
+from robots.PinBulletWrapper import PinBulletWrapper, ControlMode
 
 
 class A1(PinBulletWrapper):
