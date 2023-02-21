@@ -1,5 +1,5 @@
 #
-job_name: ${exp_name}_${robot_name}/model=${model.model_type}_train_ratio=${dataset.train_ratio}_ly=${model.num_layers}_hc=${model.num_channels}
+job_name: ${exp_name}_${robot.name}/model=${model.model_type}_train_ratio=${dataset.train_ratio}_ly=${model.num_layers}_hc=${model.num_channels}
 
 name: 'com_momentum'
 

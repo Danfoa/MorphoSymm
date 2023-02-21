@@ -15,6 +15,7 @@ import scipy
 import sklearn
 import torch
 import torch.nn.functional as F
+from omegaconf import OmegaConf, DictConfig
 
 from sklearn.metrics import precision_score
 from sklearn.metrics import recall_score
@@ -24,6 +25,8 @@ from sklearn.metrics import confusion_matrix
 import pathlib
 import sys
 
+from utils.robot_utils import load_robot_and_symmetries, class_from_name
+
 try:
     deep_contact_estimator_path = pathlib.Path(__file__).parent.absolute()
     assert deep_contact_estimator_path.exists()
@@ -32,9 +35,9 @@ try:
     from data_handler import contact_dataset
     from contact_cnn import contact_cnn   # just to trigger the error here
 except ImportError as e:
-    raise ImportError("Deep Contact Estimator submodule not initialized, run `git submodule init`\n") from e
+    raise ImportError("Deep Contact Estimator submodule not initialized, run `git submodule update "
+                      "--init --recursive --progress") from e
 
-# from deep_contact_estimator.utils.data_handler import contact_dataset
 from pytorch_lightning import Trainer
 from sklearn.metrics import confusion_matrix
 from torch.utils.data._utils.collate import default_collate
@@ -50,14 +53,14 @@ class UmichContactDataset(contact_dataset):
     states_names = ['-', 'LH', 'RH', 'RH-LH', 'LF', 'LF-LH', 'LF-RH', 'LF-RH-LH', 'RF', 'RF-LH', 'RF-RH', 'RF-RH-LH',
                     'RF-LF', 'RF-LF-LH', 'RF-LF-RH', 'RF-LF-RH-LH']
 
-    def __init__(self, data_name, label_name, window_size,
+    def __init__(self, data_name, label_name, window_size, robot_cfg,
                  train_ratio=0.7, test_ratio=0.15, val_ratio=0.15, loss_class_weights=None,
                  use_class_imbalance_w=False, device='cuda', augment=False, debug=False, partition='training'):
         # Sub folder in dataset folder containing the mat/*.mat and numpy/*.npy
         self.partition = partition
         self.data_path, self.label_path = self.get_full_paths(data_name, label_name, train_ratio=train_ratio,
                                                               val_ratio=val_ratio)
-
+        self.robot_cfg = robot_cfg
         # super().__init__(str(self.data_path), str(self.label_path), window_size, device=device)
         trials = 5
         data, label = None, None
@@ -79,7 +82,7 @@ class UmichContactDataset(contact_dataset):
 
         self.contact_state_freq = self.get_class_frequency()
 
-        self.rep_in, self.rep_out = self.get_in_out_symmetry_groups_reps()
+        self.rep_in, self.rep_out = self.get_in_out_symmetry_groups_reps(robot_cfg)
         self.augment = augment
         self.n_contact_states = 16
         # if self.augment:
@@ -238,9 +241,35 @@ class UmichContactDataset(contact_dataset):
         return x.unsqueeze(-1).bitwise_and(mask).ne(0).byte()
 
     @staticmethod
-    def get_in_out_symmetry_groups_reps():
+    def get_in_out_symmetry_groups_reps(robot_cfg: DictConfig):
+        from groups.SparseRepresentation import SparseRep
         from utils.robot_utils import get_robot_params
-        robot, rep_data_in, rep_data_out, rep_model_in, rep_model_out, rep_E3, rep_qj = get_robot_params("mit")
+        robot, rep_E3, rep_QJ = load_robot_and_symmetries(robot_cfg)
+        G_class = class_from_name('groups.SymmetryGroups',
+                                  robot_cfg.G if robot_cfg.gens_ids is None else robot_cfg.G_sub)
+
+        # Configure input x and output y representations
+        # x = [qj, dqj, a, w, pf, vf] - a: linear IMU acc, w: angular IMU velocity, pf:feet positions, vf:feet velocity
+        rep_a = rep_E3.set_pseudovector(False)
+        rep_w = rep_E3.set_pseudovector(True)
+
+        # Configure pf, vf ∈ R^12  representations composed of reflections and permutations
+        n_legs = 4
+        rep_legs_reflected = n_legs * rep_E3.set_pseudovector(False)    # Same representation as the hips ref frames are collinear with base.
+        G_legs_reflected = rep_legs_reflected.G
+        g_q_perm = abs(rep_QJ.G.discrete_generators[0])  # Permutation swapping legs.
+        G_pf = G_class(generators=g_q_perm @ G_legs_reflected.discrete_generators[0])
+        rep_pf = SparseRep(G_pf)
+        rep_vf = SparseRep(G_pf)
+
+        # x   = [ qj   ,  dqj   ,   a   ,   w   ,   pf   ,   vf  ]
+        rep_x = rep_QJ + rep_QJ + rep_a + rep_w + rep_pf + rep_vf
+        # y : 16 dimensional contact state with following symmetry. See paper abstract.
+        g_y = C2.oneline2matrix(oneline_notation=[0, 2, 1, 3, 8, 10, 9, 11, 4, 6, 5, 7, 12, 14, 13, 15])
+        G_y = C2(g_y)
+        rep_y = SparseRep(G_y)
+
+        rep_data_in, rep_data_out = rep_x, rep_y
         return rep_data_in, rep_data_out
 
     def get_full_paths(self, data_name, label_name, train_ratio: float = 0.7, val_ratio: float = 0.7) -> (pathlib.Path, pathlib.Path):

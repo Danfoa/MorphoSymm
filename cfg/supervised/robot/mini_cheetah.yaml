@@ -1,7 +1,7 @@
 defaults:
   - base_robot
 
-robot_name: mini_cheetah
+name: mini_cheetah
 
 G: Klein4
 hip_height: 0.30

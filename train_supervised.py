@@ -1,3 +1,4 @@
+import copy
 import os
 
 import torch
@@ -11,7 +12,7 @@ import numpy as np
 
 from datasets.com_momentum.com_momentum import COMMomentum
 from nn.EMLP import MLP, EMLP
-from utils.robot_utils import get_robot_params
+from utils.robot_utils import load_robot_and_symmetries
 
 import hydra
 from utils.utils import check_if_resume_experiment
@@ -22,7 +23,6 @@ from pytorch_lightning import Trainer, seed_everything
 from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping
 from pytorch_lightning import loggers as pl_loggers
 
-from groups.SemiDirectProduct import SparseRep
 from nn.LightningModel import LightningModel
 
 try:
@@ -43,14 +43,12 @@ def get_model(cfg, rep_in=None, rep_out=None, cache_dir=None):
         model = ContactECNN(rep_in, rep_out, cache_dir=cache_dir, dropout=cfg.dropout,
                             init_mode=cfg.init_mode, inv_dim_scale=cfg.inv_dims_scale, bias=cfg.bias)
     elif "cnn" == cfg.model_type.lower():
-        try:
-            import sys
-            deep_contact_estimator_path = pathlib.Path(__file__).parent / 'datasets/contact_dataset/'
-            assert deep_contact_estimator_path.exists(), deep_contact_estimator_path
-            sys.path.append(str(deep_contact_estimator_path / 'deep-contact-estimator/src'))
-            from contact_cnn import contact_cnn
-        except ImportError as e:
-            raise ImportError("Deep Contact Estimator submodule not initialized, run `git submodule init`") from e
+        import datasets.contact_dataset.umich_contact_dataset  # Triggers submodule error.
+        import sys
+        deep_contact_estimator_path = pathlib.Path(__file__).parent / 'datasets/contact_dataset/'
+        assert deep_contact_estimator_path.exists(), deep_contact_estimator_path
+        sys.path.append(str(deep_contact_estimator_path / 'deep-contact-estimator/src'))
+        from contact_cnn import contact_cnn
         model = contact_cnn()
     elif "emlp" == cfg.model_type.lower():
         model = EMLP(rep_in=rep_in, rep_out=rep_out, num_layers=cfg.num_layers,
@@ -68,19 +66,19 @@ def get_datasets(cfg, device, root_path):
     if cfg.dataset.name == "contact":
         from datasets.contact_dataset.umich_contact_dataset import UmichContactDataset
         assert 'cnn' in cfg.model.model_type.lower(), "Only CNN models are supported for contact dataset"
-        train_dataset = UmichContactDataset(data_name="train.npy",
+        train_dataset = UmichContactDataset(data_name="train.npy", robot_cfg=cfg.robot,
                                             label_name="train_label.npy", train_ratio=cfg.dataset.train_ratio,
                                             augment=cfg.dataset.augment,
                                             use_class_imbalance_w=False,
                                             window_size=cfg.dataset.window_size, device=device,
                                             partition=cfg.dataset.data_folder)
 
-        val_dataset = UmichContactDataset(data_name="val.npy",
+        val_dataset = UmichContactDataset(data_name="val.npy", robot_cfg=cfg.robot,
                                           label_name="val_label.npy", train_ratio=cfg.dataset.train_ratio,
                                           augment=False, use_class_imbalance_w=False,
                                           window_size=cfg.dataset.window_size, device=device,
                                           partition=cfg.dataset.data_folder)
-        test_dataset = UmichContactDataset(data_name="test.npy",
+        test_dataset = UmichContactDataset(data_name="test.npy", robot_cfg=cfg.robot,
                                            label_name="test_label.npy", train_ratio=cfg.dataset.train_ratio,
                                            augment=False, use_class_imbalance_w=False,
                                            window_size=cfg.dataset.window_size, device=device,
@@ -105,21 +103,18 @@ def get_datasets(cfg, device, root_path):
                                      collate_fn=lambda x: val_dataset.collate_fn(x), num_workers=cfg.num_workers)
 
     elif cfg.dataset.name == "com_momentum":
-        robot, rep_data_in, rep_data_out, rep_model_in, rep_model_out, rep_E3, rep_qj = get_robot_params(cfg.robot_name)
-        robot_name = cfg.robot_name.lower()
-        robot_name = robot_name if '-' not in robot_name else robot_name.split('-')[0]
-        data_path = root_path.joinpath(f"datasets/com_momentum/{robot_name}")
+        data_path = root_path.joinpath(f"datasets/com_momentum/{cfg.robot.name.lower()}")
         # Training only sees the model symmetries
-        train_dataset = COMMomentum(robot, rep_in=rep_model_in, rep_out=rep_model_out, type='train', samples=cfg.dataset.samples,
+        train_dataset = COMMomentum(robot_cfg=cfg.robot, type='train', samples=cfg.dataset.samples,
                                     train_ratio=cfg.dataset.train_ratio, angular_momentum=cfg.dataset.angular_momentum,
                                     standarizer=cfg.dataset.standarize, augment=cfg.dataset.augment,
                                     data_path=data_path, dtype=torch.float32, device=device)
         # Test and validation use theoretical symmetry group, and training set standarization
-        test_dataset = COMMomentum(robot, rep_in=rep_data_in, rep_out=rep_data_out, type='test', samples=cfg.dataset.samples,
+        test_dataset = COMMomentum(robot_cfg=cfg.robot, type='test', samples=cfg.dataset.samples,
                                    train_ratio=cfg.dataset.train_ratio, angular_momentum=cfg.dataset.angular_momentum,
                                    data_path=data_path,
                                    augment='hard', dtype=torch.float32, device=device, standarizer=train_dataset.standarizer)
-        val_dataset = COMMomentum(robot, rep_in=rep_data_in, rep_out=rep_data_out, type='val', samples=cfg.dataset.samples,
+        val_dataset = COMMomentum(robot_cfg=cfg.robot, type='val', samples=cfg.dataset.samples,
                                   train_ratio=cfg.dataset.train_ratio, angular_momentum=cfg.dataset.angular_momentum,
                                   data_path=data_path, augment=True, dtype=torch.float32, device=device, standarizer=train_dataset.standarizer)
 
@@ -147,7 +142,7 @@ def fine_tune_model(cfg, best_ckpt_path: pathlib.Path, pl_model, batches_per_ori
     best_ckpt = torch.load(best_ckpt_path)
     pl_model.load_state_dict(best_ckpt['state_dict'])  # Load best weights
 
-    # Freeze most of model model.
+    # Freeze most of model
     pl_model.model.unfreeze_equivariance(num_layers=cfg.model.fine_tune_num_layers)
 
     # for name, parameter in pl_model.model.named_parameters():

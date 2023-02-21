@@ -10,7 +10,6 @@ from omegaconf import DictConfig
 from pytransform3d import rotations as rt
 from pytransform3d import transformations as tr
 
-from groups.SparseRepresentation import SparseRepE3
 from utils.pybullet_visual_utils import draw_vector, plot_reflection_plane, generate_rotating_view_gif, tint_robot
 from utils.robot_utils import get_robot_params, load_robot_and_symmetries
 from utils.utils import configure_bullet_simulation, matrix_to_quat_xyzw, SE3_2_gen_coordinates, quat_xyzw_to_SO3
@@ -107,7 +106,7 @@ def display_robots_and_vectors(pb, robot, base_confs, Gq, Gdq, Ghg, Ghg_pin, for
     print("a")
 
 
-@hydra.main(config_path='../cfg/supervised', config_name='config_visualization')
+@hydra.main(config_path='cfg/supervised', config_name='config_visualization')
 def main(cfg: DictConfig):
     robot, rep_E3, rep_QJ = load_robot_and_symmetries(robot_cfg=cfg.robot, debug=cfg.debug)
     
@@ -225,7 +224,7 @@ def main(cfg: DictConfig):
                                forces=[Gf1_w, Gf2_w], forces_points=[Gr1_w, Gr2_w], surface_normals=[GRf1_w, GRf2_w],
                                GX_g_bar=GX_g_bar, offset=offset)
 
-    save_path = pathlib.Path("paper")
+    save_path = pathlib.Path("paper/paper")
     save_path.mkdir(exist_ok=True)
 
     if cfg.make_gif:

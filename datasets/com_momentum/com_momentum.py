@@ -9,12 +9,14 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 from emlp.reps.representation import Rep
+from omegaconf import DictConfig
 from scipy.sparse import issparse
 from torch.utils.data import Dataset
 from torch.utils.data._utils.collate import default_collate
 
 from groups.SparseRepresentation import SparseRep
 from groups.SymmetryGroups import Sym
+from utils.robot_utils import load_robot_and_symmetries
 from utils.utils import dense
 
 log = logging.getLogger(__name__)
@@ -61,7 +63,7 @@ class Standarizer:
 
 class COMMomentum(Dataset):
 
-    def __init__(self, robot, rep_in: SparseRep, rep_out: SparseRep, type='train',
+    def __init__(self, robot_cfg, type='train',
                  angular_momentum=True, standarizer: Union[bool, Standarizer] = True, augment=False,
                  train_ratio=0.7, test_ratio=0.15, val_ratio=0.15, samples=100000,
                  dtype=torch.float32, data_path="datasets/com_momentum", device='cpu', debug=False):
@@ -69,11 +71,9 @@ class COMMomentum(Dataset):
         self.dataset_type = type
         self.dtype = dtype
         self.angular_momentum = angular_momentum
-        self.robot = robot
         self.normalize = True if isinstance(standarizer, Standarizer) else standarizer
 
-        self.rep_in = rep_in
-        self.rep_out = rep_out
+        self.robot, self.rep_in, self.rep_out = self.get_in_out_symmetry_groups_reps(robot_cfg)
         self.group_actions = [(np.asarray(gin.todense()), np.asarray(gout.todense())) for gin, gout in zip(self.rep_in.G.discrete_actions,
                                                                                    self.rep_out.G.discrete_actions)]
         augmentation_actions = []
@@ -105,7 +105,7 @@ class COMMomentum(Dataset):
         #  -------------------------------------------------------------------
         X, Y = data['X'], data['Y']
 
-        q, dq = robot.get_init_config(random=False)
+        q, dq = self.robot.get_init_config(random=False)
         self.base_q = q[:7]
         self.base_dq = dq[:6]
 
@@ -320,6 +320,7 @@ class COMMomentum(Dataset):
         print("a")
 
     def ensure_dataset_existance(self):
+        # if self.robot.
         q, dq = self.robot.get_init_config(random=False)
         self.base_q = q[:7]
         self.base_dq = dq[:6]
@@ -332,7 +333,10 @@ class COMMomentum(Dataset):
             np.random.seed(29081995)
             # Get joint limits.
             dq_max = np.asarray(self.robot.velocity_limits)
-            q_min, q_max = (np.asarray(lim) for lim in self.robot.joint_pos_limits)
+            dq_max = np.minimum(dq_max, 2 * np.pi)
+            q_min, q_max = self.robot.joint_pos_limits
+            q_mim = np.minimum(q_min, -2 * np.pi)
+            q_max = np.minimum(q_max, 2 * np.pi)
 
             x = np.zeros((self._samples, self.robot.nj * 2))
             y = np.zeros((self._samples, 6))
@@ -402,8 +406,32 @@ class COMMomentum(Dataset):
         self.X.to(device)
         self.Y.to(device)
 
+    def get_in_out_symmetry_groups_reps(self, robot_cfg: DictConfig):
+        robot, rep_Ed, rep_QJ = load_robot_and_symmetries(robot_cfg)
+        # Rep for x = [q, dq] ∈ QJ x TQJ     =>    ρ_QJ(g) ⊕ ρ_QJ(g)  | g ∈ G
+        get_rep_data_in = lambda rep_QJ: rep_QJ + rep_QJ
+        # Rep for y := h = [l, k] ∈ E3 x E3  =>    ρ_E3(g) ⊕ ρ_E3(g)  | g ∈ G
+        get_rep_data_out = lambda rep_Ed: rep_Ed + rep_Ed.set_pseudovector(True)
+
+        rep_data_in = get_rep_data_in(rep_QJ)
+        rep_data_out = get_rep_data_out(rep_Ed)
+
+        if robot_cfg.gens_ids is not None and self.dataset_type in ["test", "val"]:
+            # Loaded symmetry group is not the full symmetry group of the robot
+            # Generate the true underlying data representations
+            robot_cfg = copy.copy(robot_cfg)
+            robot_cfg['gens_ids'] = None
+            _, rep_Ed_full, rep_QJ_full = load_robot_and_symmetries(robot_cfg)
+            rep_data_in = get_rep_data_in(rep_QJ_full)
+            rep_data_out = get_rep_data_out(rep_Ed_full)
+            log.info(f"[{self.dataset_type}] Dataset using the system's full symmetry group {type(rep_QJ_full.G)}")
+            return robot, rep_data_in, rep_data_out
+
+        log.info(f"[{self.dataset_type}] Dataset using the symmetry group {type(rep_QJ.G)}")
+        return robot, rep_data_in, rep_data_out
+
     def __repr__(self):
-        msg = f"CoM[{self.robot.__class__.__name__}]-{self.dataset_type}-Aug:{self.augment}" \
+        msg = f"CoM Dataset: [{self.robot.robot_name}]-{self.dataset_type}-Aug:{self.augment}" \
               f"-X:{self.X.shape}-Y:{self.Y.shape}"
         return msg
 

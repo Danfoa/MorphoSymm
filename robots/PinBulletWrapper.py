@@ -103,11 +103,13 @@ class PinBulletWrapper:
         for joint, joint_name in zip(self.pinocchio_robot.model.joints, self.pinocchio_robot.model.names):
             if joint.idx_q == -1: continue  # Ignore universe
             if joint.nq == 7: continue      # Ignore floating-base
-            log.info(f"Joint[{joint_name}] - DoF(nq):{joint.nq}, idx_q:{joint.idx_q}, idx_v:{joint.idx_v}")
+            log.debug(f"Joint[{joint_name}] - DoF(nq):{joint.nq}, idx_q:{joint.idx_q}, idx_v:{joint.idx_v}")
+            vel_limit = self.pinocchio_robot.model.velocityLimit[joint.idx_v:joint.idx_v + joint.nv]
+            upper_pos_limit = self.pinocchio_robot.model.upperPositionLimit[joint.idx_q:joint.idx_q + joint.nq]
+            lower_pos_limit = self.pinocchio_robot.model.lowerPositionLimit[joint.idx_q:joint.idx_q + joint.nq]
             self.joint_aux_vars[joint_name] = JointInfo(pin_id=joint.id, bullet_id=np.NAN, idx_q=joint.idx_q,
-                                                        idx_dq=joint.idx_v, pos_lims=(-np.Inf, np.Inf),
-                                                        vel_lim=np.Inf, acc_lim=np.Inf, tau_lim=np.Inf)
-
+                                                        idx_dq=joint.idx_v, pos_lims=(lower_pos_limit, upper_pos_limit),
+                                                        vel_lim=vel_limit, acc_lim=np.Inf, tau_lim=np.Inf)
         self.joint_names = list(self.joint_aux_vars.keys())
         # Bullet simulation attributes TODO: Documentation.
         self._pb = None
@@ -413,9 +415,29 @@ class PinBulletWrapper:
         Returns:
             maximum velocity per dof (nj,)
         """
-        if self._dqj_limit is None:
-            raise AttributeError("Robot has not been loaded")
+        if self.pinocchio_robot is None:
+            raise AttributeError("Pinocchio robot has not been loaded")
+        elif self._dqj_limit is None:
+            self._dqj_limit = []
+            for joint_name in self.joint_names:
+                vel_limit = self.joint_aux_vars[joint_name].vel_lim
+                self._dqj_limit.append(vel_limit)
+            self._dqj_limit = np.asarray(self._dqj_limit).flatten()
         return self._dqj_limit
+
+    @property
+    def joint_pos_limits(self, q=None, dq=None):
+        if self.pinocchio_robot is None:
+            raise AttributeError("Pinocchio robot has not been loaded")
+        elif self._qj_low_limit is None or self._qj_high_limit is None:
+            self._qj_high_limit, self._qj_low_limit = [], []
+            for joint_name in self.joint_names:
+                low, high = self.joint_aux_vars[joint_name].pos_lims
+                self._qj_low_limit.append(low)
+                self._qj_high_limit.append(high)
+            self._qj_high_limit = np.asarray(self._qj_high_limit).flatten()
+            self._qj_low_limit = np.asarray(self._qj_low_limit).flatten()
+        return self._qj_low_limit, self._qj_high_limit
 
     @property
     def endeff_names(self) -> Collection:

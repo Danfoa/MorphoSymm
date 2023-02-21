@@ -1,7 +1,7 @@
 defaults:
   - base_robot
 
-robot_name: a1
+name: a1
 
 G: C2
 hip_height: 0.35

@@ -15,6 +15,8 @@ from utils.pybullet_visual_utils import setup_debug_sliders, listen_update_robot
 from utils.utils import reflection_matrix, configure_bullet_simulation
 
 import importlib
+import warnings
+import functools
 
 def class_from_name(module_name, class_name):
     # load the module, will raise ImportError if module cannot be loaded
@@ -24,7 +26,7 @@ def class_from_name(module_name, class_name):
     return c
 
 def load_robot_and_symmetries(robot_cfg, debug=False):
-    robot_name = str.lower(robot_cfg.robot_name)
+    robot_name = str.lower(robot_cfg.name)
     robot = PinBulletWrapper(robot_name=robot_name, init_q=robot_cfg.init_q, hip_height=robot_cfg.hip_height,
                              endeff_names=robot_cfg.endeff_names)
 
@@ -37,21 +39,25 @@ def load_robot_and_symmetries(robot_cfg, debug=False):
     # Permutations and reflection defining each ρQj(g) ∈ G
     perm_qj = robot_cfg.perm_qj
     refx_qj = robot_cfg.refx_qj
-
     # Get the group class to validate group axioms.
-    G_class = class_from_name('groups.SymmetryGroups', robot_cfg.G)
+    G_class = class_from_name('groups.SymmetryGroups', robot_cfg.G if robot_cfg.gens_ids is None else robot_cfg.G_sub)
 
     # Configure QJ representations and group
     generators_QJ = []
-    for p, r in zip(perm_qj, refx_qj):
+    for gen_id, (p, r) in enumerate(zip(perm_qj, refx_qj)):
+        if robot_cfg.gens_ids is not None and gen_id not in robot_cfg.gens_ids:
+            continue
         g = Sym.oneline2matrix(oneline_notation=p, reflexions=r)
         generators_QJ.append(g)
     G_QJ = G_class(generators=generators_QJ)
 
     # Configure E3 representations and group
     n_reflex = robot_cfg.n_reflex
+
     generators_E3 = []
-    for n in n_reflex:
+    for gen_id, n in enumerate(n_reflex):
+        if robot_cfg.gens_ids is not None and gen_id not in robot_cfg.gens_ids:
+            continue
         n_vect = np.array(n)  # Normal vector to reflection/symmetry plane w.r.t base frame
         R = reflection_matrix(n_vect)
         R = sparse.coo_matrix(R)
@@ -59,13 +65,13 @@ def load_robot_and_symmetries(robot_cfg, debug=False):
     G_E3 = G_class(generators=generators_E3)
 
     # Set representations
-    rep_E3 = SparseRepE3(G_E3)
+    rep_Ed = SparseRepE3(G_E3)
     rep_QJ = SparseRep(G_QJ)
 
-    return robot, rep_E3, rep_QJ
+    return robot, rep_Ed, rep_QJ
 
 
-def get_robot_params(robot_name):
+def get_robot_params(robot_cfg):
     """
     Utility function to select which symmetry groups are used to augment the data and which are used to constrain the
     function approximator, or augment the data during training. This allow us to compare performance when we
@@ -77,16 +83,27 @@ def get_robot_params(robot_name):
     rep_data_in, rep_data_out = None, None     # Input x and output y group representations
     rep_model_in, rep_model_out = None, None   # Input x and output y group representations assumed by the model
     robot = None
+    robot_name = robot_cfg.name
+    # Configure QJ (joint-space) group actions
+    perm_q = robot_cfg.perm_qj
+    refx_q = robot_cfg.refx_qj
+    generators_QJ = []
+    for p, r in zip(perm_q, refx_q):
+        g_qj = Sym.oneline2matrix(oneline_notation=perm_q, reflexions=refx_q)
+        generators_QJ.append(g_qj)
+    # Configure Ed (Euclidean Space) group actions
+    n_reflex = robot_cfg.n_refex
+    generators_Ed = []
+    for n in n_reflex:
+        # TODO: Add possibility for rotation/translation generators
+        R_s = reflection_matrix(n)
+        generators_Ed.append(sparse.coo_matrix(R_s))
 
-    try:
-        from hydra.utils import get_original_cwd
-        resources = pathlib.Path(get_original_cwd()) / 'robots'
-    except:
-        resources = pathlib.Path("robots/")
+    # Load robot urdf model
+    robot = PinBulletWrapper(robot_name=robot_name)
 
+    # Robot specific conf:
     if 'bolt' in robot_name.lower():
-        from robots.BoltBullet import BoltBullet
-        robot = BoltBullet(resources=resources / 'bolt/bolt_description')
         n_sagittal = np.array([0, 1, 0])  # Normal vector to reflection/symmetry plane w.r.t base frame
         R_s = reflection_matrix(n_sagittal)
         R_s = sparse.coo_matrix(R_s)
@@ -94,9 +111,8 @@ def get_robot_params(robot_name):
         rep_E3 = SparseRepE3(G_E3)
 
         # Configure qj (joint-space) group actions
-        #        |___ R __|___ L ___|
-        perm_q = [3,  4, 5,  0, 1, 2]
-        refx_q = [-1, 1, 1, -1, 1, 1]
+        perm_q = robot_cfg.perm_qj
+        refx_q = robot_cfg.refx_qj
         g_qj_sagittal = Sym.oneline2matrix(oneline_notation=perm_q, reflexions=refx_q)
         G_qj = C2(g_qj_sagittal)
         rep_qj = SparseRep(G_qj)
@@ -112,8 +128,6 @@ def get_robot_params(robot_name):
         rep_data_in, rep_data_out = rep_model_in, rep_model_out  # C2 has only the trivial group as subgroup
 
     elif 'atlas' in robot_name.lower():
-        from robots.AtlasBullet import AtlasBullet
-        robot = AtlasBullet(resources=resources / 'atlas/atlas_description')
         # Configure E3 group actions, due to sagittal symmety
         n_sagittal = np.array([0, 1, 0])  # Normal vector to reflection/symmetry plane w.r.t base frame
         R_s = reflection_matrix(n_sagittal)
@@ -122,8 +136,8 @@ def get_robot_params(robot_name):
         rep_E3 = SparseRepE3(G_E3)
 
         # Configure qj (joint-space) group actions
-        perm_q = robot.mirror_joint_idx
-        refx_q = robot.mirror_joint_signs
+        perm_q = robot_cfg.perm_qj
+        refx_q = robot_cfg.refx_qj
         g_qj_sagittal = Sym.oneline2matrix(oneline_notation=perm_q, reflexions=refx_q)
         G_qj = C2(g_qj_sagittal)
         rep_qj = SparseRep(G_qj)
@@ -139,9 +153,6 @@ def get_robot_params(robot_name):
         rep_data_in, rep_data_out = rep_model_in, rep_model_out  # C2 has only the trivial group as subgroup
 
     elif 'solo' in robot_name.lower():
-        # from robots.solo.Solo12Bullet import Solo12Bullet
-        # robot = Solo12Bullet(resources=resources / 'solo/solo_description')
-        robot = PinBulletWrapper(robot_name='solo')
         # Configure E3 group actions
         n_sagittal = np.array([0, 1, 0])  # Normal vector to reflection/symmetry plane.
         n_transversal = np.array([1, 0, 0])  # Normal vector to reflection/symmetry plane.
@@ -152,10 +163,8 @@ def get_robot_params(robot_name):
         K4_E3 = Klein4(generators=[R_s, R_t])
         rep_E3 = SparseRepE3(K4_E3)
         # Configure qj (joint-space) group actions
-        #                  Sagittal Symmetry                      Transversal symmetry
-        perm_q = [[3, 4, 5, 0, 1, 2, 9, 10, 11, 6, 7, 8], [6, 7, 8, 9, 10, 11, 0, 1, 2, 3, 4, 5]]
-        # Reflections are determined by joint frame predefined orientation.
-        refx_q = [[-1, 1, 1, -1, 1, 1, -1, 1, 1, -1, 1, 1], [1, -1, -1, 1, -1, -1, 1, -1, -1, 1, -1, -1]]
+        perm_q = robot_cfg.perm_qj
+        refx_q = robot_cfg.refx_qj
 
         # Ground truth generalized coordinates Symmetry Group.
         g_sagittal = Sym.oneline2matrix(oneline_notation=perm_q[0], reflexions=refx_q[0])
@@ -185,8 +194,6 @@ def get_robot_params(robot_name):
 
         rep_model_in, rep_model_out = rep_x, rep_y
     elif 'hyq' in robot_name.lower():
-        from robots.HyQBullet import HyQBullet
-        robot = HyQBullet(resources=pathlib.Path('hyq_description'))
         # Configure E3 group actions
         n_sagittal = np.array([0, 1, 0])  # Normal vector to reflection/symmetry plane.
         n_transversal = np.array([1, 0, 0])  # Normal vector to reflection/symmetry plane.
@@ -196,13 +203,9 @@ def get_robot_params(robot_name):
 
         K4_E3 = Klein4(generators=[R_s, R_t])
         rep_E3 = SparseRepE3(K4_E3)
-        #        ____LF___|___LH____|___RF______|____RH____|
-        # q    = [ 0, 1, 2,  3, 4, 5,  6,  7,  8, 9, 10, 11]
         # Configure qj (joint-space) group actions
-        #                  Sagittal Symmetry                      Transversal symmetry
-        perm_q = [[6, 7, 8, 9, 10, 11, 0, 1, 2, 3, 4, 5], [3, 4, 5, 0, 1, 2, 9, 10, 11, 6, 7, 8]]
-        # Reflections are determined by joint frame predefined orientation.
-        refx_q = [[1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], [1, -1, -1, 1, -1, -1, 1, -1, -1, 1, -1, -1]]
+        perm_q = robot_cfg.perm_qj
+        refx_q = robot_cfg.refx_qj
 
         # Ground truth generalized coordinates Symmetry Group.
         g_sagittal = Sym.oneline2matrix(oneline_notation=perm_q[0], reflexions=refx_q[0])
@@ -234,8 +237,6 @@ def get_robot_params(robot_name):
 
         rep_model_in, rep_model_out = rep_x, rep_y
     elif 'a1' in robot_name.lower():
-        from robots.A1 import A1
-        robot = A1(resources=resources / 'a1/a1_description')
         n_sagittal = np.array([0, 1, 0])  # Normal vector to reflection/symmetry plane w.r.t base frame
         R_s = reflection_matrix(n_sagittal)
         R_s = sparse.coo_matrix(R_s)
@@ -243,9 +244,8 @@ def get_robot_params(robot_name):
         rep_E3 = SparseRepE3(G_E3)
 
         # Configure qj (joint-space) group actions
-        #        |___ R __|___ L ___|
-        perm_q = [3, 4, 5, 0, 1, 2, 9, 10, 11, 6, 7, 8]
-        refx_q = [-1, 1, 1, -1, 1, 1, -1, 1, 1, -1, 1, 1]
+        perm_q = robot_cfg.perm_qj
+        refx_q = robot_cfg.refx_qj
         g_qj_sagittal = Sym.oneline2matrix(oneline_notation=perm_q, reflexions=refx_q)
         G_qj = C2(g_qj_sagittal)
         rep_qj = SparseRep(G_qj)

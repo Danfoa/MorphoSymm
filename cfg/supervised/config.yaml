@@ -3,9 +3,10 @@ defaults:
   - _self_
   - dataset: com_momentum
   - model: emlp
+  - robot: solo
 
 # TODO: Make distinctions between. Trainer Args, Model Psecific Args, Program Args
-robot_name: 'solo12'
+#robot: 'solo12'
 seed: -1
 exp_name: 'tests'
 
@@ -41,7 +42,6 @@ hydra:
           - model.fine_tune_num_layers
           - model.fine_tune_num_layers
           - device
-          - robot_name
           - exp_name
           - max_epochs
           - dataset.train_ratio

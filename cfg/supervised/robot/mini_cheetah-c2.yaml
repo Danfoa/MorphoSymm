@@ -1,6 +1,6 @@
 
 defaults:
-  - solo
+  - mini_cheetah
 
 G_sub: C2
 gens_ids: [0]

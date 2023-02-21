@@ -1,7 +1,7 @@
 defaults:
   - base_robot
 
-robot_name: baxter
+name: baxter
 
 G: C2
 hip_height: 1.0

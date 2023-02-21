@@ -11,3 +11,6 @@
 output/
 *numpy_*
 *.xz
+*.DS_Store
+.ipynb_checkpoints/
+*.log

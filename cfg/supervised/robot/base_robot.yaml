@@ -1,6 +1,14 @@
-
-robot_name: ???
+# Robot (description) name for loading robot_descriptions.py
+name: ???
+# Full Symmetry group of the system
 G: null
+# Subgroup of the full symmetry group to use
+G_sub: null
+# Ids of group generators (DMSs) to be used to build the robot symmetry group
+# Useful for building a symmetry group that is a subset of the full symmetry group G_sub ⊆ G
+gens_ids: null
+
+# Visualization aux variables
 hip_height: 1.0
 endeff_names: null
 init_q: null
