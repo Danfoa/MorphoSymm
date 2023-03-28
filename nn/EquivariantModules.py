@@ -20,10 +20,10 @@ from scipy.sparse import issparse
 from torch.nn import functional as F
 from torch.nn.modules.utils import _single
 
-from groups.SemiDirectProduct import SemiDirectProduct
-from groups.SparseRepresentation import SparseRep
-from utils.emlp_cache import EMLPCache
-from utils.utils import slugify, coo2torch_coo
+from ..groups.SemiDirectProduct import SemiDirectProduct
+from ..groups.SparseRepresentation import SparseRep
+from ..utils.emlp_cache import EMLPCache
+from ..utils.utils import slugify, coo2torch_coo
 
 log = logging.getLogger(__name__)
 

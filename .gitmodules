@@ -1,3 +1,6 @@
 [submodule "datasets/contact_dataset/deep-contact-estimator"]
 	path = datasets/contact_dataset/deep-contact-estimator
 	url = https://github.com/UMich-CURLY/deep-contact-estimator/
+[submodule "src/DeepKoopman"]
+	path = src/DeepKoopman
+	url = https://github.com/BethanyL/DeepKoopman.git

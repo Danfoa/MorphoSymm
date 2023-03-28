@@ -25,7 +25,7 @@ from sklearn.metrics import confusion_matrix
 import pathlib
 import sys
 
-from utils.robot_utils import load_robot_and_symmetries, class_from_name
+from ..utils.robot_utils import load_robot_and_symmetries, class_from_name
 
 try:
     deep_contact_estimator_path = pathlib.Path(__file__).parent.absolute()

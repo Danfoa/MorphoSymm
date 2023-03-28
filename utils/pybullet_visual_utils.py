@@ -3,7 +3,7 @@ import pathlib
 import numpy as np
 from pytransform3d import rotations as rt
 
-from utils.utils import matrix_to_quat_xyzw
+from .utils import matrix_to_quat_xyzw
 
 
 def draw_vector(pb, origin, vector, v_color, scale=1.0):

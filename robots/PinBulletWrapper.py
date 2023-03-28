@@ -29,8 +29,6 @@ from scipy.linalg import inv
 from robot_descriptions.loaders.pinocchio import load_robot_description as pin_load_robot_description
 from robot_descriptions.loaders.pybullet import load_robot_description as pb_load_robot_description
 
-from utils.pybullet_visual_utils import tint_robot
-
 log = logging.getLogger(__name__)
 
 

@@ -5,16 +5,13 @@
 # @email   : daniels.ordonez@gmail.com
 from typing import Optional, Sequence
 
-import jax
+import jax.numpy as jnp
+import numpy as np
 import scipy.sparse
+from emlp.groups import Group
 from scipy import sparse
 from scipy.sparse import issparse
 from tqdm import tqdm
-import numpy as np
-import jax.numpy as jnp
-
-import os
-from emlp.groups import Group
 
 
 class Sym(Group):

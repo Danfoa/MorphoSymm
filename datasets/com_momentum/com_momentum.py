@@ -8,16 +8,12 @@ from typing import Union
 import numpy as np
 import torch
 import torch.nn.functional as F
-from emlp.reps.representation import Rep
 from omegaconf import DictConfig
 from scipy.sparse import issparse
 from torch.utils.data import Dataset
 from torch.utils.data._utils.collate import default_collate
-
-from groups.SparseRepresentation import SparseRep
-from groups.SymmetryGroups import Sym
-from utils.robot_utils import load_robot_and_symmetries
-from utils.utils import dense
+from ...utils.robot_utils import load_robot_and_symmetries
+from ...utils.utils import dense
 
 log = logging.getLogger(__name__)
 
@@ -66,7 +62,7 @@ class COMMomentum(Dataset):
     def __init__(self, robot_cfg, type='train',
                  angular_momentum=True, standarizer: Union[bool, Standarizer] = True, augment=False,
                  train_ratio=0.7, test_ratio=0.15, val_ratio=0.15, samples=100000,
-                 dtype=torch.float32, data_path="datasets/com_momentum", device='cpu', debug=False):
+                 dtype=torch.float32, data_path="data/com_momentum", device='cpu', debug=False):
 
         self.dataset_type = type
         self.dtype = dtype

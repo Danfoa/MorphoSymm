@@ -45,7 +45,7 @@ def get_model(cfg, rep_in=None, rep_out=None, cache_dir=None):
     elif "cnn" == cfg.model_type.lower():
         import datasets.contact_dataset.umich_contact_dataset  # Triggers submodule error.
         import sys
-        deep_contact_estimator_path = pathlib.Path(__file__).parent / 'datasets/contact_dataset/'
+        deep_contact_estimator_path = pathlib.Path(__file__).parent / 'data/contact_dataset/'
         assert deep_contact_estimator_path.exists(), deep_contact_estimator_path
         sys.path.append(str(deep_contact_estimator_path / 'deep-contact-estimator/src'))
         from contact_cnn import contact_cnn
@@ -103,7 +103,7 @@ def get_datasets(cfg, device, root_path):
                                      collate_fn=lambda x: val_dataset.collate_fn(x), num_workers=cfg.num_workers)
 
     elif cfg.dataset.name == "com_momentum":
-        data_path = root_path.joinpath(f"datasets/com_momentum/{cfg.robot.name.lower()}")
+        data_path = root_path.joinpath(f"data/com_momentum/{cfg.robot.name.lower()}")
         # Training only sees the model symmetries
         train_dataset = COMMomentum(robot_cfg=cfg.robot, type='train', samples=cfg.dataset.samples,
                                     train_ratio=cfg.dataset.train_ratio, angular_momentum=cfg.dataset.angular_momentum,

@@ -11,7 +11,7 @@ from jax import numpy as jnp
 from scipy import sparse
 from tqdm import tqdm
 
-from groups.SymmetryGroups import Sym
+from .SymmetryGroups import Sym
 log = logging.getLogger(__name__)
 
 
@@ -32,25 +32,26 @@ class SparseRep(BaseRep):
         canon_rep, perm = self.canonicalize()
         invperm = np.argsort(perm)
 
-        if canon_rep not in self.solcache:
-            logging.info(f"{canon_rep} cache miss")
-            logging.info(f"Solving basis for {self}" + (f", for G={self.G}" if hasattr(self, "G") else ""))
-            # if self.G.is_sparse:
-            #     C = self.constraint_matrix()
-            #     U, S, VH = scipy.sparse.linalg.svds(C, min(C.shape) - 1)
-            #     rank = (S > 1e-5).sum()
-            #     return VH[rank:].conj().T
-            if self.G.is_sparse:
-                # P = self.G.discrete_generators[0]
-                Q = self.sparse_equivariant_basis_gen_permutation()
-                # Q2 = self.sparse_equivariant_basis2()
-                # assert np.allclose(Q, Q2)
-            else:
-                self.G.lie_algebra = []
-                Q = Vector(self.G).equivariant_basis()
-            self.solcache[canon_rep] = Q
+        # TODO: Ignore cache for now
+        # if canon_rep not in self.solcache:
+        logging.info(f"{canon_rep} cache miss")
+        logging.info(f"Solving basis for {self}" + (f", for G={self.G}" if hasattr(self, "G") else ""))
+        # if self.G.is_sparse:
+        #     C = self.constraint_matrix()
+        #     U, S, VH = scipy.sparse.linalg.svds(C, min(C.shape) - 1)
+        #     rank = (S > 1e-5).sum()
+        #     return VH[rank:].conj().T
+        if self.G.is_sparse:
+            # P = self.G.discrete_generators[0]
+            Q = self.sparse_equivariant_basis_gen_permutation()
+            # Q2 = self.sparse_equivariant_basis2()
+            # assert np.allclose(Q, Q2)
         else:
-            log.info(f"{canon_rep} cache found")
+            self.G.lie_algebra = []
+            Q = Vector(self.G).equivariant_basis()
+        self.solcache[canon_rep] = Q
+        # else:
+        #     log.info(f"{canon_rep} cache found")
 
         if self.G.is_sparse:
             # TODO: Apply inv perm to sparse matrix, by modifying coordinates directly.

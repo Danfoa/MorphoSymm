@@ -11,7 +11,6 @@ from pytransform3d import transformations as tr, rotations as rt
 from scipy.sparse import issparse
 
 
-
 def check_if_resume_experiment(ckpt_call):
     ckpt_path = pathlib.Path(ckpt_call.dirpath).joinpath(ckpt_call.CHECKPOINT_NAME_LAST + ckpt_call.FILE_EXTENSION)
     best_path = pathlib.Path(ckpt_call.dirpath).joinpath(ckpt_call.filename + ckpt_call.FILE_EXTENSION)
@@ -174,9 +173,11 @@ def matrix_to_quat_xyzw(R):
     assert R.shape == (3, 3)
     return rt.quaternion_xyzw_from_wxyz(rt.quaternion_from_matrix(R))
 
+
 def quat_xyzw_to_SO3(q):
     assert q.shape == (4,)
     return rt.matrix_from_quaternion(rt.quaternion_wxyz_from_xyzw(q))
+
 
 def SE3_2_gen_coordinates(X):
     assert X.shape == (4, 4)

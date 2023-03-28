@@ -1,8 +1,7 @@
-import numpy as np
 import matplotlib.pyplot as plt
+import numpy as np
 import pandas as pd
 import seaborn as sns
-import sympy
 from emlp import Group
 from emlp.reps.linear_operators import densify
 from sklearn.cluster import KMeans

@@ -8,11 +8,11 @@ import pathlib
 import numpy as np
 from scipy import sparse
 
-from groups.SparseRepresentation import SparseRep, SparseRepE3
-from groups.SymmetryGroups import C2, Klein4, Sym
-from robots.PinBulletWrapper import PinBulletWrapper
-from utils.pybullet_visual_utils import setup_debug_sliders, listen_update_robot_sliders
-from utils.utils import reflection_matrix, configure_bullet_simulation
+from ..groups.SparseRepresentation import SparseRep, SparseRepE3
+from ..groups.SymmetryGroups import C2, Klein4, Sym
+from ..robots.PinBulletWrapper import PinBulletWrapper
+from .pybullet_visual_utils import setup_debug_sliders, listen_update_robot_sliders
+from .utils import reflection_matrix, configure_bullet_simulation
 
 import importlib
 import warnings

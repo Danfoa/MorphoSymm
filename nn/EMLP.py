@@ -5,8 +5,8 @@ import numpy as np
 import torch
 from emlp.reps.representation import Base as BaseRep
 
-from groups.SparseRepresentation import SparseRep
-from nn.EquivariantModules import EquivariantModel, BasisLinear
+from ..groups.SparseRepresentation import SparseRep
+from .EquivariantModules import EquivariantModel, BasisLinear
 log = logging.getLogger(__name__)
 
 class EMLP(EquivariantModel):
@@ -124,9 +124,9 @@ class MLP(torch.nn.Module):
         self.net = torch.nn.Sequential(*layers)
         self.reset_parameters(init_mode=self.init_mode)
 
-    def forward(self, x):
-        y = self.net(x)
-        return y
+    def forward(self, input):
+        output = self.net(input)
+        return output
 
     def get_hparams(self):
         return {'num_layers': len(self.net),

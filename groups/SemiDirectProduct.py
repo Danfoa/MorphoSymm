@@ -3,13 +3,13 @@ import numpy as np
 from emlp.reps.linear_operators import LazyKron
 from emlp.reps.representation import Vector
 
-from groups.SparseRepresentation import SparseRep
-from groups.SymmetryGroups import C2, Sym
+from .SparseRepresentation import SparseRep
+from .SymmetryGroups import C2, Sym
 from scipy.sparse.linalg import LinearOperator
 
 import logging
 
-from utils.utils import dense
+from ..utils.utils import dense
 
 log = logging.getLogger(__name__)
 
