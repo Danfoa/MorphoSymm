@@ -3,7 +3,8 @@
 # @Time    : 11/3/22
 # @Author  : Daniel Ordonez 
 # @email   : daniels.ordonez@gmail.com
-import pathlib
+
+import importlib
 
 import numpy as np
 from scipy import sparse
@@ -14,9 +15,6 @@ from robots.PinBulletWrapper import PinBulletWrapper
 from .pybullet_visual_utils import setup_debug_sliders, listen_update_robot_sliders
 from .utils import reflection_matrix, configure_bullet_simulation
 
-import importlib
-import warnings
-import functools
 
 def class_from_name(module_name, class_name):
     # load the module, will raise ImportError if module cannot be loaded
@@ -45,32 +43,35 @@ def load_robot_and_symmetries(robot_cfg, debug=False):
         setup_debug_sliders(pb, robot)
         listen_update_robot_sliders(pb, robot)
 
-    # Permutations and reflection defining each ρQj(g) ∈ G
-    perm_qj = robot_cfg.perm_qj
-    refx_qj = robot_cfg.refx_qj
+    # Permutations and reflection defining each ρ_Qjs(g) ∈ G.
+    perm_q_js = robot_cfg.perm_qj
+    refx_q_js = robot_cfg.refx_qj
     # Get the group class to validate group axioms.
     G_class = class_from_name('groups.SymmetryGroups', robot_cfg.G if robot_cfg.gens_ids is None else robot_cfg.G_sub)
 
-    # Configure QJ representations and group
+    # Configure QJ representations and group, using the group generators alone.
     generators_QJ = []
-    for gen_id, (p, r) in enumerate(zip(perm_qj, refx_qj)):
+    for gen_id, (p, r) in enumerate(zip(perm_q_js, refx_q_js)):
         if robot_cfg.gens_ids is not None and gen_id not in robot_cfg.gens_ids:
             continue
+        # `g` here is the actual representation matrix R^{nj x nj} describing the permutations and reflections of QJ
         g = Sym.oneline2matrix(oneline_notation=p, reflexions=r)
         generators_QJ.append(g)
     G_QJ = G_class(generators=generators_QJ)
 
-    # Configure E3 representations and group
+    # For now since we are using for the moment only reflection actions, we define the reflection from the normal vector
+    # of the plane of reflection. # TODO: enable non abelian representations also in config (i.e, also rotations/translations)
     n_reflex = robot_cfg.n_reflex
-
     generators_E3 = []
     for gen_id, n in enumerate(n_reflex):
         if robot_cfg.gens_ids is not None and gen_id not in robot_cfg.gens_ids:
             continue
+        # Use the vector normal to the reflection plane to build the actual 3x3 reflection matrix R
         n_vect = np.array(n)  # Normal vector to reflection/symmetry plane w.r.t base frame
         R = reflection_matrix(n_vect)
         R = sparse.coo_matrix(R)
         generators_E3.append(R)
+    # TODO: E3 representations should consider translations also. Must change (not so relevant for now)
     G_E3 = G_class(generators=generators_E3)
 
     # Set representations

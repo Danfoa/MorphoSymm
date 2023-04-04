@@ -31,6 +31,9 @@ def dense(x):
 
 
 def coo2torch_coo(M: scipy.sparse.coo_matrix):
+    """
+    Convert sparse scipy coo matrix to pytorch sparse coo matrix
+    """
     density = M.getnnz() / np.prod(M.shape)
     memory = np.prod(M.shape) * 32
     if memory > 1e9:
@@ -138,12 +141,6 @@ def slugify(value, allow_unicode=False):
     return re.sub(r'[-\s]+', '-', value).strip('-_')
 
 
-if __name__ == "__main__":
-    a = (2, 3, 0, 1)
-    P = permutation_matrix(a)
-    assert is_canonical_permutation(P)
-
-
 def reflection_matrix(plane_norm_vector):
     aa = np.expand_dims(plane_norm_vector, -1) if plane_norm_vector.shape == (3,) else plane_norm_vector
     d = aa.shape[0]
@@ -170,16 +167,25 @@ def reflection_transformation(vnorm, point_in_plane):
 
 
 def matrix_to_quat_xyzw(R):
+    """ SO(3) rotation to xyzw quaternion representation """
     assert R.shape == (3, 3)
     return rt.quaternion_xyzw_from_wxyz(rt.quaternion_from_matrix(R))
 
 
 def quat_xyzw_to_SO3(q):
+    """
+    xyzw quaternion representation to SO(3) representation
+    """
     assert q.shape == (4,)
     return rt.matrix_from_quaternion(rt.quaternion_wxyz_from_xyzw(q))
 
 
 def SE3_2_gen_coordinates(X):
+    """
+    Convert a frame homogenous configuration in SE(3) matrix representation (R^{4x4}) to the usual representation used
+    in pinocchio and physics simulations representing position and orientation as a 3D position vector and a 3D
+    quaternion (xyzw convention used in pybullet)
+    """
     assert X.shape == (4, 4)
     pos = X[:3, 3]
     quat = matrix_to_quat_xyzw(X[:3, :3])

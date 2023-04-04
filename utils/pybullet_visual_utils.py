@@ -241,5 +241,3 @@ def display_robots_and_vectors(pb, robot, base_confs, Gq_js, Gdq_js, Ghg, Ghg_pi
         # Draw Base orientation
         draw_vector(pb, origin=tB_w + RB_w @ np.array((0.06, 0, 0.03)), vector=RB_w[:, 0], v_color=[1, 1, 1, 1],
                     scale=0.05)
-
-    print("a")
