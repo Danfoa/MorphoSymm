@@ -1,9 +1,10 @@
+import copy
 import pathlib
 
 import numpy as np
-from pytransform3d import rotations as rt
+from pytransform3d import rotations as rt, transformations as tr
 
-from .utils import matrix_to_quat_xyzw
+from .utils import matrix_to_quat_xyzw, SE3_2_gen_coordinates
 
 
 def draw_vector(pb, origin, vector, v_color, scale=1.0):
@@ -155,3 +156,90 @@ def tint_robot(pb, robot):
             color = robot_color
         pb.changeVisualShape(objectUniqueId=robot.robot_id, linkIndex=i, rgbaColor=color, specularColor=[0, 0, 0])
     pb.changeVisualShape(objectUniqueId=robot.robot_id, linkIndex=-1, rgbaColor=robot_color, specularColor=[0, 0, 0])
+
+
+def display_robots_and_vectors(pb, robot, base_confs, Gq_js, Gdq_js, Ghg, Ghg_pin, forces, forces_points, surface_normals,
+                               GX_g_bar, offset=1.5):
+    """
+    Plot side by side robots with different configutations, CoM momentums and expected CoM after an action g
+    """
+    # pb.resetSimulation()
+
+    # Optional: Display origin.
+    # draw_vector(pb, np.zeros(3), np.asarray([.1, 0, 0]), v_color=[1, 0, 0, 1])
+    # draw_vector(pb, np.zeros(3), np.asarray([0, .1, 0]), v_color=[0, 1, 0, 1])
+    # draw_vector(pb, np.zeros(3), np.asarray([0, 0, .1]), v_color=[0, 0, 1, 1])
+
+    plane_height = robot.hip_height / 4.0
+    plane_size = (0.01, robot.hip_height / 2, robot.hip_height / 4)
+
+    # Sagittal plane
+    X_g_sagittal = GX_g_bar[1]
+    plot_reflection_plane(pb, R=rt.matrix_from_two_vectors(a=[0, 1, 0], b=[1, 0, 0]),
+                          p=X_g_sagittal[:3, 3] / 2 + [0.0, 0.0, plane_height],
+                          color=np.array([242, 242, 242, 40]) / 256., size=plane_size)
+    if len(GX_g_bar) > 2:
+        plot_reflection_plane(pb, R=rt.matrix_from_two_vectors(a=[0, 1, 0], b=[1, 0, 0]),
+                              p=X_g_sagittal[:3, 3] / 2 + [offset, 0.0, plane_height],
+                              color=np.array([242, 242, 242, 40]) / 256., size=plane_size)
+        X_g_trans = GX_g_bar[2]
+        plot_reflection_plane(pb, R=rt.matrix_from_two_vectors(a=[1, 0, 0], b=[0, 1, 0]),
+                              p=X_g_trans[:3, 3] / 2 + [0.0, 0.0, plane_height],
+                              color=np.array([255, 230, 230, 40]) / 256., size=plane_size)
+        plot_reflection_plane(pb, R=rt.matrix_from_two_vectors(a=[1, 0, 0], b=[0, 1, 0]),
+                              p=X_g_trans[:3, 3] / 2 + [0.0, offset, plane_height],
+                              color=np.array([255, 230, 230, 40]) / 256., size=plane_size)
+
+    robots = [robot]
+    com_pos = None
+    for i in range(0, len(Gq_js)):
+        q_js, dq_js, XB_w, hg_B, ghg_B, rho_X_gbar = Gq_js[i], Gdq_js[i], base_confs[i], Ghg[i], Ghg_pin[i], GX_g_bar[i]
+        RB_w = XB_w[:3, :3]
+        tB_w = XB_w[:3, 3]
+        grobot = robot
+        if i > 0:
+            grobot = robot if i == 0 else copy.copy(robot)
+            grobot.configure_bullet_simulation(pb, world=None)
+            tint_robot(pb, grobot)
+            robots.append(grobot)
+        # Place robots in env
+        base_q = SE3_2_gen_coordinates(XB_w)
+        # Set positions:
+        grobot.reset_state(np.concatenate((base_q, q_js)), np.concatenate((np.zeros(6), dq_js)))
+        # Add small offset to COM for visualization.
+        if com_pos is None:
+            com_pos = robot.pinocchio_robot.com(q=np.concatenate((base_q, q_js))) + (RB_w @ np.array([-0.4, 0.5, 0.05]))
+
+        gcom_pos = tr.transform(rho_X_gbar, tr.vector_to_point(com_pos), strict_check=False)[:3]
+        # Draw COM momentum and COM location
+        com_id = pb.createVisualShape(shapeType=pb.GEOM_SPHERE, radius=0.02,
+                                      rgbaColor=np.array([10, 10, 10, 255]) / 255.)
+        com_body_id = pb.createMultiBody(baseMass=1, baseVisualShapeIndex=com_id,
+                                         basePosition=gcom_pos,
+                                         baseOrientation=matrix_to_quat_xyzw(np.eye(3)))
+        lin_com_mom_id = draw_vector(pb, origin=gcom_pos, vector=RB_w @ ghg_B[:3],
+                                     v_color=np.array([255, 153, 0, 255]) / 255.,
+                                     scale=(1 / np.linalg.norm(ghg_B[:3]) * robot.hip_height * .3))
+        ang_com_mom_id = draw_vector(pb, origin=gcom_pos, vector=RB_w @ ghg_B[3:],
+                                     v_color=np.array([136, 204, 0, 255]) / 255.,
+                                     scale=(1 / np.linalg.norm(ghg_B[3:]) * robot.hip_height * .3))
+
+        # Draw forces and contact planes
+        force_color = (0.590, 0.153, 0.510, 1.0)
+        for force_orbit, rf_orbit, GRf_w in zip(forces, forces_points, surface_normals):
+            draw_vector(pb, origin=rf_orbit[i], vector=force_orbit[i], v_color=force_color)
+            body_id = pb.createVisualShape(shapeType=pb.GEOM_BOX, halfExtents=[.2 * robot.hip_height,
+                                                                               .2 * robot.hip_height,
+                                                                               0.01],
+                                           rgbaColor=np.array([235, 255, 255, 150]) / 255.)
+            mb = pb.createMultiBody(baseMass=1,
+                                    baseInertialFramePosition=[0, 0, 0],
+                                    baseCollisionShapeIndex=body_id,
+                                    baseVisualShapeIndex=body_id,
+                                    basePosition=rf_orbit[i] - GRf_w[i] @ np.array([0, 0, 0.03]),
+                                    baseOrientation=matrix_to_quat_xyzw(GRf_w[i]))
+        # Draw Base orientation
+        draw_vector(pb, origin=tB_w + RB_w @ np.array((0.06, 0, 0.03)), vector=RB_w[:, 0], v_color=[1, 1, 1, 1],
+                    scale=0.05)
+
+    print("a")
