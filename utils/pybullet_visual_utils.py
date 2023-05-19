@@ -4,7 +4,7 @@ import pathlib
 import numpy as np
 from pytransform3d import rotations as rt, transformations as tr
 
-from .utils import matrix_to_quat_xyzw, SE3_2_gen_coordinates
+from .algebra_utils import matrix_to_quat_xyzw, SE3_2_gen_coordinates, quat_xyzw_to_SO3
 
 
 def draw_vector(pb, origin, vector, v_color, scale=1.0):
@@ -158,7 +158,7 @@ def tint_robot(pb, robot):
     pb.changeVisualShape(objectUniqueId=robot.robot_id, linkIndex=-1, rgbaColor=robot_color, specularColor=[0, 0, 0])
 
 
-def display_robots_and_vectors(pb, robot, base_confs, Gq_js, Gdq_js, Ghg, Ghg_pin, forces, forces_points, surface_normals,
+def display_robots_and_vectors(pb, robot, base_confs, Gq_js, Gdq_js, Ghg, forces, forces_points, surface_normals,
                                GX_g_bar, offset=1.5):
     """
     Plot side by side robots with different configutations, CoM momentums and expected CoM after an action g
@@ -166,9 +166,9 @@ def display_robots_and_vectors(pb, robot, base_confs, Gq_js, Gdq_js, Ghg, Ghg_pi
     # pb.resetSimulation()
 
     # Optional: Display origin.
-    # draw_vector(pb, np.zeros(3), np.asarray([.1, 0, 0]), v_color=[1, 0, 0, 1])
-    # draw_vector(pb, np.zeros(3), np.asarray([0, .1, 0]), v_color=[0, 1, 0, 1])
-    # draw_vector(pb, np.zeros(3), np.asarray([0, 0, .1]), v_color=[0, 0, 1, 1])
+    draw_vector(pb, np.zeros(3), np.asarray([.1, 0, 0]), v_color=[1, 0, 0, 1])
+    draw_vector(pb, np.zeros(3), np.asarray([0, .1, 0]), v_color=[0, 1, 0, 1])
+    draw_vector(pb, np.zeros(3), np.asarray([0, 0, .1]), v_color=[0, 0, 1, 1])
 
     plane_height = robot.hip_height / 4.0
     plane_size = (0.01, robot.hip_height / 2, robot.hip_height / 4)
@@ -193,7 +193,7 @@ def display_robots_and_vectors(pb, robot, base_confs, Gq_js, Gdq_js, Ghg, Ghg_pi
     robots = [robot]
     com_pos = None
     for i in range(0, len(Gq_js)):
-        q_js, dq_js, XB_w, hg_B, ghg_B, rho_X_gbar = Gq_js[i], Gdq_js[i], base_confs[i], Ghg[i], Ghg_pin[i], GX_g_bar[i]
+        q_js, dq_js, XB_w, ghg_B, rho_X_gbar = Gq_js[i], Gdq_js[i], base_confs[i], Ghg[i], GX_g_bar[i]
         RB_w = XB_w[:3, :3]
         tB_w = XB_w[:3, 3]
         grobot = robot
@@ -208,7 +208,7 @@ def display_robots_and_vectors(pb, robot, base_confs, Gq_js, Gdq_js, Ghg, Ghg_pi
         grobot.reset_state(np.concatenate((base_q, q_js)), np.concatenate((np.zeros(6), dq_js)))
         # Add small offset to COM for visualization.
         if com_pos is None:
-            com_pos = robot.pinocchio_robot.com(q=np.concatenate((base_q, q_js))) + (RB_w @ np.array([-0.4, 0.5, 0.05]))
+            com_pos = robot.pinocchio_robot.com(q=np.concatenate((base_q, q_js))) + (RB_w @ np.array([-0.3, 0.5, 0.05]))
 
         gcom_pos = tr.transform(rho_X_gbar, tr.vector_to_point(com_pos), strict_check=False)[:3]
         # Draw COM momentum and COM location
@@ -217,10 +217,10 @@ def display_robots_and_vectors(pb, robot, base_confs, Gq_js, Gdq_js, Ghg, Ghg_pi
         com_body_id = pb.createMultiBody(baseMass=1, baseVisualShapeIndex=com_id,
                                          basePosition=gcom_pos,
                                          baseOrientation=matrix_to_quat_xyzw(np.eye(3)))
-        lin_com_mom_id = draw_vector(pb, origin=gcom_pos, vector=RB_w @ ghg_B[:3],
+        lin_com_mom_id = draw_vector(pb, origin=gcom_pos, vector=ghg_B[:3],
                                      v_color=np.array([255, 153, 0, 255]) / 255.,
                                      scale=(1 / np.linalg.norm(ghg_B[:3]) * robot.hip_height * .3))
-        ang_com_mom_id = draw_vector(pb, origin=gcom_pos, vector=RB_w @ ghg_B[3:],
+        ang_com_mom_id = draw_vector(pb, origin=gcom_pos, vector=ghg_B[3:],
                                      v_color=np.array([136, 204, 0, 255]) / 255.,
                                      scale=(1 / np.linalg.norm(ghg_B[3:]) * robot.hip_height * .3))
 
@@ -241,3 +241,20 @@ def display_robots_and_vectors(pb, robot, base_confs, Gq_js, Gdq_js, Ghg, Ghg_pi
         # Draw Base orientation
         draw_vector(pb, origin=tB_w + RB_w @ np.array((0.06, 0, 0.03)), vector=RB_w[:, 0], v_color=[1, 1, 1, 1],
                     scale=0.05)
+
+
+def get_mock_ground_reaction_forces(pb, robot, robot_cfg):
+    end_effectors = np.random.choice(robot.bullet_ids_allowed_floor_contacts, 2, replace=False)
+    # Get positions and orientations of end effector links of the robot, used to place the forces used in visualization
+    rf1_w, quatf1_w = (np.array(x) for x in pb.getLinkState(robot.robot_id, end_effectors[0])[0:2])
+    rf2_w, quatf2_w = (np.array(x) for x in pb.getLinkState(robot.robot_id, end_effectors[1])[0:2])
+    Rf1_w, Rf2_w = quat_xyzw_to_SO3(quatf1_w), quat_xyzw_to_SO3(quatf2_w)
+    if not np.any([s in robot.robot_name for s in ["atlas"]]):  # Ignore
+        Rf1_w, Rf2_w = np.eye(3), np.eye(3)
+    # Add some random force magnitures to the vectors. # Rf_w[:, 2] := Surface normal
+    f1_w = Rf1_w[:, 2] + [2 * np.random.rand() - 1, 2 * np.random.rand() - 1, np.random.rand()]
+    f2_w = Rf2_w[:, 2] + [2 * np.random.rand() - 1, 2 * np.random.rand() - 1, np.random.rand()]
+    # For visualization purposes we make the forces proportional to the robot height
+    f1_w = f1_w / np.linalg.norm(f1_w) * robot_cfg.hip_height * .4
+    f2_w = f2_w / np.linalg.norm(f2_w) * robot_cfg.hip_height * .4
+    return Rf1_w, Rf2_w, f1_w, f2_w, rf1_w, rf2_w

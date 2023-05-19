@@ -7,7 +7,7 @@ from emlp.reps.linear_operators import densify
 from sklearn.cluster import KMeans
 from sympy import Matrix
 
-from .utils import symbolic_matrix
+from .algebra_utils import symbolic_matrix
 
 
 def visualize_basis_stats(basis):

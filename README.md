@@ -1,5 +1,5 @@
-# On discrete symmetries of robotic systems: A data-driven and group-theoretic analysis
-
+This repository holds the code for the paper: [On discrete symmetries of robotic systems: A data-driven and group-theoretic analysis](https://scholar.google.it/scholar?q=on+discrete+symmetries+of+robotic+systems:+a+data-driven+and+group-theoretic+analysis&hl=en&as_sdt=0&as_vis=1&oi=scholart). 
+Accepted to Robotics Science and Systems 2023 (RSS 2023).
 
 ## Example dynamical systems with Discrete Morphological Symmetries 
 The following is a non-exhaustive and expanding list of dynamical systems with Discrete Morphological Symmetries. Each example can be

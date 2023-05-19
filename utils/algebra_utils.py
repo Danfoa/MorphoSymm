@@ -94,9 +94,11 @@ def symbolic_matrix(base_name, rows, cols):
     return w
 
 
-def permutation_matrix(oneline_notation):
+def permutation_matrix(oneline_notation, assert_orthogonal=True):
     d = len(oneline_notation)
-    assert d == len(np.unique(oneline_notation)), np.unique(oneline_notation, return_counts=True)
+    if assert_orthogonal:
+        assert d == len(np.unique(oneline_notation)), np.unique(oneline_notation, return_counts=True)
+    P = np.zeros((d, d), dtype=np.int)
     P[range(d), np.abs(oneline_notation)] = 1
     return P
 
