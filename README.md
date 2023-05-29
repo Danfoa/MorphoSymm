@@ -7,13 +7,19 @@ Welcome to the Morphological Symmetries (MorphoSymm) repository! Here, you will 
 
 This repository holds the code for the paper: [On discrete symmetries of robotic systems: A data-driven and group-theoretic analysis](https://scholar.google.it/scholar?q=on+discrete+symmetries+of+robotic+systems:+a+data-driven+and+group-theoretic+analysis&hl=en&as_sdt=0&as_vis=1&oi=scholart). 
 Accepted to Robotics Science and Systems 2023 (RSS 2023). For reproducing the experiments of the paper, please see the master branch.
-
+### Installation:
+Simply clone the repository and install throuhg pip:
+```
+git clone https://github.com/Danfoa/MorphoSymm.git
+cd MorphoSymm
+pip install -e .
+```
 ## Library of dynamical systems with Discrete Morphological Symmetries 
 The following is a non-exhaustive and expanding list of dynamical systems with Discrete Morphological Symmetries. Each example can be
 reproduced in a 3D interactive environment running:
 ```
 cd [...]/MorphoSymm
-python robot_symmetry_visualization.py robot=<robot> gui=True debug=False
+python morpho_symm.robot_symmetry_visualization.py robot=<robot> gui=True 
 ```
 This script functions as an introductory tutorial showing how we define the representations of Discrete Morphological Symmetries in order to perform symmetry transformations on the robot state, and proprioceptive and exteroceptive measurements.
 ### $\mathcal{G}=\mathcal{C}_2$: Reflection Symmetry
