@@ -1,5 +1,5 @@
 import itertools
-from typing import List, Dict, Union, Callable
+from typing import Callable, Dict, List, Union
 
 import escnn
 import networkx as nx
@@ -15,21 +15,22 @@ from morpho_symm.utils.algebra_utils import permutation_matrix
 def is_complex_irreducible(
         G: Group, representation: Union[Dict[GroupElement, np.ndarray], Callable[[GroupElement], np.ndarray]]
 ):
-    """
-    Check if a representation is complex irreducible. We check this by asserting weather non-scalar (no multiple of
+    """Check if a representation is complex irreducible.
+
+    We check this by asserting weather non-scalar (no multiple of
     identity ) Hermitian matrix `H` exists, such that `H` commutes with all group elements' representation.
     If rho is irreducible, this function returns (True, H=I)  where I is the identity matrix.
     Otherwise, returns (False, H) where H is a non-scalar matrix that commutes with all elements' representation.
     """
     if isinstance(representation, dict):
-        rep = lambda g: representation[g]
+        def rep(g):
+            return representation[g]
     else:
         rep = representation
 
     # Compute the dimension of the representation
     n = rep(G.sample()).shape[0]
 
-    possible_transformations = []
     # Run through all r,s = 1,2,...,n
     for r in range(n):
         for s in range(n):
@@ -57,13 +58,14 @@ def is_complex_irreducible(
 def decompose_representation(
         G: Group, representation: Union[Dict[GroupElement, np.ndarray], Callable[[GroupElement], np.ndarray]]
 ):
-    """
-    Find the Hermitian transformation `Q | Q @ Q^H = I` that block-diagonalizes the representation `rep` of group `G`.
+    """Find the Hermitian matrix `Q` that block-diagonalizes the representation `rep` of group `G`.
+
     Such that `Q @ rep[g] @ Q^H = block_diag(rep_1[g], ..., rep_m[g])` for all `g` in `G`.
     """
     eps = 1e-12
     if isinstance(representation, dict):
-        rep = lambda g: representation[g]
+        def rep(g):
+            return representation[g]
     else:
         rep = representation
     # Compute the dimension of the representation
@@ -147,8 +149,22 @@ def decompose_representation(
 def cplx_isotypic_decomposition(
         G: Group, representation: Union[Dict[GroupElement, np.ndarray], Callable[[GroupElement], np.ndarray]]
 ):
+    """Perform the isotypic decomposition of unitary representation, decomposing the rep into complex irreps.
+
+    Args:
+        G (Group): Symmetry group of the representation.
+        representation (Union[Dict[GroupElement, np.ndarray], Callable[[GroupElement], np.ndarray]]): dict/mapping from
+        group elements to matrices, or a function that takes a group element and returns a matrix.
+
+    Returns:
+        sorted_irreps (List[Dict[GroupElement, np.ndarray]]): List of complex irreducible representations, sorted in
+        ascending order of dimension.
+        Q (ndarray): Hermitian matrix such that Q @ rep[g] @ Q^-1 is block diagonal, with blocks `sorted_irreps`.:
+
+    """
     if isinstance(representation, dict):
-        rep = lambda g: representation[g]
+        def rep(g):
+            return representation[g]
     else:
         rep = representation
 
@@ -182,11 +198,11 @@ def cplx_isotypic_decomposition(
     # Test isotypic decomposition.
     assert np.allclose(Q @ np.linalg.inv(Q), np.eye(n)), "Q is not unitary."
     for g in G.elements:
-        g_true = rep(g)
+        rep(g)
         g_iso = block_diag(*[irrep[g] if isinstance(irrep, dict) else irrep(g) for irrep in sorted_irreps])
-        g_iso_P = P.T @ g_iso @ P
-        g_iso_Q_ext = Q_external.conj().T @ P.T @ g_iso @ P @ Q_external
-        g_iso_Q = Q_internal.conj().T @ Q_external.conj().T @ P.T @ g_iso @ P @ Q_external @ Q_internal
+        P.T @ g_iso @ P
+        Q_external.conj().T @ P.T @ g_iso @ P @ Q_external
+        Q_internal.conj().T @ Q_external.conj().T @ P.T @ g_iso @ P @ Q_external @ Q_internal
         error = np.abs(g_iso - (Q @ rep(g) @ np.linalg.inv(Q)))
         assert np.allclose(error, 0), f"Q @ rep[g] @ Q^-1 != block_diag[irreps[g]], for g={g}. Error \n:{error}"
 
@@ -194,6 +210,16 @@ def cplx_isotypic_decomposition(
 
 
 def sorted_jordan_cann_form(G: Group, reps: List[Union[Dict[GroupElement, np.ndarray], Representation]]):
+    """Sorts a list of representations in ascending order of dimension, and returns a permutation matrix P such that.
+
+    Args:
+        G (Group): Symmetry group of the representation.
+        reps: List of representations to sort by dimension.
+
+    Returns:
+        P (ndarray): Permutation matrix sorting the input reps.
+        reps (List[Union[Dict[GroupElement, np.ndarray], Representation]]): Sorted list of representations.
+    """
     reps_idx = range(len(reps))
     reps_size = [rep[G.sample()].shape[0] if isinstance(rep, dict) else rep.size for rep in reps]
     sort_order = sorted(reps_idx, key=lambda idx: reps_size[idx])
@@ -210,9 +236,7 @@ def sorted_jordan_cann_form(G: Group, reps: List[Union[Dict[GroupElement, np.nda
 
 
 def compute_character_table(G: Group, reps: List[Union[Dict[GroupElement, np.ndarray], Representation]]):
-    """
-    Computes the character table of a group for a given set of representations.
-    """
+    """Computes the character table of a group for a given set of representations."""
     n_reps = len(reps)
     table = np.zeros((n_reps, G.order()), dtype=complex)
     for i, rep in enumerate(reps):
@@ -222,9 +246,7 @@ def compute_character_table(G: Group, reps: List[Union[Dict[GroupElement, np.nda
 
 
 def map_character_tables(in_table: np.ndarray, reference_table: np.ndarray):
-    """
-    Find a representation of a group in the set of irreducible representations.
-    """
+    """Find a representation of a group in the set of irreducible representations."""
     n_in_reps = in_table.shape[0]
     out_ids, multiplicities = [], []
     for in_id in range(n_in_reps):
@@ -239,9 +261,20 @@ def map_character_tables(in_table: np.ndarray, reference_table: np.ndarray):
 def escnn_representation_form_mapping(
         G: Group, representation: Union[Dict[GroupElement, np.ndarray], Callable[[GroupElement], np.ndarray]]
 ):
-    rep = lambda g: representation[g] if isinstance(representation, dict) else representation(g)
+    """Get a ESCNN representation isntance from a mapping from group elements to unitary matrices.
 
-    n = rep(G.sample()).shape[0]  # Size of the representation
+    Args:
+        G (Group): Symmetry group of the representation.
+        representation (Union[Dict[GroupElement, np.ndarray], Callable[[GroupElement], np.ndarray]]): Mapping from
+            group elements to unitary matrices.
+
+    Returns:
+        representation (Representation): ESCNN representation instance.
+    """
+    def rep(g):
+        return representation[g] if isinstance(representation, dict) else representation(g)
+
+    rep(G.sample()).shape[0]  # Size of the representation
     # Find Q such that `iso_cplx(g) = Q @ rep(g) @ Q^-1` is block diagonal with blocks being complex irreps.
     cplx_irreps, Q = cplx_isotypic_decomposition(G, rep)
     # Get the size and location of each cplx irrep in `iso_cplx(g)`
@@ -292,7 +325,7 @@ def escnn_representation_form_mapping(
         iso_cplx_g = block_diag(*[cplx_irrep[g] for cplx_irrep in cplx_irreps])
         rec_iso_re_g = Q_iso_cplx2iso_re @ P @ iso_cplx_g @ (Q_iso_cplx2iso_re @ P).conj().T
         error = np.abs(iso_re_g - rec_iso_re_g)
-        assert np.isclose(error, 0).all(), f"Error found in the conversion of Real irreps to Complex irreps"
+        assert np.isclose(error, 0).all(), "Error found in the conversion of Real irreps to Complex irreps"
 
     # Now we have an orthogonal transformation between the input `rep` and `iso_re`.
     #                        |     iso_cplx(g)     |
@@ -301,7 +334,7 @@ def escnn_representation_form_mapping(
     assert np.allclose(Q_re @ Q_re.conj().T, np.eye(Q_re.shape[0])), "Q_re is not an orthogonal transformation"
 
     # Then we have that `Q_re^-1 @ iso_re(g) @ Q_re = rep(g)`
-    reconstructed_rep = Representation(G, name=f"reconstructed", irreps=[irrep.id for irrep in escnn_real_irreps],
+    reconstructed_rep = Representation(G, name="reconstructed", irreps=[irrep.id for irrep in escnn_real_irreps],
                                        change_of_basis=Q_re.conj().T)
 
     # Test ESCNN reconstruction

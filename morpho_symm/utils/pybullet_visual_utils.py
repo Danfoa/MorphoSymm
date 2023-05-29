@@ -2,16 +2,17 @@ import copy
 import pathlib
 
 import numpy as np
-from pytransform3d import rotations as rt, transformations as tr
+from pytransform3d import rotations as rt
+from pytransform3d import transformations as tr
 from tqdm import tqdm
 
-from .algebra_utils import matrix_to_quat_xyzw, SE3_2_gen_coordinates, quat_xyzw_to_SO3
+from .algebra_utils import SE3_2_gen_coordinates, matrix_to_quat_xyzw, quat_xyzw_to_SO3
 
 
 def draw_vector(pb, origin, vector, v_color, scale=1.0):
-    """
-    Shitty pybullet doesn't allow you to draw vectors, so I had to write up the code for it. Inefficient but does the
-    job
+    """Shitty pybullet doesn't allow you to draw vectors, so I had to write up the code for it.
+
+    Inefficient but does the job.
     """
     linewidth = 4
     if np.linalg.norm(vector) == 0:
@@ -33,7 +34,7 @@ def draw_vector(pb, origin, vector, v_color, scale=1.0):
                                           rgbaColor=v_color,
                                           specularColor=[0.4, .4, 0],
                                           meshScale=np.array([1, 1, 1]) * (vector_radius * 2 * 30))
-    # Get rotation where the x axis is aligned with the vector orientation
+    # Get rotation where the `x` axis is aligned with the vector orientation
     v2 = np.random.rand(3)
     v3 = np.cross(vector, v2)
     R = rt.matrix_from_two_vectors(a=vector, b=v3)[:, [1, 2, 0]]
@@ -59,6 +60,7 @@ def draw_vector(pb, origin, vector, v_color, scale=1.0):
 
 
 def plot_reflection_plane(pb, R, p, color, size=(0.01, 0.25, 0.25), cylinder=False):
+    """Plots a plane with a given rotation and position."""
     if not cylinder:
         body_id = pb.createVisualShape(shapeType=pb.GEOM_BOX, halfExtents=size, rgbaColor=color)
     else:
@@ -77,6 +79,7 @@ def render_orbiting_animation(
         pb, cam_target_pose, cam_distance, save_path: pathlib.Path, fps=20, file_name="animation", periods=1,
         anim_time=10, pitch_sin_amplitude=15, init_roll_pitch_yaw=(0, -20, 45), invert_roll=False, gen_gif=True,
         gen_imgs=True):
+    """Renders an orbiting animation around a fix target camera position."""
     n_frames = anim_time * fps
     render_width, render_height, fov, shadow = (812, 812, 60, True) if gen_gif else (3024, 3024, 40, False)
     print(f"Generating rotating Gif animation with {n_frames} viewpoints")
@@ -87,7 +90,7 @@ def render_orbiting_animation(
     # Define camera trajectory in polar coordinates with a constant radius.
     t = np.asarray(range(n_frames))
     # We assume pitch will do a full period of a sine wave
-    pitch = -(pitch0 + pitch_sin_amplitude * np.sin((2 * np.pi * freq) * t))
+    pitch = -np.asarray((pitch0 + pitch_sin_amplitude * np.sin((2 * np.pi * freq) * t)))
     yaw = np.linspace(yaw0, (360 + yaw0) * periods, n_frames)
     roll = np.ones_like(t) * roll0
 
@@ -157,6 +160,7 @@ def render_camera_trajectory(pb, pitch, roll, yaw, n_frames, cam_distance, cam_t
                              render_width=812, render_height=812, nearPlane=0.01, farPlane=100, fov=60,
                              light_direction=(0, 0, 0.5), light_distance=1.0, shadow=True,
                              ):
+    """Renders a camera trajectory given a set of yaw, pitch, roll angle trajectories."""
     # Set rendering constants
     aspect = render_width / render_height
     # Capture frames
@@ -183,6 +187,7 @@ def render_camera_trajectory(pb, pitch, roll, yaw, n_frames, cam_distance, cam_t
 
 # Setup debug sliders
 def setup_debug_sliders(pb, robot):
+    """Setup debug sliders for each joint of the robot in pybullet."""
     for i, joint_name in enumerate(robot.joint_names):
         bullet_joint_id = robot.joint_aux_vars[joint_name].bullet_id
         joint_info = pb.getJointInfo(robot.robot_id, bullet_joint_id)
@@ -194,6 +199,7 @@ def setup_debug_sliders(pb, robot):
 
 # Read param values
 def listen_update_robot_sliders(pb, robot):
+    """Read the values of the debug sliders and update the robot accordingly in pybullet."""
     import time
     while True:
         pb_q = np.zeros(pb.getNumJoints(robot.robot_id))
@@ -205,6 +211,7 @@ def listen_update_robot_sliders(pb, robot):
 
 
 def tint_robot(pb, robot):
+    """Tint the robot in pybullet to get similar visualization of symmetric robots."""
     robot_color = [0.054, 0.415, 0.505, 1.0]
     FL_leg_color = [0.698, 0.376, 0.082, 1.0]
     FR_leg_color = [0.260, 0.263, 0.263, 1.0]
@@ -231,10 +238,8 @@ def tint_robot(pb, robot):
 
 
 def display_robots_and_vectors(pb, robot, base_confs, Gq_js, Gdq_js, Ghg, forces, forces_points, surface_normals,
-                               GX_g_bar, offset=1.5, tint=True):
-    """
-    Plot side by side robots with different configutations, CoM momentums and expected CoM after an action g
-    """
+                               GX_g_bar, tint=True):
+    """Plot side by side robots with different configurations, CoM momentums and expected CoM after an action g."""
     # pb.resetSimulation()
 
     # Optional: Display origin.
@@ -266,7 +271,7 @@ def display_robots_and_vectors(pb, robot, base_confs, Gq_js, Gdq_js, Ghg, forces
         grobot = robot
         if i > 0:
             grobot = robot if i == 0 else copy.copy(robot)
-            grobot.configure_bullet_simulation(pb, world=None)
+            configure_bullet_simulation(pb, world=None)
             if tint:
                 tint_robot(pb, grobot)
             robots.append(grobot)
@@ -283,15 +288,14 @@ def display_robots_and_vectors(pb, robot, base_confs, Gq_js, Gdq_js, Ghg, forces
         # Draw COM momentum and COM location
         com_id = pb.createVisualShape(shapeType=pb.GEOM_SPHERE, radius=0.02,
                                       rgbaColor=np.array([10, 10, 10, 255]) / 255.)
-        com_body_id = pb.createMultiBody(baseMass=1, baseVisualShapeIndex=com_id,
-                                         basePosition=gcom_pos,
-                                         baseOrientation=matrix_to_quat_xyzw(np.eye(3)))
-        lin_com_mom_id = draw_vector(pb, origin=gcom_pos, vector=ghg_B[:3],
-                                     v_color=np.array([255, 153, 0, 255]) / 255.,
-                                     scale=(1 / np.linalg.norm(ghg_B[:3]) * robot.hip_height * .3))
-        ang_com_mom_id = draw_vector(pb, origin=gcom_pos, vector=ghg_B[3:],
-                                     v_color=np.array([136, 204, 0, 255]) / 255.,
-                                     scale=(1 / np.linalg.norm(ghg_B[3:]) * robot.hip_height * .3))
+        pb.createMultiBody(baseMass=1, baseVisualShapeIndex=com_id, basePosition=gcom_pos,
+                           baseOrientation=matrix_to_quat_xyzw(np.eye(3)))
+        draw_vector(pb, origin=gcom_pos, vector=ghg_B[:3],
+                    v_color=np.array([255, 153, 0, 255]) / 255.,
+                    scale=(1 / np.linalg.norm(ghg_B[:3]) * robot.hip_height * .3))
+        draw_vector(pb, origin=gcom_pos, vector=ghg_B[3:],
+                    v_color=np.array([136, 204, 0, 255]) / 255.,
+                    scale=(1 / np.linalg.norm(ghg_B[3:]) * robot.hip_height * .3))
 
         # Draw forces and contact planes
         force_color = (0.590, 0.153, 0.510, 1.0)
@@ -301,18 +305,19 @@ def display_robots_and_vectors(pb, robot, base_confs, Gq_js, Gdq_js, Ghg, forces
                                                                                .2 * robot.hip_height,
                                                                                0.01],
                                            rgbaColor=np.array([115, 140, 148, 150]) / 255.)
-            mb = pb.createMultiBody(baseMass=1,
-                                    baseInertialFramePosition=[0, 0, 0],
-                                    baseCollisionShapeIndex=body_id,
-                                    baseVisualShapeIndex=body_id,
-                                    basePosition=rf_orbit[i],
-                                    baseOrientation=matrix_to_quat_xyzw(GRf_w[i]))
+            pb.createMultiBody(baseMass=1,
+                               baseInertialFramePosition=[0, 0, 0],
+                               baseCollisionShapeIndex=body_id,
+                               baseVisualShapeIndex=body_id,
+                               basePosition=rf_orbit[i],
+                               baseOrientation=matrix_to_quat_xyzw(GRf_w[i]))
         # Draw Base orientation
         draw_vector(pb, origin=tB_w + RB_w @ np.array((0.06, 0, 0.03)), vector=RB_w[:, 0], v_color=[1, 1, 1, 1],
                     scale=0.05)
 
 
 def get_mock_ground_reaction_forces(pb, robot, robot_cfg):
+    """Get mock ground reaction forces for visualization purposes. Simply to show transformation of vectors."""
     end_effectors = np.random.choice(robot.bullet_ids_allowed_floor_contacts, 2, replace=False)
     # Get positions and orientations of end effector links of the robot, used to place the forces used in visualization
     rf1_w, quatf1_w = (np.array(x) for x in pb.getLinkState(robot.robot_id, end_effectors[0])[0:2])
@@ -330,3 +335,36 @@ def get_mock_ground_reaction_forces(pb, robot, robot_cfg):
     f1_w = f1_w / np.linalg.norm(f1_w) * robot_cfg.hip_height * .4
     f2_w = f2_w / np.linalg.norm(f2_w) * robot_cfg.hip_height * .4
     return Rf1_w, Rf2_w, f1_w, f2_w, rf1_w, rf2_w
+
+
+def configure_bullet_simulation(gui=True, debug=False):
+    """Configure bullet simulation."""
+    import pybullet_data
+    from pybullet import (
+        COV_ENABLE_DEPTH_BUFFER_PREVIEW,
+        COV_ENABLE_GUI,
+        COV_ENABLE_MOUSE_PICKING,
+        COV_ENABLE_SEGMENTATION_MARK_PREVIEW,
+        DIRECT,
+        GUI,
+    )
+    from pybullet_utils import bullet_client
+
+    BACKGROUND_COLOR = '--background_color_red=%.2f --background_color_green=%.2f --background_color_blue=%.2f' % \
+                       (1.0, 1.0, 1.0)
+
+    if gui:
+        pb = bullet_client.BulletClient(connection_mode=GUI, options=BACKGROUND_COLOR)
+    else:
+        pb = bullet_client.BulletClient(connection_mode=DIRECT)
+    pb.configureDebugVisualizer(COV_ENABLE_GUI, debug)
+    pb.configureDebugVisualizer(COV_ENABLE_SEGMENTATION_MARK_PREVIEW, 0)
+    pb.configureDebugVisualizer(COV_ENABLE_DEPTH_BUFFER_PREVIEW, 0)
+    pb.configureDebugVisualizer(COV_ENABLE_MOUSE_PICKING, 0)
+
+    pb.resetSimulation()
+    pb.setPhysicsEngineParameter(deterministicOverlappingPairs=1)
+    pb.setAdditionalSearchPath(pybullet_data.getDataPath())
+    # Load floor
+    # floor_id = pb.loadURDF("plane.urdf", basePosition=[0, 0, 0.0], useFixedBase=1)
+    return pb

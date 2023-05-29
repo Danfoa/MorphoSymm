@@ -7,7 +7,7 @@ import numpy as np
 from escnn.group import Group
 from omegaconf import DictConfig
 from pytransform3d import transformations as tr
-from utils.algebra_utils import configure_bullet_simulation, quat_xyzw_to_SO3
+from utils.algebra_utils import quat_xyzw_to_SO3
 from utils.pybullet_visual_utils import (
     display_robots_and_vectors,
     get_mock_ground_reaction_forces,
@@ -15,6 +15,9 @@ from utils.pybullet_visual_utils import (
     tint_robot,
 )
 from utils.robot_utils import load_robot_and_symmetries
+
+import morpho_symm.utils.pybullet_visual_utils
+from morpho_symm.utils.pybullet_visual_utils import configure_bullet_simulation
 
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
@@ -42,7 +45,7 @@ def main(cfg: DictConfig):
     offset = 1.8 * robot.hip_height
 
     pb = configure_bullet_simulation(gui=cfg.gui, debug=cfg.debug)
-    robot.configure_bullet_simulation(pb, world=None)
+    morpho_symm.utils.pybullet_visual_utils.configure_bullet_simulation(pb, world=None)
     if cfg.robot.tint_bodies:
         tint_robot(pb, robot)
 
@@ -136,7 +139,7 @@ def main(cfg: DictConfig):
     Gq_js = [qj - q_offset[7:] for qj in Gq_js]  # Remove the offset from the joint angles
     display_robots_and_vectors(pb, robot, base_confs=GXB_w, Gq_js=Gq_js, Gdq_js=Gdq_js, Ghg=Ghg_B,
                                forces=[Gf1_w, Gf2_w], forces_points=[Gr1_w, Gr2_w], surface_normals=[GRf1_w, GRf2_w],
-                               GX_g_bar=GX_g_bar, offset=offset, tint=cfg.robot.tint_bodies)
+                               GX_g_bar=GX_g_bar, tint=cfg.robot.tint_bodies)
 
 
     if cfg.make_gif:

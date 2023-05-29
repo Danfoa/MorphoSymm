@@ -6,25 +6,28 @@ import torch
 from emlp.reps.representation import Base as BaseRep
 
 from morpho_symm.groups.SparseRepresentation import SparseRep
-from .EquivariantModules import EquivariantModel, BasisLinear
+
+from .EquivariantModules import BasisLinear, EquivariantModel
+
 log = logging.getLogger(__name__)
 
 class EMLP(EquivariantModel):
-    """ Equivariant MultiLayer Perceptron.
-        If the input channels argument is an int, uses the hands off uniform_rep heuristic.
-        If the channels argument is a representation, uses this representation for the hidden layers.
-        Individual layer representations can be set explicitly by using a list of ints or a list of
-        representations, rather than use the same for each hidden layer.
+    """Equivariant MultiLayer Perceptron.
+    If the input channels argument is an int, uses the hands off uniform_rep heuristic.
+    If the channels argument is a representation, uses this representation for the hidden layers.
+    Individual layer representations can be set explicitly by using a list of ints or a list of
+    representations, rather than use the same for each hidden layer.
 
-        Args:
-            rep_in (Rep): input representation
-            rep_out (Rep): output representation
-            hidden_group (Group): symmetry group
-            ch (int or list[int] or Rep or list[Rep]): number of channels in the hidden layers
-            num_layers (int): number of hidden layers
+    Args:
+    rep_in (Rep): input representation
+    rep_out (Rep): output representation
+    hidden_group (Group): symmetry group
+    ch (int or list[int] or Rep or list[Rep]): number of channels in the hidden layers
+    num_layers (int): number of hidden layers
 
-        Returns:
-            Module: the EMLP objax module."""
+    Returns:
+    Module: the EMLP objax module.
+    """
 
     def __init__(self, rep_in, rep_out, ch=64, num_layers=3, with_bias=True, activation=torch.nn.ReLU,
                  cache_dir=None, init_mode="fan_in", inv_dims_scale=0.0):
@@ -92,7 +95,7 @@ class EMLP(EquivariantModel):
 
 
 class MLP(torch.nn.Module):
-    """ Standard baseline MLP. Representations and group are used for shapes only. """
+    """Standard baseline MLP. Representations and group are used for shapes only."""
 
     def __init__(self, d_in, d_out, ch=128, num_layers=3, activation=torch.nn.ReLU, with_bias=True, init_mode="fan_in"):
         super().__init__()

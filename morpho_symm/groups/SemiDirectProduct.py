@@ -1,20 +1,18 @@
-import scipy
+import logging
+
 import numpy as np
+import scipy
 from emlp.reps.linear_operators import LazyKron
 from emlp.reps.representation import Vector
+from utils.algebra_utils import dense
 
 from .SparseRepresentation import SparseRep
 from .SymmetryGroups import C2, Sym
-from scipy.sparse.linalg import LinearOperator
-
-import logging
-
-from utils.algebra_utils import dense
 
 log = logging.getLogger(__name__)
 
 class SemiDirectProduct(Sym):
-    """SemiDirectProduct"""
+    """SemiDirectProduct."""
 
     def __init__(self, Gin: Sym, Gout: Sym):
 

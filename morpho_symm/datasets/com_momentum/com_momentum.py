@@ -12,8 +12,10 @@ from omegaconf import DictConfig
 from scipy.sparse import issparse
 from torch.utils.data import Dataset
 from torch.utils.data._utils.collate import default_collate
-from utils.robot_utils import load_robot_and_symmetries
 from utils.algebra_utils import dense
+from utils.robot_utils import load_robot_and_symmetries
+
+import morpho_symm.utils.pybullet_visual_utils
 
 log = logging.getLogger(__name__)
 
@@ -86,7 +88,7 @@ class COMMomentum(Dataset):
         partition_path = self.ensure_dataset_partition(train_ratio, test_ratio, val_ratio)
 
         # Load data
-        assert type.lower() in ["train", "test", "val"], f"type must be one of these [train, test, val]"
+        assert type.lower() in ["train", "test", "val"], "type must be one of these [train, test, val]"
         file_path = partition_path.joinpath(f"{type}.npz")
         assert file_path.exists(), file_path.absolute()
         # Loading on multiple threads might lead to issues -------------------
@@ -255,9 +257,7 @@ class COMMomentum(Dataset):
         return hg[:3]
 
     def gui_debug(self, qs, dqs, hgs, ghgs):
-        """
-        Plot side by side robots with different configutations, CoM momentums and expected CoM after an action g
-        """
+        """Plot side by side robots with different configutations, CoM momentums and expected CoM after an action g."""
         from utils.algebra_utils import configure_bullet_simulation
         def tint_robot(robot, color=(0.227, 0.356, 0.450), alpha=0.5):
             num_joints = self.robot.bullet_client.getNumJoints(self.robot.robot_id)
@@ -294,7 +294,7 @@ class COMMomentum(Dataset):
             q, dq, hg, ghg = qs[i], dqs[i], hgs[i], ghgs[i]
             robot = self.robot if i==0 else copy.copy(self.robot)
             offset = 1.5 * self.robot.hip_height
-            robot.configure_bullet_simulation(self._pb, world=None)
+            morpho_symm.utils.pybullet_visual_utils.configure_bullet_simulation(self._pb, world=None)
             # tint_robot(robot2, alpha=0.9)
             # Place robots in env
             random_q, random_dq = robot.get_init_config(random=True)
@@ -331,7 +331,7 @@ class COMMomentum(Dataset):
             dq_max = np.asarray(self.robot.velocity_limits)
             dq_max = np.minimum(dq_max, 2 * np.pi)
             q_min, q_max = self.robot.joint_pos_limits
-            q_mim = np.minimum(q_min, -2 * np.pi)
+            np.minimum(q_min, -2 * np.pi)
             q_max = np.minimum(q_max, 2 * np.pi)
 
             x = np.zeros((self._samples, self.robot.nj * 2))
@@ -405,9 +405,11 @@ class COMMomentum(Dataset):
     def get_in_out_symmetry_groups_reps(self, robot_cfg: DictConfig):
         robot, rep_Ed, rep_QJ = load_robot_and_symmetries(robot_cfg)
         # Rep for x = [q, dq] ∈ QJ x TQJ     =>    ρ_QJ(g) ⊕ ρ_QJ(g)  | g ∈ G
-        get_rep_data_in = lambda rep_QJ: rep_QJ + rep_QJ
+        def get_rep_data_in(rep_QJ):
+            return rep_QJ + rep_QJ
         # Rep for y := h = [l, k] ∈ E3 x E3  =>    ρ_E3(g) ⊕ ρ_E3(g)  | g ∈ G
-        get_rep_data_out = lambda rep_Ed: rep_Ed + rep_Ed.set_pseudovector(True)
+        def get_rep_data_out(rep_Ed):
+            return rep_Ed + rep_Ed.set_pseudovector(True)
 
         rep_data_in = get_rep_data_in(rep_QJ)
         rep_data_out = get_rep_data_out(rep_Ed)
@@ -435,8 +437,8 @@ class COMMomentum(Dataset):
         return self.__repr__()
 
     def plot_statistics(self):
-        from matplotlib import pyplot as plt
         import seaborn as sns
+        from matplotlib import pyplot as plt
 
         x_orbits = [self.X.detach().cpu().numpy()]
         y_orbits = [self.Y.detach().cpu().numpy()]

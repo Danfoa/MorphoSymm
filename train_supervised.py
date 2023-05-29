@@ -1,37 +1,32 @@
 import os
 
-import torch
-from torch.utils.data import DataLoader
-from torch.utils.data.sampler import WeightedRandomSampler
-
-os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
-
-import pandas as pd
-import numpy as np
-
-from morpho_symm.datasets.com_momentum.com_momentum import COMMomentum
-from morpho_symm.nn import MLP, EMLP
-
 import hydra
-from utils.algebra_utils import check_if_resume_experiment
-
+import numpy as np
+import pandas as pd
+import torch
 from hydra.utils import get_original_cwd
 from omegaconf import DictConfig
 from pytorch_lightning import Trainer, seed_everything
-from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping
 from pytorch_lightning import loggers as pl_loggers
+from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint
+from torch.utils.data import DataLoader
+from torch.utils.data.sampler import WeightedRandomSampler
 
-from morpho_symm.nn import LightningModel
+from morpho_symm.datasets.com_momentum.com_momentum import COMMomentum
+from morpho_symm.nn import EMLP, MLP, LightningModel
 
 try:
-    from yaml import CLoader as Loader, CDumper as Dumper
+    pass
 except ImportError:
-    from yaml import Loader, Dumper
-
-import pathlib
-from morpho_symm.nn import ContactECNN
+    pass
 
 import logging
+import pathlib
+
+from morpho_symm.nn import ContactECNN
+from morpho_symm.utils.algebra_utils import check_if_resume_experiment
+
+os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
 
 log = logging.getLogger(__name__)
 
@@ -132,7 +127,7 @@ def get_datasets(cfg, device, root_path):
 
 def fine_tune_model(cfg, best_ckpt_path: pathlib.Path, pl_model, batches_per_original_epoch, epochs,
                     test_dataloader, train_dataloader, val_dataloader, device, version='finetuned=True'):
-    if not cfg.model.model_type.lower() in ['emlp', 'ecnn']: return
+    if cfg.model.model_type.lower() not in ["emlp", "ecnn"]: return
 
     assert best_ckpt_path.exists(), "Best model not found for finetunning"
 

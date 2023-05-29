@@ -1,18 +1,19 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 # @Time    : 31/1/22
-# @Author  : Daniel Ordonez 
+# @Author  : Daniel Ordonez
 # @email   : daniels.ordonez@gmail.com
 # Some code was adapted from https://github.com/ElisevanderPol/symmetrizer/blob/master/symmetrizer/nn/modules.py
 import itertools
 import logging
 import math
 import pathlib
-from typing import Union, Optional
+from typing import Optional, Union
 from zipfile import BadZipFile
 
 import numpy as np
 import torch
+
 # from emlp import Group
 # from emlp.reps.representation import Rep
 from emlp.reps.representation import Base as BaseRep
@@ -22,15 +23,13 @@ from torch.nn.modules.utils import _single
 
 from morpho_symm.groups.SemiDirectProduct import SemiDirectProduct
 from morpho_symm.groups.SparseRepresentation import SparseRep
-from morpho_symm.utils.algebra_utils import slugify, coo2torch_coo
+from morpho_symm.utils.algebra_utils import coo2torch_coo, slugify
 
 log = logging.getLogger(__name__)
 
 
 class BasisLinear(torch.nn.Module):
-    """
-    Group-equivariant linear layer
-    """
+    """Group-equivariant linear layer."""
 
     def __init__(self, rep_in: BaseRep, rep_out: BaseRep, bias=True):
         super().__init__()
@@ -77,9 +76,7 @@ class BasisLinear(torch.nn.Module):
         self.register_full_backward_hook(EquivariantModel.backward_hook)
 
     def forward(self, x):
-        """
-        Normal forward pass, using weights formed by the basis and corresponding coefficients
-        """
+        """Normal forward pass, using weights formed by the basis and corresponding coefficients."""
         if x.device != self.weight.device:
             self._new_coeff, self._new_bias_coeff = True, True
         return F.linear(x, weight=self.weight, bias=self.bias)
@@ -345,7 +342,7 @@ class EquivariantModel(torch.nn.Module):
             lazy_cache, cache = {}, run_cache
 
         if len(run_cache) == 0:
-            log.debug(f"Ignoring cache save as there is no new equivariant basis")
+            log.debug("Ignoring cache save as there is no new equivariant basis")
         try:
             combined_cache = {str(k): np.asarray(v) for k, v in itertools.chain(lazy_cache.items(), cache.items())}
             np.savez_compressed(model_cache_file, **combined_cache)
@@ -379,9 +376,9 @@ class EquivariantModel(torch.nn.Module):
             g_y_pred = module.forward(g_x)
             g_y_true = g_out @ y
             if not torch.allclose(g_y_true, g_y_pred, atol=1e-4, rtol=1e-4):
-                max_error = torch.max(g_y_true - g_y_pred).item()
-                g_in_np = g_in.squeeze(0).numpy()
-                g_out_np = g_out.squeeze(0).numpy()
+                torch.max(g_y_true - g_y_pred).item()
+                g_in.squeeze(0).numpy()
+                g_out.squeeze(0).numpy()
                 error = (g_y_true - g_y_pred).detach().numpy()
                 raise RuntimeError(f"{module}\nis not equivariant to in/out group generators\n"
                                    f"max(f(g·x) - g·y) = {np.max(error)}")

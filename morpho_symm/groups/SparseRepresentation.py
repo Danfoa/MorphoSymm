@@ -6,12 +6,14 @@ from typing import Union
 import numpy as np
 import scipy
 from emlp import Group
-from emlp.reps.representation import Base as BaseRep, Scalar, Vector
+from emlp.reps.representation import Base as BaseRep
+from emlp.reps.representation import Scalar, Vector
 from jax import numpy as jnp
 from scipy import sparse
 from tqdm import tqdm
 
 from .SymmetryGroups import Sym
+
 log = logging.getLogger(__name__)
 
 
@@ -23,11 +25,11 @@ class SparseRep(BaseRep):
         self.is_permutation = G.is_permutation
 
     def equivariant_basis(self):
-        """
-        Computes the equivariant solution basis for the given representation of size N. Allowing for
+        """Computes the equivariant solution basis for the given representation of size N. Allowing for
         sparse generator representations.
         TODO: Canonicalizes problems
-        and caches solutions for reuse. Output [Q (N,r)] """
+        and caches solutions for reuse. Output [Q (N,r)].
+        """
         if self == Scalar: return jnp.ones((1, 1))
         canon_rep, perm = self.canonicalize()
         invperm = np.argsort(perm)
@@ -60,9 +62,10 @@ class SparseRep(BaseRep):
             return self.solcache[canon_rep][invperm]
 
     def constraint_matrix(self):
-        """ Constructs the equivariance constraint matrix (lazily) by concatenating
+        """Constructs the equivariance constraint matrix (lazily) by concatenating
         the constraints (ρ(hᵢ)-I) for i=1,...M and dρ(Aₖ) for k=1,..,D from the generators
-        of the symmetry group. """
+        of the symmetry group.
+        """
         if self.G.is_sparse:
             n = self.size()
             constraints = []
@@ -76,15 +79,14 @@ class SparseRep(BaseRep):
         return self.G.d
 
     def sparse_equivariant_basis_gen_permutation(self):
-        """
-        Custom code to obtain the equivariant basis, without the need to do eigendecomposition. Allowing to compute the
+        """Custom code to obtain the equivariant basis, without the need to do eigendecomposition. Allowing to compute the
         basis of very large matrix without running into memory or complexity issues.
         This code only works for regular representations that can be represented as a generalized permutation matrix.
         This covers most cases of interest in Discrete Morphological Symmetries, specially in the internal symmetry
         representations of equivariant NNs, where we have control over the nature of the representation.
         - Modified code from: shorturl.at/kuvBD
         :param P: (n,n) Generalized Permutation matrix with `+-c` entries where `c` is a scalar constant.
-        :return: Q: (n, b) `b` Eigenvectors of the fix-point equation
+        :return: Q: (n, b) `b` Eigenvectors of the fix-point equation.
         """
         P = self.G.discrete_generators[0]
         log.info(f"Solving equivariant basis using single generalized permutation matrix {P.shape}")
@@ -160,7 +162,7 @@ class SparseRep(BaseRep):
         return f"ρ({str(self.G)})"
 
     def __add__(self, other):
-        """ Direct sum (⊕) of representations. """
+        """Direct sum (⊕) of representations."""
         # TODO: Keep lazy SumRep representation to partition the solution of the fix-point equation in the case of
         # non generalized-matrix representations.
         assert isinstance(self, SparseRep) and isinstance(other, SparseRep), f"{type(self)} != {type(other)}"
@@ -170,7 +172,7 @@ class SparseRep(BaseRep):
         return SparseRep(G)
 
     def __mul__(self, other):
-        """ For not convenient way to express sumation as multiplications """
+        """For not convenient way to express sumation as multiplications."""
         if type(other) == int:
             n_repetitions = other
             G_class = type(self.G)
@@ -180,7 +182,7 @@ class SparseRep(BaseRep):
             raise NotImplementedError(f"Mul operator not defined for {type(other)}")
 
     def __rmul__(self, other):
-        """ For not convenient way to express sumation as multiplications """
+        """For not convenient way to express sumation as multiplications."""
         return self.__mul__(other)
 
 

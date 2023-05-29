@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 # @Time    : 28/1/22
-# @Author  : Daniel Ordonez 
+# @Author  : Daniel Ordonez
 # @email   : daniels.ordonez@gmail.com
 from typing import Optional, Sequence
 
@@ -17,8 +17,7 @@ from tqdm import tqdm
 class Sym(Group):
 
     def __init__(self, generators):
-        """
-        @param generators: (n, d, d) `n` generator in matrix form `(d, d)`, where `d` is the dimension
+        """@param generators: (n, d, d) `n` generator in matrix form `(d, d)`, where `d` is the dimension
         of the Vector Space and action representations.
         """
         assert len(generators) > 0, "Zero generator provided"
@@ -98,8 +97,7 @@ class Sym(Group):
 class C2(Sym):
 
     def __init__(self, generators):
-        """
-        @param generators: (d, d) generators in matrix form, where `d` is the dimension
+        """@param generators: (d, d) generators in matrix form, where `d` is the dimension
         of the Vector Space and action representations.
         """
         generators = [generators] if not isinstance(generators, list) else generators
@@ -111,7 +109,7 @@ class C2(Sym):
         is_eye = np.isclose(sum(h.diagonal()), self.d) if self.is_sparse else jnp.isclose(jnp.trace(h), self.d)
         is_cyclic = np.isclose(sum((h @ h).diagonal()), self.d) if self.is_sparse else jnp.isclose(jnp.trace(h @ h), self.d)
         assert not is_eye, f"Generator must not be the identity: \n {h}"
-        assert is_cyclic, f"Generator is not cyclic h @ h != I"
+        assert is_cyclic, "Generator is not cyclic h @ h != I"
 
     @property
     def discrete_actions(self) -> list:
@@ -122,9 +120,7 @@ class C2(Sym):
 
     @staticmethod
     def canonical_group(d, inv_dims: int = 0) -> 'C2':
-        """
-        @param d: Vector Space dimension
-        """
+        """@param d: Vector Space dimension."""
         assert d > 0, "Vector space dimension must be greater than 0"
         assert inv_dims < d - 1, "At least a single dimension must be symmetric"
 
@@ -159,11 +155,10 @@ class C2(Sym):
 
     @staticmethod
     def get_equivariant_basis(P):
-        """
-        Custom code to obtain the equivariant basis, without the need to do eigendecomposition. Allowing to compute the
+        """Custom code to obtain the equivariant basis, without the need to do eigendecomposition. Allowing to compute the
         basis of very large matrix without running into memory or complexity issues
         :param P: (n,n) Generalized Permutation matrix with +-1 entries
-        :return: Q: (n, b) `b` Eigenvectors of the fix-point equation
+        :return: Q: (n, b) `b` Eigenvectors of the fix-point equation.
         """
         dtype = P.dtype
         # Modified code from: shorturl.at/kuvBD
@@ -198,8 +193,7 @@ class C2(Sym):
 class Klein4(Sym):
 
     def __init__(self, generators):
-        """
-        @param generators: (2,d,d) Two generators in matrix form (excluding the identity), where `d` is the dimension
+        """@param generators: (2,d,d) Two generators in matrix form (excluding the identity), where `d` is the dimension
         of the Vector Space and action representations.
         """
         assert len(generators) == 2, "Provide only the non-trivial generators (2)"
@@ -208,16 +202,18 @@ class Klein4(Sym):
         # Assert generators and their composition is cylic. That is, assert generators produce an abelian group
         a, b = self.discrete_generators
 
-        is_eye = lambda x: np.isclose(sum(x.diagonal()), self.d) if self.is_sparse else jnp.isclose(jnp.trace(x), self.d)
+        def is_eye(x):
+            return np.isclose(sum(x.diagonal()), self.d) if self.is_sparse else jnp.isclose(jnp.trace(x), self.d)
         a_is_eye, b_is_eye, ab_is_eye = is_eye(a), is_eye(b), is_eye(a @ b)
-        is_cyclic = lambda x: np.isclose(sum((x @ x).diagonal()), self.d) if self.is_sparse else jnp.isclose(jnp.trace(x @ x), self.d)
+        def is_cyclic(x):
+            return np.isclose(sum((x @ x).diagonal()), self.d) if self.is_sparse else jnp.isclose(jnp.trace(x @ x), self.d)
         a_is_cyclic, b_is_cyclic, ab_is_cyclic = is_cyclic(a),  is_cyclic(b),  is_cyclic(a @ b)
 
-        assert not a_is_eye and not b_is_eye, f"Generators cannot be the identity a != b != e"
+        assert not a_is_eye and not b_is_eye, "Generators cannot be the identity a != b != e"
         assert a_is_cyclic, f"Generator is not cyclic:\n{a @ a}"
         assert b_is_cyclic, f"Generator is not cyclic:\n{b @ b}"
         assert ab_is_cyclic, f"Generators composition a·b is not cyclic:\n{a @ b}"
-        assert not ab_is_eye, f"Third action must be non-trivial: a·b != e"
+        assert not ab_is_eye, "Third action must be non-trivial: a·b != e"
 
     @property
     def discrete_actions(self) -> list:
@@ -232,14 +228,12 @@ class Klein4(Sym):
 
     @staticmethod
     def canonical_group(d, inv_dims: int = 0) -> 'Klein4':
-        """
-        @param d: Vector Space dimension
-        """
+        """@param d: Vector Space dimension."""
         assert d > 0, "Vector space dimension must be greater than 0"
 
         # Representation reflections
-        r_a = np.ones((d,))
-        r_b = np.ones((d,))
+        np.ones((d,))
+        np.ones((d,))
 
         mod = d % 4
 

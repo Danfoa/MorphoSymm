@@ -1,29 +1,25 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 # @Time    : 13/5/22
-# @Author  : Daniel Ordonez 
+# @Author  : Daniel Ordonez
 # @email   : daniels.ordonez@gmail.com
 import glob
 import io
 import pathlib
+import sys
 import time
 
-import PIL
 import numpy as np
 import pandas as pd
+import PIL
 import scipy
 import sklearn
 import torch
 import torch.nn.functional as F
 from omegaconf import DictConfig
+from sklearn.metrics import jaccard_score, precision_score
 
-from sklearn.metrics import precision_score
-from sklearn.metrics import jaccard_score
-
-import pathlib
-import sys
-
-from ..utils.robot_utils import load_robot_and_symmetries, class_from_name
+from ..utils.robot_utils import class_from_name, load_robot_and_symmetries
 
 try:
     deep_contact_estimator_path = pathlib.Path(__file__).parent.absolute()
@@ -31,17 +27,15 @@ try:
     sys.path.append(str(deep_contact_estimator_path / 'deep-contact-estimator/utils'))
     sys.path.append(str(deep_contact_estimator_path / 'deep-contact-estimator/src'))
     from data_handler import contact_dataset
-    from contact_cnn import contact_cnn   # just to trigger the error here
 except ImportError as e:
     raise ImportError("Deep Contact Estimator submodule not initialized, run `git submodule update "
                       "--init --recursive --progress") from e
 
+from groups.SymmetryGroups import C2
 from pytorch_lightning import Trainer
 from sklearn.metrics import confusion_matrix
 from torch.utils.data._utils.collate import default_collate
 from tqdm import tqdm
-
-from groups.SymmetryGroups import C2
 
 
 class UmichContactDataset(contact_dataset):
@@ -184,7 +178,7 @@ class UmichContactDataset(contact_dataset):
                 # If Trainer is present log images
                 df_cfm = pd.DataFrame(confusion_mat[label], index=classes, columns=classes)
                 fig = plt.figure(figsize=figsize, dpi=80)
-                cfm_plot = sns.heatmap(df_cfm, annot=annot, fmt=".2f", vmin=0, vmax=1)
+                sns.heatmap(df_cfm, annot=annot, fmt=".2f", vmin=0, vmax=1)
                 fig.tight_layout()
                 # plt.show()
                 buf = io.BytesIO()
@@ -323,8 +317,7 @@ class UmichContactDataset(contact_dataset):
     @staticmethod
     def mat2numpy_split(train_val_data_path: pathlib.Path, test_data_path: pathlib.Path, save_path: pathlib.Path,
                         train_ratio=0.7, val_ratio=0.15):
-        """
-        Load data from .mat file, concatenate into numpy array, and save as train/val/test.
+        """Load data from .mat file, concatenate into numpy array, and save as train/val/test.
         Inputs:
         - data_pth: path to mat data folder
         - save_pth: path to numpy saving directory.
@@ -348,7 +341,7 @@ class UmichContactDataset(contact_dataset):
                     order of contacts[0], contacts[1], contacts[2], contacts[3]
                     and be converted to decimal value in this function.
                     Ex. [1,0,0,1] -> 9
-                        [0,1,1,0] -> 6
+                        [0,1,1,0] -> 6.
 
         - tau_est (optional): estimated control torque (num_data,12)
         - F (optional): ground reaction force
@@ -392,7 +385,7 @@ class UmichContactDataset(contact_dataset):
         partitions_labels = [None] * len(partitions_ratio)
         data_files = list(data_path.glob("*.mat"))
         assert len(data_files) > 1, f"No .mat files found in {data_path.absolute()}"
-        assert sum(partitions_ratio) <= 1.0, f"the partitions should add up to less than 100% of the data"
+        assert sum(partitions_ratio) <= 1.0, "the partitions should add up to less than 100% of the data"
 
         print(f"Loading data from {data_path}")
         print(f"Dataset .mat files found: {[pathlib.Path(d).name for d in data_files]}")
@@ -484,10 +477,10 @@ class UmichContactDataset(contact_dataset):
         return jaccard_of_class, jaccard_of_legs, jaccard_of_all_legs
 
     def plot_statistics(self):
-        import seaborn as sns
         import matplotlib.pyplot as plt
+        import seaborn as sns
         y = self.label.detach().cpu().numpy()
-        bin_gt = self.decimal2binary(self.label).detach().cpu().numpy()
+        self.decimal2binary(self.label).detach().cpu().numpy()
 
         df = pd.DataFrame({'contact_state': np.asarray(self.states_names)[y]})
         df['source'] = 'gt'

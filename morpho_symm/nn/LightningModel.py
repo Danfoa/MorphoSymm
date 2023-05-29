@@ -1,18 +1,15 @@
-import math
+import logging
 import pathlib
 import time
-from typing import Union, Callable
+from typing import Callable
 
 import numpy as np
 import pytorch_lightning as pl
 import torch
-import torch.nn.functional as F
-from torch.utils.data.dataloader import default_collate
 
+from .EMLP import EMLP, MLP, EquivariantBlock, LinearBlock
 from .EquivariantModules import BasisLinear
-from .EMLP import EMLP, MLP, LinearBlock, EquivariantBlock
 
-import logging
 log = logging.getLogger(__name__)
 
 LossCallable = Callable[[torch.Tensor, torch.Tensor, ], torch.Tensor]

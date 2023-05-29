@@ -1,23 +1,23 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 # @Time    : 3/5/22
-# @Author  : Daniel Ordonez 
+# @Author  : Daniel Ordonez
 # @email   : daniels.ordonez@gmail.com
+import logging
 from math import ceil
 
 import numpy as np
 import torch
 import torch.nn as nn
-from scipy.sparse import issparse
+from emlp.reps.representation import Rep
+from scipy.sparse import block_diag, issparse
 
 from morpho_symm.groups.SparseRepresentation import SparseRep
 from morpho_symm.groups.SymmetryGroups import C2
-from .EquivariantModules import BasisLinear, EquivariantModel, BasisConv1d
-from .EMLP import EquivariantBlock
-from emlp.reps.representation import Rep
-from scipy.sparse import block_diag
 
-import logging
+from .EMLP import EquivariantBlock
+from .EquivariantModules import BasisConv1d, BasisLinear, EquivariantModel
+
 log = logging.getLogger(__name__)
 
 class ContactECNN(EquivariantModel):

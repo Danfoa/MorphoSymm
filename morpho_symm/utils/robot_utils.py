@@ -1,33 +1,29 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 # @Time    : 11/3/22
-# @Author  : Daniel Ordonez 
+# @Author  : Daniel Ordonez
 # @email   : daniels.ordonez@gmail.com
 
-import importlib
 import re
 
 import escnn
 import escnn.group
 import numpy as np
-from escnn.group import Group, CyclicGroup, DihedralGroup, DirectProductGroup
+from escnn.group import CyclicGroup, DihedralGroup, DirectProductGroup, Group, Representation
 from omegaconf import DictConfig
 
 from morpho_symm.robots.PinBulletWrapper import PinBulletWrapper
-from morpho_symm.utils.algebra_utils import configure_bullet_simulation, gen_permutation_matrix
+from morpho_symm.utils.algebra_utils import gen_permutation_matrix
 from morpho_symm.utils.group_utils import group_rep_from_gens
-from morpho_symm.utils.pybullet_visual_utils import setup_debug_sliders, listen_update_robot_sliders
-
-
-def class_from_name(module_name, class_name):
-    # load the module, will raise ImportError if module cannot be loaded
-    m = importlib.import_module(module_name)
-    # get the class, will raise AttributeError if class cannot be found
-    c = getattr(m, class_name)
-    return c
+from morpho_symm.utils.pybullet_visual_utils import (
+    configure_bullet_simulation,
+    listen_update_robot_sliders,
+    setup_debug_sliders,
+)
 
 
 def get_escnn_group(cfg: DictConfig):
+    """Get the ESCNN group object from the group label in the config file."""
     group_label = cfg.group_label
     label_pattern = r'([A-Za-z]+)(\d+)'
     match = re.match(label_pattern, group_label)
@@ -58,10 +54,20 @@ def get_escnn_group(cfg: DictConfig):
     return symmetry_space
 
 
-def load_robot_and_symmetries(robot_cfg, debug=False) -> [PinBulletWrapper, escnn.gspaces.GSpace3D]:
+def load_robot_and_symmetries(robot_cfg: DictConfig, debug=False) -> [PinBulletWrapper, escnn.gspaces.GSpace3D]:
+    """Utility function to get the symmetry group and representations of a robotic system defined in config.
+
+    Args:
+        robot_cfg (DictConfig): Dictionary holding the configuration parameters of the robot. Check `cfg/robot/`
+        debug (bool): if true we load the robot into an interactive simulation session to visually inspect URDF
+
+    Returns:
+        robot (PinBulletWrapper): instance with the robot loaded in pinocchio and ready to be loaded in pyBullet
+        gspace (GSpace3D): TODO: add description
     """
-    Utility function to get the symmetry group and representations of a robotic system defined in config.
-    :param robot_cfg: Dictionary holding the configuration parameters of the robot. Check `cfg/robot/`
+    """
+
+    robot_cfg (DictConfig): Dictionary holding the configuration parameters of the robot. Check `cfg/robot/`
     :param debug: whether to load the robot into an interactive simulation session to visually debug URDF
     :return:
         robot: `PinBulletWrapper` instance with the robot loaded in pinocchio and ready to be loaded in pyBullet
@@ -83,7 +89,7 @@ def load_robot_and_symmetries(robot_cfg, debug=False) -> [PinBulletWrapper, escn
     G = symmetry_space.fibergroup
 
     # Transformation required to obtain ρ_Q_js(g) ∈ G from the regular fields / permutation rep.
-    num_symmetric_dof = robot.nj - robot_cfg.unique_bodies
+    robot.nj - robot_cfg.unique_bodies
 
     rep_field = np.float if robot_cfg.rep_fields.lower() != 'complex' else np.complex
     # Configuration file of robot provides oneline notations of the reps_QJ of generators of the group.
@@ -102,7 +108,18 @@ def load_robot_and_symmetries(robot_cfg, debug=False) -> [PinBulletWrapper, escn
     return robot, symmetry_space
 
 
-def generate_E3_rep(G: Group) -> None:
+def generate_E3_rep(G: Group) -> Representation:
+    """Generate the E3 representation of the group G.
+
+    This representation is used to transform all members of the Euclidean Space in 3D.
+    I.e., points, vectors, pseudo-vectors, etc.
+
+    Args:
+        G (Group): Symmetry group of the robot.
+
+    Returns:
+        rep_E3 (Representation): Representation of the group G on the Euclidean Space in 3D.
+    """
     # Configure E3 representations and group
     if isinstance(G, CyclicGroup):
         rep_E3 = G.irrep(0) + G.irrep(1) + G.trivial_representation
