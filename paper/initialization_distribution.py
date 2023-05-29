@@ -1,16 +1,12 @@
-import math
 import os
 import pathlib
-import warnings
 
 import hydra
 import matplotlib.pyplot as plt
-import numpy as np
 import pandas as pd
 import seaborn as sns
 import torch
 import torch.nn.functional as F
-from emlp.reps import Vector
 from hydra.utils import get_original_cwd
 from omegaconf import DictConfig
 from pytorch_lightning import seed_everything
@@ -18,11 +14,9 @@ from torch.utils.data import DataLoader
 
 from groups.SemiDirectProduct import SparseRep
 from utils.robot_utils import get_robot_params
-from groups.SymmetricGroups import C2
-from nn.LightningModel import LightningModel
-from nn.EquivariantModules import EMLP, MLP, BasisLinear, EquivariantBlock, LinearBlock
-from datasets.com_momentum.com_momentum import COMMomentum
-from utils.algebra_utils import slugify, cm2inch
+from morpho_symm.nn import EMLP, MLP, BasisLinear, EquivariantBlock, LinearBlock
+from morpho_symm.datasets.com_momentum.com_momentum import COMMomentum
+from utils.algebra_utils import cm2inch
 
 
 class Identity(torch.nn.Module):
@@ -167,7 +161,7 @@ def extract_activations(model, data_loader):
     return df
 
 
-@hydra.main(config_path='../cfg/supervised', config_name='config')
+@hydra.main(config_path='../morpho_symm/cfg/supervised', config_name='config')
 def main(cfg: DictConfig):
     torch.set_default_dtype(torch.float32)
     cfg.seed = 10

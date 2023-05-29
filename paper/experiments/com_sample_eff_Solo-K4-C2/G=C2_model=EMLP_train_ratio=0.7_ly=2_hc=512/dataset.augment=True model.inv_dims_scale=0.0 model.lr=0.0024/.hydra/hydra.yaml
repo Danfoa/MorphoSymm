@@ -158,12 +158,12 @@ hydra:
         - seed
   runtime:
     version: 1.1.1
-    cwd: /gpfs/projects/bsc22/bsc22990/Projects/RobotEquivariantNN
+    cwd: /gpfs/projects/bsc22/bsc22990/Projects/MorphoSymm
     config_sources:
     - path: hydra.conf
       schema: pkg
       provider: hydra
-    - path: /gpfs/projects/bsc22/bsc22990/Projects/RobotEquivariantNN/cfg/supervised
+    - path: /gpfs/projects/bsc22/bsc22990/Projects/MorphoSymm/cfg/supervised
       schema: file
       provider: main
     - path: ''

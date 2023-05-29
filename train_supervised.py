@@ -1,4 +1,3 @@
-import copy
 import os
 
 import torch
@@ -10,9 +9,8 @@ os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
 import pandas as pd
 import numpy as np
 
-from datasets.com_momentum.com_momentum import COMMomentum
-from nn.EMLP import MLP, EMLP
-from utils.robot_utils import load_robot_and_symmetries
+from morpho_symm.datasets.com_momentum.com_momentum import COMMomentum
+from morpho_symm.nn import MLP, EMLP
 
 import hydra
 from utils.algebra_utils import check_if_resume_experiment
@@ -23,7 +21,7 @@ from pytorch_lightning import Trainer, seed_everything
 from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping
 from pytorch_lightning import loggers as pl_loggers
 
-from nn.LightningModel import LightningModel
+from morpho_symm.nn import LightningModel
 
 try:
     from yaml import CLoader as Loader, CDumper as Dumper
@@ -31,7 +29,7 @@ except ImportError:
     from yaml import Loader, Dumper
 
 import pathlib
-from nn.ContactECNN import ContactECNN
+from morpho_symm.nn import ContactECNN
 
 import logging
 
@@ -43,7 +41,6 @@ def get_model(cfg, rep_in=None, rep_out=None, cache_dir=None):
         model = ContactECNN(rep_in, rep_out, cache_dir=cache_dir, dropout=cfg.dropout,
                             init_mode=cfg.init_mode, inv_dim_scale=cfg.inv_dims_scale, bias=cfg.bias)
     elif "cnn" == cfg.model_type.lower():
-        import datasets.contact_dataset.umich_contact_dataset  # Triggers submodule error.
         import sys
         deep_contact_estimator_path = pathlib.Path(__file__).parent / 'data/contact_dataset/'
         assert deep_contact_estimator_path.exists(), deep_contact_estimator_path
@@ -64,7 +61,7 @@ def get_model(cfg, rep_in=None, rep_out=None, cache_dir=None):
 
 def get_datasets(cfg, device, root_path):
     if cfg.dataset.name == "contact":
-        from datasets.contact_dataset.umich_contact_dataset import UmichContactDataset
+        from morpho_symm.datasets.contact_dataset.umich_contact_dataset import UmichContactDataset
         assert 'cnn' in cfg.model.model_type.lower(), "Only CNN models are supported for contact dataset"
         train_dataset = UmichContactDataset(data_name="train.npy", robot_cfg=cfg.robot,
                                             label_name="train_label.npy", train_ratio=cfg.dataset.train_ratio,
@@ -202,7 +199,7 @@ def get_ckpt_storage_path(log_path, use_volatile=True):
         return log_path
 
 
-@hydra.main(config_path='cfg/supervised', config_name='config')
+@hydra.main(config_path='morpho_symm/cfg/supervised', config_name='config')
 def main(cfg: DictConfig):
     log.info("\n\n NEW RUN \n\n")
     device = torch.device("cuda" if torch.cuda.is_available() and cfg.device != "cpu" else "cpu")
