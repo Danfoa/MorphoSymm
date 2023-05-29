@@ -94,14 +94,18 @@ def symbolic_matrix(base_name, rows, cols):
     return w
 
 
-def permutation_matrix(oneline_notation, assert_orthogonal=True):
+def permutation_matrix(oneline_notation):
     d = len(oneline_notation)
-    if assert_orthogonal:
-        assert d == len(np.unique(oneline_notation)), np.unique(oneline_notation, return_counts=True)
+    assert d == np.unique(oneline_notation).size, "oneline_notation must describe a non-defective permutation"
     P = np.zeros((d, d), dtype=np.int)
     P[range(d), np.abs(oneline_notation)] = 1
     return P
 
+def gen_permutation_matrix(oneline_notation, reflections):
+    P = permutation_matrix(oneline_notation)
+    ref = np.asarray(reflections).reshape(-1, 1)
+    genP = ref * P
+    return genP
 
 def is_canonical_permutation(ph):
     return np.allclose(ph @ ph, np.eye(ph.shape[0]))

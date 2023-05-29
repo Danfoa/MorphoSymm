@@ -113,7 +113,6 @@ class C2(Sym):
         assert not is_eye, f"Generator must not be the identity: \n {h}"
         assert is_cyclic, f"Generator is not cyclic h @ h != I"
 
-
     @property
     def discrete_actions(self) -> list:
         return [sparse.eye(self.d, format='coo'), self.discrete_generators[0]]

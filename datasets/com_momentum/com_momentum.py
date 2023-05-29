@@ -12,8 +12,8 @@ from omegaconf import DictConfig
 from scipy.sparse import issparse
 from torch.utils.data import Dataset
 from torch.utils.data._utils.collate import default_collate
-from ...utils.robot_utils import load_robot_and_symmetries
-from ...utils.utils import dense
+from utils.robot_utils import load_robot_and_symmetries
+from utils.algebra_utils import dense
 
 log = logging.getLogger(__name__)
 
@@ -258,7 +258,7 @@ class COMMomentum(Dataset):
         """
         Plot side by side robots with different configutations, CoM momentums and expected CoM after an action g
         """
-        from utils.utils import configure_bullet_simulation
+        from utils.algebra_utils import configure_bullet_simulation
         def tint_robot(robot, color=(0.227, 0.356, 0.450), alpha=0.5):
             num_joints = self.robot.bullet_client.getNumJoints(self.robot.robot_id)
             for i in range(num_joints):

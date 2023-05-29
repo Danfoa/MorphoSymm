@@ -9,7 +9,7 @@ from scipy.sparse.linalg import LinearOperator
 
 import logging
 
-from ..utils.utils import dense
+from utils.algebra_utils import dense
 
 log = logging.getLogger(__name__)
 

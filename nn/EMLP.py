@@ -5,7 +5,7 @@ import numpy as np
 import torch
 from emlp.reps.representation import Base as BaseRep
 
-from ..groups.SparseRepresentation import SparseRep
+from groups.SparseRepresentation import SparseRep
 from .EquivariantModules import EquivariantModel, BasisLinear
 log = logging.getLogger(__name__)
 

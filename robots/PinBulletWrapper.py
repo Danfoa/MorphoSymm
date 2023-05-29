@@ -148,7 +148,7 @@ class PinBulletWrapper:
                 log.info(f"Adding end-effector {joint_name}")
                 self._endeff_names.append(joint_name)
             else:
-                log.warn(joint_name)
+                log.debug(f"unrecognized joint semantic type {joint_name}")
             bullet_joint_map[joint_name] = bullet_joint_id  # End effector joints.
 
         # # Disable the velocity control on the joints as we use torque control.

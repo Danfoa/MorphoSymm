@@ -1,31 +1,88 @@
-This repository holds the code for the paper: [On discrete symmetries of robotic systems: A data-driven and group-theoretic analysis](https://scholar.google.it/scholar?q=on+discrete+symmetries+of+robotic+systems:+a+data-driven+and+group-theoretic+analysis&hl=en&as_sdt=0&as_vis=1&oi=scholart). 
-Accepted to Robotics Science and Systems 2023 (RSS 2023).
+# Morphological Symmetries (MorphoSymm) in Locomoting Dynamical Systems
 
-## Example dynamical systems with Discrete Morphological Symmetries 
+
+Welcome to the Morphological Symmetries (MorphoSymm) repository! Here, you will find a comprehensive set of tools for the identification, study, and exploitation of morphological symmetries in locomoting dynamical systems. These symmetries are commonly found in a wide range of systems, including legged, swimming, and flying animals, robotic systems, and animated characters. As such, this repository aims to provide valuable resources for researchers and practitioners in the fields of Robotics, Computer Graphics, and Computational Biology.
+
+
+
+This repository holds the code for the paper: [On discrete symmetries of robotic systems: A data-driven and group-theoretic analysis](https://scholar.google.it/scholar?q=on+discrete+symmetries+of+robotic+systems:+a+data-driven+and+group-theoretic+analysis&hl=en&as_sdt=0&as_vis=1&oi=scholart). 
+Accepted to Robotics Science and Systems 2023 (RSS 2023). For reproducing the experiments of the paper, please see the master branch.
+
+## Library of dynamical systems with Discrete Morphological Symmetries 
 The following is a non-exhaustive and expanding list of dynamical systems with Discrete Morphological Symmetries. Each example can be
 reproduced in a 3D interactive environment running:
 ```
-cd [...]/RobotEquivariantNN
+cd [...]/MorphoSymm
 python robot_symmetry_visualization.py robot=<robot> gui=True debug=False
 ```
-There is a large number of real-world robotic systems with DMSs not listed in this library. For now re restrict 
-ourselves to the systems in the curated library of URDF configurations offered by `robot_descriptions.py`. Expect pull request to `robot_descriptions.py` to enlarge this list.
-
+This script functions as an introductory tutorial showing how we define the representations of Discrete Morphological Symmetries in order to perform symmetry transformations on the robot state, and proprioceptive and exteroceptive measurements.
 ### $\mathcal{G}=\mathcal{C}_2$: Reflection Symmetry
-|                                                              Solo-C2   	                                                               |                                                                Atlas   	                                                                |                                                                Bolt   	                                                                |                                                                A1 	                                                                |   
-|:--------------------------------------------------------------------------------------------------------------------------------------:|:---------------------------------------------------------------------------------------------------------------------------------------:|:--------------------------------------------------------------------------------------------------------------------------------------:|:----------------------------------------------------------------------------------------------------------------------------------:|
-| 	![solo-symmetries_anim_static](https://user-images.githubusercontent.com/8356912/203265566-ca07eb13-8b50-4ee1-ada7-6ebc985c4e30.gif)  | 	 ![atlas-symmetries_anim_static](https://user-images.githubusercontent.com/8356912/200183197-94242c57-bd9d-41cb-8a0b-509dceef5cb9.gif) |  ![bolt-symmetries_anim_static](https://user-images.githubusercontent.com/8356912/200183086-98d636d7-75b2-4744-b77f-99b3a1ec8e39.gif)  | ![a1-symmetries_anim_static](https://user-images.githubusercontent.com/8356912/203263932-1258a540-41d9-4b3d-9eb3-b67a840a7f5a.gif) | 	        
- |                                                             **Cassie**   	                                                             |                                                             **Baxter**   	                                                              |                                                               **HyQ**-C2  	                                                               |                                                                ---	                                                                |   
-| ![cassie-symmetries_anim_static](https://user-images.githubusercontent.com/8356912/203263954-331759e7-72da-4530-b5f1-a51c328b8ad6.gif) | ![baxter-symmetries_anim_static](https://user-images.githubusercontent.com/8356912/203263946-7252bcd3-e4e5-48a4-842e-906b50df9122.gif)  | ![hyq-c2-symmetries_anim_static](https://user-images.githubusercontent.com/8356912/203263960-ee553b56-f781-40ac-8daa-d7e1c59f10e7.gif) |                                                               ------                                                               |
+|                                       Solo-C2   	                                       |                                                                Atlas   	                                                                |                                      Bolt   	                                       |                                                                A1 	                                                                |   
+|:---------------------------------------------------------------------------------------:|:---------------------------------------------------------------------------------------------------------------------------------------:|:-----------------------------------------------------------------------------------:|:----------------------------------------------------------------------------------------------------------------------------------:|
+|   ![solo-symmetries_anim_static](paper/animations/solo-C2-symmetries_anim_static.gif)   | 	 ![atlas-symmetries_anim_static](https://user-images.githubusercontent.com/8356912/200183197-94242c57-bd9d-41cb-8a0b-509dceef5cb9.gif) | ![bolt-symmetries_anim_static](paper/animations/bolt-C2-symmetries_anim_static.gif) | ![a1-symmetries_anim_static](https://user-images.githubusercontent.com/8356912/203263932-1258a540-41d9-4b3d-9eb3-b67a840a7f5a.gif) | 	        
+ |                                     **Cassie**   	                                      |                                                             **Baxter**   	                                                              |                                    **HyQ**-C2  	                                    |                                                                ---	                                                                |   
+| ![cassie-symmetries_anim_static](paper/animations/cassie-C2-symmetries_anim_static.gif) |                         ![baxter-symmetries_anim_static](paper/animations/baxter-C2-symmetries_anim_static.gif)                         | ![bolt-symmetries_anim_static](paper/animations/hyq-C2-symmetries_anim_static.gif)  |
 
 ### $\mathcal{G}=\mathcal{K}_4$: Klein-Four Symmetry
-|                                                     Solo   	                                                      |                                                                HyQ   	                                                                | ----   	 | ---- 	 |   
-|:-----------------------------------------------------------------------------------------------------------------:|:-------------------------------------------------------------------------------------------------------------------------------------:|:--------:|:------:|
-| 	![Solo-K4](https://user-images.githubusercontent.com/8356912/191269534-af143f29-1f46-4009-858b-72a63b5c67ac.gif) | 	 ![hyq-symmetries_anim_static](https://user-images.githubusercontent.com/8356912/203263962-3ee004db-f2f9-468c-ba89-04f3cd316c0d.gif) |  -----   | -----  | 	        
+|                          Solo-K4=C2xC2   	                           |                                       HyQ-K4   	                                        |   
+|:--------------------------------------------------------------------:|:---------------------------------------------------------------------------------------:|
+| 	![Solo-K4](paper/animations/solo-Klein4-symmetries_anim_static.gif) | 	 ![hyq-symmetries_anim_static](paper/animations/hyq-Klein4-symmetries_anim_static.gif) | 	        
 
-## $\mathcal{G}$-Equivariant NN
+### $\mathcal{G}=\mathcal{C}_2\times\mathcal{C}_2\times\mathcal{C}_2$: Regular cube symmetry 
+|                              Solo-C2xC2xC2   	                               |   
+|:----------------------------------------------------------------------------:|
+| 	![solo-c2xc2xc2](paper/animations/solo-C2xC2xC2-symmetries_anim_static.gif) | 	        
 
-On the module `nn/EquivariantModules.py` you can find the $\mathcal{G}$-Equivariant Perceptron (`BasisLinear`) and Convolutional (`BasisConv1d`) layers classes. 
+### Addition of new dynamical systems to the library.
+
+This repository aims at becoming a central tool in the exploitation of Morphological Symmetries in Robotics, Computer Graphics and Computational Biology.
+Therefore, here we summarize the present and future efforts to enlarge the library of dynamical systems used in each of these fields.
+
+#### Robotics
+The repository focuses on robotics and uses the URDF (Unified Robot Description Format) to integrate new systems. 
+It utilizes the [robot_descriptions.py](https://github.com/robot-descriptions/robot_descriptions.py) package to simplify the integration of new URDF descriptions and their usage in 
+third-party robotics packages. This package provides a convenient interface for loading URDF files into GUI 
+visualization tools, robot dynamics packages (such as Pinocchio), and physics simulators. To add a new robotic system to our library
+1. The system URDF must be contributed to robot_descriptions.py.
+2. The corresponding robot configuration file should be added to `cfg/supervised/robot/` describing the system' symmetry group and joint-space representation generators, should also be added.
+
+In summary, we support:
+
+- [x] Loading of URDF files in `pybullet` and `pinocchio` through `robot_descriptions.py` 
+- [x] Visualization of robot Discrete Morphological Symmetries in `pybullet`. Other physics simulators and visualization tools will come soon. 
+- [x] Utility functions to define symmetry representations of proprioceptive and exteroceptive measurements.
+
+#### Computer Graphics
+
+The field of computer graphics do not widely employs URDF descriptions for the definition of dynamical systems. Although, covering different description standards is within the goal of this repository, 
+for now our main objective is:
+
+- [ ] Integration of [STAR](https://star.is.tue.mpg.de/) model in the library, to automatically process sequence of data and obtain symmetric sequences. 
+By defining the sagittal symmetry of all the model parameters. This will enable the use of DMSs in all applications of human motion prediction, shape reconstruction, etc. 
+If you are interested in contributing to this effort, please contact us.
+- [ ] Integration of Motion Capture (MoCap) data formats. Including `.fbx`, `.bvh`, and `.c3d`. 
+
+#### Computational Biology
+
+For computational biology and bio-mechanics, we believe the most relevant format to provide support for is:
+- [ ] Coordinate 3D files `.c3d` format. 
+
+## How to cite us?
+If you find this repository or the [paper](https://scholar.google.it/scholar?q=on+discrete+symmetries+of+robotic+systems:+a+data-driven+and+group-theoretic+analysis&hl=en&as_sdt=0&as_vis=1&oi=scholart) useful, please cite us as:
+```
+@article{ordonez2023dms_discrete_morphological_symmetries,
+  title={On discrete symmetries of robotics systems: A group-theoretic and data-driven analysis},
+  author={Ordonez-Apraez, Daniel and Martin, Mario and Agudo, Antonio and Moreno-Noguer, Francesc},
+  journal={arXiv preprint arXiv:2302.10433},
+  year={2023}
+}
+```
+
+## Construction of $\mathcal{G}$-Equivariant Neural Networks
+
+We are currently transitioning to use the package [ESCNN](https://github.com/QUVA-Lab/escnn) for the construction of 
+equivariant function approximators exploiting morphological symmetries. This is an ongoing effort. However, on the master branch 
+you can build large-scale equivariant MLP or CNNs using the `nn/EquivariantModules.py` module. Where you can find the $\mathcal{G}$-Equivariant Perceptron (`BasisLinear`) and Convolutional (`BasisConv1d`) layers classes. 
 These are the equivariant versions of the standard Pytorch `Linear` and `Conv1D` layers. 
 
 The parametrization of the equivariant layers (i.e., class signature) is identical to the unconstrained Pytorch layer classes.
@@ -38,32 +95,8 @@ on the system join-space `Q_J`, required to construct the representation for any
 Expect a tutorial for the use of these classes. For now, visit `nn/ContactCNN` and `nn/EMLP` for the classes of the 
 NN architectures used in the experiments of the paper.
 
-## Experiments 
-The script used to run the two experiments described in the paper is `train_supervised.py` which receives configuration files using `hydra`. 
-The default configurations can be found on the `cgf` directory. 
-All experiments were run in an HPC using `slurm`. The slurm jobs are not made public but the following are some examples of how to run the experiments on standard machines
+## Contributing
 
-The `training_supervised` script will create an `experiment` directory on the project root folder, where the results of each individual run will be stored along with a tensorboard log file 
-holding several metrics logged during training and validation. After training is done, each model variant is evaluated on the test dataset and a log file `test_metrics.csv` is created 
-containing all evaluation metrics of the test set. These `test_metrics.csv` files for each of the model variants and individual seeds are used by the scripts in the `paper` directory 
-to generate several figures including the ones presented in the paper. 
+If you have any doubts or ideas, create an issue or contact us. We are happy to help and collaborate.
 
-### CoM Estimation
-- Atlas: Example experiment training `mlp` and `emlp` models with `256`, `512`, and `1024` hidden channel neurons, with and without data augmentation.
-```
-python train_supervised.py --multirun robot=Atlas dataset=com_momentum dataset.samples=500000 dataset.augment=True,False model.num_channels=256,512,1024  model=emlp,mlp dataset.train_ratio=0. model.lr=1.5e-3 model.inv_dims_sca exp_name=com_sample_eff$
-```
-- Solo with Morphological Symmetry Group C2 and K4
-```
-python train_supervised.py --multirun robot=Solo,Solo-c2 dataset=com_momentum dataset.augment=True,False dataset.train_ratio=0.70 model=emlp,mlp model.lr=2.4e-3 model.num_channels=64,128,256,512 exp_name=com_sample_eff
-```
-
-### Static Friction Regime Contact Detection 
-- CNN
-```
-python train_supervised.py --multirun robot=mini-cheetah-c2 dataset=contact dataset.data_folder=training_splitted dataset.train_ratio=0.85 dataset.augment=True,False exp_name=contact_sample_eff_splitted model=contact_cnn model.lr=1e-4 
-```
-- ECNN
-```
-python train_supervised.py --multirun robot=mini-cheetah-c2 dataset=contact dataset.data_folder=training_splitted dataset.train_ratio=0.85 dataset.augment=False exp_name=contact_sample_eff_splitted model=contact_ecnn model.lr=1e-5 
-```
+In case you want to contribute, thanks for being that awesome, and please contact us to see in what can we assist you. 

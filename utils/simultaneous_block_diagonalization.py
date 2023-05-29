@@ -5,6 +5,7 @@ import escnn
 import networkx as nx
 import numpy as np
 import pandas as pd
+import scipy.linalg
 from escnn.group.group import Group, GroupElement
 from escnn.group.representation import Representation
 from networkx import Graph
@@ -173,7 +174,7 @@ def cplx_isotypic_decomposition(
             Qs.append(Q_sub)
 
     # Sort irreps by dimension.
-    P, sorted_irreps = sorted_jordan_cann_form(found_irreps)
+    P, sorted_irreps = sorted_jordan_cann_form(G, found_irreps)
 
     # If subreps were decomposable, then these get further decomposed with an additional Hermitian matrix such that:
     # Q @ rep[g] @ Q^-1 = block_diag[irreps] | Q = (Q_external @ Q_internal)
@@ -194,7 +195,7 @@ def cplx_isotypic_decomposition(
     return sorted_irreps, Q
 
 
-def sorted_jordan_cann_form(reps: List[Union[Dict[GroupElement, np.ndarray], Representation]]):
+def sorted_jordan_cann_form(G: Group, reps: List[Union[Dict[GroupElement, np.ndarray], Representation]]):
     reps_idx = range(len(reps))
     reps_size = [rep[G.sample()].shape[0] if isinstance(rep, dict) else rep.size for rep in reps]
     sort_order = sorted(reps_idx, key=lambda idx: reps_size[idx])
@@ -240,7 +241,8 @@ def map_character_tables(in_table: np.ndarray, reference_table: np.ndarray):
 def escnn_representation_form_mapping(
         G: Group, representation: Union[Dict[GroupElement, np.ndarray], Callable[[GroupElement], np.ndarray]]
 ):
-    rep = lambda g: representation[g] if isinstance(rep, dict) else representation(g)
+    rep = lambda g: representation[g] if isinstance(representation, dict) else representation(g)
+
     n = rep(G.sample()).shape[0]  # Size of the representation
     # Find Q such that `iso_cplx(g) = Q @ rep(g) @ Q^-1` is block diagonal with blocks being complex irreps.
     cplx_irreps, Q = cplx_isotypic_decomposition(G, rep)
@@ -251,46 +253,62 @@ def escnn_representation_form_mapping(
     irreps_char_table = compute_character_table(G, cplx_irreps)
 
     # We need to identify which real ESCNN irreps are present in rep(g).
-    # First, we have to perform a matching between complex and real irreps.
+    # First, we decompose the Group's ESCNN real irreps into complex irreps.
     escnn_cplx_irreps_data = {}
     for re_irrep in G.irreps():
+        # Find Q_sub s.t. `block_diag([cplx_irrep_i1(g), cplx_irrep_i2(g)...]) = Q @ re_irrep_i(g) @ Q^-1`
         irreps, Q_sub = cplx_isotypic_decomposition(G, re_irrep)
         char_table = compute_character_table(G, irreps)
         escnn_cplx_irreps_data[re_irrep] = dict(subreps=irreps, Q=Q_sub, char_table=char_table)
 
-    # We match representations by their irreducible complex characters.
+    # Then, we find which of the Group complex irreps are present in the input representation, and determine
+    # each group complex irrep multiplicity. As the complex irreps forming a real irrep can be spread over the
+    # dimensions of the input rep, we find a permutation matrix P such that all complex irreps associated with a real
+    # irrep are contiguous in dimensions.trifinger
     oneline_perm, Q_isore2isoimg = [], []
     escnn_real_irreps = []
     for escnn_irrep, data in escnn_cplx_irreps_data.items():
+        # Match complex irreps by their character tables.
         multiplicities, irrep_locs = map_character_tables(data["char_table"], irreps_char_table)
         subreps_start_dims = [irrep_dim_start[i] for i in irrep_locs]  # Identify start of blocks in `rep(g)`
         data.update(multiplicities=multiplicities, subrep_start_dims=subreps_start_dims)
         assert np.unique(multiplicities).size == 1, "Multiplicities error"
         multiplicity = multiplicities[0]
         for m in range(multiplicity):
-            # TODO: This doesnt work for Dihedral groups
             Q_isore2isoimg.append(data['Q'])  # Add transformation from Real irrep to complex irrep
-            escnn_real_irreps.append(escnn_irrep.id)  # Add escnn irrep to the list for instanciation
+            escnn_real_irreps.append(escnn_irrep)  # Add escnn irrep to the list for instanciation
             for subrep, rep_start_dims in zip(data['subreps'], subreps_start_dims):
                 rep_size = subrep[G.sample()].shape[0] if isinstance(subrep, dict) else subrep.size
                 oneline_perm += list(range(rep_start_dims[m], rep_start_dims[m] + rep_size))
-    # Construct a Permutation matrix ensuring all complex irreps of a real irreps are contiguous in dimensions
-    P_escnn = permutation_matrix(oneline_notation=oneline_perm)
-    Q_isore2isoimg = block_diag(*Q_isore2isoimg)
-    Q_isoim2isore = np.linalg.inv(Q_isore2isoimg)
+    # As the complex irreps forming a real irrep can be spread over the dimensions of the input rep, we find a
+    # permutation matrix P such that all complex irreps of a real irrep are contiguous in dimensions / in the same block
+    P = permutation_matrix(oneline_notation=oneline_perm)
+    # Then we use the known transformations `Q_sub` for each real irrep, to create a mapping from cplx to real irreps.
+    # s.t. `iso_re(g) = Q_iso_cplx2iso_re @ block_diag([cplx_irrep_11(g),...,cplx_irrep_ij(g)]) @ Q_iso_cplx2iso_re^-1`
+    Q_iso_cplx2iso_re = block_diag(*[Q_sub.conj().T for Q_sub in Q_isore2isoimg])
 
-    Q_re = Q_isoim2isore @ P_escnn @ Q
+    # Assert the matrix `P` and `Q_iso_cplx2iso_re` turn complex irreps into real irreps
+    # `iso_re(g) = (Q_iso_cplx2iso_re @ P) @ iso_cplx(g) @ (Q_iso_cplx2iso_re @ P)^-1`,
+    for g in G.elements:
+        iso_re_g = block_diag(*[irrep(g) for irrep in escnn_real_irreps])
+        iso_cplx_g = block_diag(*[cplx_irrep[g] for cplx_irrep in cplx_irreps])
+        rec_iso_re_g = Q_iso_cplx2iso_re @ P @ iso_cplx_g @ (Q_iso_cplx2iso_re @ P).conj().T
+        error = np.abs(iso_re_g - rec_iso_re_g)
+        assert np.isclose(error, 0).all(), f"Error found in the conversion of Real irreps to Complex irreps"
 
-    # We have that `Q_f @ rep(g) @ Q_f^-1` is block diagonal with blocks being real irreps.
-    reconstructed_rep = Representation(G, name=f"reconstructed", irreps=escnn_real_irreps,
-                                       change_of_basis=Q_re.conj().T, change_of_basis_inv=Q_re)
+    # Now we have an orthogonal transformation between the input `rep` and `iso_re`.
+    #                        |     iso_cplx(g)     |
+    # (Q_iso_cplx2iso_re @ P @ Q) @ rep(g) @ (Q^-1 @ P^-1 @ Q_iso_cplx2iso_re^-1) = Q_re @ rep(g) @ Q_re^-1 = iso_re(g)
+    Q_re = Q_iso_cplx2iso_re @ P @ Q
+    assert np.allclose(Q_re @ Q_re.conj().T, np.eye(Q_re.shape[0])), "Q_re is not an orthogonal transformation"
 
-    iso_rep_re = Representation(G, name=f"iso_re", irreps=escnn_real_irreps, change_of_basis=np.eye(n))
+    # Then we have that `Q_re^-1 @ iso_re(g) @ Q_re = rep(g)`
+    reconstructed_rep = Representation(G, name=f"reconstructed", irreps=[irrep.id for irrep in escnn_real_irreps],
+                                       change_of_basis=Q_re.conj().T)
+
     # Test ESCNN reconstruction
     for g in G.elements:
         g_true, g_rec = rep(g), reconstructed_rep(g)
-        g_a = Q_re @ rep(g) @ Q_re.conj().T
-        g_aa = iso_rep_re(g)
         error = np.abs(g_true - g_rec)
         error[error < 1e-10] = 0
         assert np.allclose(error, 0), f"Reconstructed rep do not match input rep. g={g}, error:\n{error}"

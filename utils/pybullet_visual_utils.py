@@ -3,6 +3,7 @@ import pathlib
 
 import numpy as np
 from pytransform3d import rotations as rt, transformations as tr
+from tqdm import tqdm
 
 from .algebra_utils import matrix_to_quat_xyzw, SE3_2_gen_coordinates, quat_xyzw_to_SO3
 
@@ -56,9 +57,12 @@ def draw_vector(pb, origin, vector, v_color, scale=1.0):
     return vector_id
 
 
-def plot_reflection_plane(pb, R, p, color, size=(0.01, 0.25, 0.25)):
-    body_id = pb.createVisualShape(shapeType=pb.GEOM_BOX, halfExtents=size,
-                                   rgbaColor=color)
+def plot_reflection_plane(pb, R, p, color, size=(0.01, 0.25, 0.25), cylinder=False):
+    if not cylinder:
+        body_id = pb.createVisualShape(shapeType=pb.GEOM_BOX, halfExtents=size, rgbaColor=color)
+    else:
+        body_id = pb.createVisualShape(shapeType=pb.GEOM_CYLINDER, radius=size[0], length=size[1], rgbaColor=color)
+
     plane_id = pb.createMultiBody(baseMass=1,
                                   baseInertialFramePosition=[0, 0, 0],
                                   baseCollisionShapeIndex=body_id,
@@ -68,48 +72,112 @@ def plot_reflection_plane(pb, R, p, color, size=(0.01, 0.25, 0.25)):
     return plane_id
 
 
-def generate_rotating_view_gif(pb, cam_target_pose, cam_distance, save_path: pathlib.Path, n_frames='auto', file_name="animation",
-                               anim_time=10, yaw_sin_amplitude=15):
-    from moviepy.editor import ImageSequenceClip
-    from tqdm import tqdm
+def render_orbiting_animation(
+        pb, cam_target_pose, cam_distance, save_path: pathlib.Path, fps=20, file_name="animation", periods=1,
+        anim_time=10, pitch_sin_amplitude=15, init_roll_pitch_yaw=(0, -20, 45), invert_roll=False, gen_gif=True,
+        gen_imgs=True):
+    n_frames = anim_time * fps
+    render_width, render_height, fov, shadow = (812, 812, 60, True) if gen_gif else (3024, 3024, 40, False)
     print(f"Generating rotating Gif animation with {n_frames} viewpoints")
-    file_name = file_name.replace(".gif", '')
-    n_frames = int(anim_time * 20) if isinstance(n_frames, str) else n_frames
-    fps = int(n_frames / anim_time)  # Animation should take n seconds, compute frames per second
-    # Adapted from https://colab.research.google.com/drive/1u6j7JOqM05vUUjpVp5VNk0pd8q-vqGlx#scrollTo=7tbOVtFp1_5K
-    frames = []  # frames to create animated png
-    yaw = 45
-    yaw_update = 360 / n_frames
-    freq = 1 / n_frames
-    for r in tqdm(range(n_frames), desc="Capturing frames"):
-        yaw += yaw_update
-        pitch = -20.0 + yaw_sin_amplitude * np.sin((2 * np.pi * freq) * r)
-        roll = 0
-        upAxisIndex = 2
-        camDistance = cam_distance
-        # int(2 * 1024), int(2 * 812)
-        pixelWidth = 1024
-        pixelHeight = 812
-        nearPlane = 0.01
-        farPlane = 100
-        fov = 60
-        viewMatrix = pb.computeViewMatrixFromYawPitchRoll(cam_target_pose, camDistance, yaw, pitch, roll, upAxisIndex)
-        aspect = pixelWidth / pixelHeight
-        projectionMatrix = pb.computeProjectionMatrixFOV(fov, aspect, nearPlane, farPlane)
 
-        img_arr = pb.getCameraImage(pixelWidth, pixelHeight, viewMatrix, projectionMatrix, shadow=1,
-                                    lightDirection=[0, 0, 0.5], lightDistance=1.0, renderer=pb.ER_TINY_RENDERER)
+    roll0, pitch0, yaw0 = init_roll_pitch_yaw
+    freq = 1 / (periods * n_frames)
+
+    # Define camera trajectory in polar coordinates with a constant radius.
+    t = np.asarray(range(n_frames))
+    # We assume pitch will do a full period of a sine wave
+    pitch = -(pitch0 + pitch_sin_amplitude * np.sin((2 * np.pi * freq) * t))
+    yaw = np.linspace(yaw0, (360 + yaw0) * periods, n_frames)
+    roll = np.ones_like(t) * roll0
+
+    light_distance, light_directions = 4, (0.5, 0.5, 1)
+    frames = render_camera_trajectory(pb, pitch, roll, yaw, n_frames, cam_distance, cam_target_pose,
+                                      light_direction=light_directions, light_distance=light_distance,
+                                      render_width=render_width, render_height=render_height, fov=fov, shadow=shadow
+                                      )[:-1]
+
+    if invert_roll:
+        # Generate linear transition of roll from 0 to 180 degrees
+        # Define transition frames from 0 to 180 degrees
+        rotation_frames = n_frames // 3
+        t_rot = np.asarray(range(rotation_frames))
+        roll_rot = np.linspace(roll0, roll0 + 180, rotation_frames)
+        yaw_rot = np.ones_like(t_rot) * yaw[-1]
+        pitch_rot = -np.abs(np.linspace(pitch[-1], -pitch[-1], rotation_frames))
+        rot_frames = render_camera_trajectory(
+            pb, pitch_rot, roll_rot, yaw_rot, rotation_frames, cam_distance, cam_target_pose,
+            light_direction=light_directions, light_distance=light_distance, shadow=shadow,
+            render_width=render_width, render_height=render_height, fov=fov
+        )
+
+        # Add final loop
+        roll_inv = np.ones_like(t) * 180
+        yaw_inv = yaw
+        pitch_inv = pitch
+        frames_inv = render_camera_trajectory(
+            pb, pitch_inv, roll_inv, yaw_inv, n_frames, cam_distance, cam_target_pose,
+            light_direction=light_directions, light_distance=light_distance, shadow=shadow,
+            render_width=render_width, render_height=render_height, fov=fov
+        )[:-1]
+        # Add transition frames
+        # frames = np.concatenate([rot_frames, list(reversed(rot_frames))], axis=0)
+        if gen_gif:
+            frames = np.concatenate([frames, rot_frames, frames_inv, list(reversed(rot_frames))], axis=0)
+        elif gen_imgs:
+            frames = np.concatenate([frames, frames_inv], axis=0)
+
+    if gen_gif:
+        from moviepy.editor import ImageSequenceClip
+        # Save animation
+        file_name = file_name.replace(".gif", '')
+        file_path = save_path / f'{file_name}.gif'
+        file_count = 1
+        while file_path.exists():
+            file_path = save_path / f'{file_name}({file_count}).gif'
+            file_count += 1
+        clip = ImageSequenceClip(list(frames), fps=fps)
+        clip.write_gif(file_path, fps=fps, loop=False, )  # program='ffmpeg', progress_bar=True, fuzz=0.05)
+        print(f"Animation saved to {file_path.absolute()}")
+    elif gen_imgs:
+        import matplotlib.pyplot as plt
+        for i, frame in enumerate(frames):
+            file_path = save_path / f'{file_name}-{i}'
+            # Create a figure and axis
+            fig, ax = plt.subplots()
+            ax.imshow(frame)
+            ax.axis('off')
+            plt.savefig(file_path, dpi=300, bbox_inches='tight', pad_inches=0)
+            print(f"Frame saved to {file_path.absolute()}")
+            plt.close(fig)
+        return frames
+
+
+def render_camera_trajectory(pb, pitch, roll, yaw, n_frames, cam_distance, cam_target_pose, upAxisIndex=2,
+                             render_width=812, render_height=812, nearPlane=0.01, farPlane=100, fov=60,
+                             light_direction=(0, 0, 0.5), light_distance=1.0, shadow=True,
+                             ):
+    # Set rendering constants
+    aspect = render_width / render_height
+    # Capture frames
+    frames = []  # frames to create animated png
+    for s in tqdm(range(n_frames), desc="Capturing frames"):
+        yaw_t, pitch_t, roll_t = yaw[s], pitch[s], roll[s]
+        # Compute view and projection matrices from yaw, pitch, roll
+        viewMatrix = pb.computeViewMatrixFromYawPitchRoll(
+            cam_target_pose, cam_distance, yaw_t, pitch_t, roll_t, upAxisIndex)
+        projectionMatrix = pb.computeProjectionMatrixFOV(fov, aspect, nearPlane, farPlane)
+        # Render image
+        img_arr = pb.getCameraImage(render_width, render_height, viewMatrix, projectionMatrix, shadow=shadow,
+                                    lightDirection=light_direction, lightDistance=light_distance,
+                                    renderer=pb.ER_TINY_RENDERER, lightColor=[1, 1, 1],
+                                    lightSpecularCoeff=0.32)
         w = img_arr[0]  # width of the image, in pixels
         h = img_arr[1]  # height of the image, in pixels
         rgb = img_arr[2]  # color data RGB
         np_img_arr = np.reshape(rgb, (h, w, 4))
-        frame = np_img_arr[:, :, :3]
+        frame = np_img_arr[:, :, :]
         frames.append(frame)
-
-    file_path = save_path / f'{file_name}.gif'
-    clip = ImageSequenceClip(list(frames), fps=fps)
-    clip.write_gif(file_path, fps=fps, loop=True)
-    print(f"Animation saved to {file_path.absolute()}")
+    return frames
 
 
 # Setup debug sliders
@@ -119,7 +187,9 @@ def setup_debug_sliders(pb, robot):
         joint_info = pb.getJointInfo(robot.robot_id, bullet_joint_id)
         joint_name = joint_info[1].decode("UTF-8")
         lower_limit, upper_limit = joint_info[8], joint_info[9]
-        pb.addUserDebugParameter(paramName=f"{joint_name}_{i}", rangeMin=lower_limit, rangeMax=upper_limit, startValue=0.0)
+        pb.addUserDebugParameter(paramName=f"{joint_name}_{i}", rangeMin=lower_limit, rangeMax=upper_limit,
+                                 startValue=0.0)
+
 
 # Read param values
 def listen_update_robot_sliders(pb, robot):
@@ -131,6 +201,7 @@ def listen_update_robot_sliders(pb, robot):
             pb_q[bullet_joint_id] = pb.readUserDebugParameter(itemUniqueId=i)
             pb.resetJointState(robot.robot_id, bullet_joint_id, pb_q[bullet_joint_id])
         time.sleep(0.1)
+
 
 def tint_robot(pb, robot):
     robot_color = [0.054, 0.415, 0.505, 1.0]
@@ -144,13 +215,13 @@ def tint_robot(pb, robot):
         joint_name = pb.getJointInfo(robot.robot_id, i)[1].decode("UTF-8")
         if link_name in robot.endeff_names or (joint_name in robot.endeff_names):
             color = endeff_color
-        elif np.any([s in joint_name.lower() for s in ["fl_", "left"]]):
+        elif np.any([s in joint_name.lower() for s in ["fl_", "lf_", "left"]]):
             color = FL_leg_color
-        elif np.any([s in joint_name.lower() for s in ["fr_", "right"]]):
+        elif np.any([s in joint_name.lower() for s in ["fr_", "rf_", "right"]]):
             color = FR_leg_color
-        elif np.any([s in joint_name.lower() for s in ["rl_", "hl_", "left"]]):
+        elif np.any([s in joint_name.lower() for s in ["rl_", "hl_", "lh_", "left"]]):
             color = HL_leg_color
-        elif np.any([s in joint_name.lower() for s in ["rr_", "hr_", "right"]]):
+        elif np.any([s in joint_name.lower() for s in ["rr_", "hr_", "rh_", "right"]]):
             color = HR_leg_color
         else:
             color = robot_color
@@ -159,7 +230,7 @@ def tint_robot(pb, robot):
 
 
 def display_robots_and_vectors(pb, robot, base_confs, Gq_js, Gdq_js, Ghg, forces, forces_points, surface_normals,
-                               GX_g_bar, offset=1.5):
+                               GX_g_bar, offset=1.5, tint=True):
     """
     Plot side by side robots with different configutations, CoM momentums and expected CoM after an action g
     """
@@ -170,25 +241,20 @@ def display_robots_and_vectors(pb, robot, base_confs, Gq_js, Gdq_js, Ghg, forces
     draw_vector(pb, np.zeros(3), np.asarray([0, .1, 0]), v_color=[0, 1, 0, 1])
     draw_vector(pb, np.zeros(3), np.asarray([0, 0, .1]), v_color=[0, 0, 1, 1])
 
-    plane_height = robot.hip_height / 4.0
-    plane_size = (0.01, robot.hip_height / 2, robot.hip_height / 4)
+    plane_height = 0
+    plane_size = (0.01, robot.hip_height / 2, robot.hip_height / 2)
 
     # Sagittal plane
-    X_g_sagittal = GX_g_bar[1]
     plot_reflection_plane(pb, R=rt.matrix_from_two_vectors(a=[0, 1, 0], b=[1, 0, 0]),
-                          p=X_g_sagittal[:3, 3] / 2 + [0.0, 0.0, plane_height],
-                          color=np.array([242, 242, 242, 40]) / 256., size=plane_size)
-    if len(GX_g_bar) > 2:
-        plot_reflection_plane(pb, R=rt.matrix_from_two_vectors(a=[0, 1, 0], b=[1, 0, 0]),
-                              p=X_g_sagittal[:3, 3] / 2 + [offset, 0.0, plane_height],
-                              color=np.array([242, 242, 242, 40]) / 256., size=plane_size)
-        X_g_trans = GX_g_bar[2]
-        plot_reflection_plane(pb, R=rt.matrix_from_two_vectors(a=[1, 0, 0], b=[0, 1, 0]),
-                              p=X_g_trans[:3, 3] / 2 + [0.0, 0.0, plane_height],
-                              color=np.array([255, 230, 230, 40]) / 256., size=plane_size)
-        plot_reflection_plane(pb, R=rt.matrix_from_two_vectors(a=[1, 0, 0], b=[0, 1, 0]),
-                              p=X_g_trans[:3, 3] / 2 + [0.0, offset, plane_height],
-                              color=np.array([255, 230, 230, 40]) / 256., size=plane_size)
+                          p=[0.0, 0.0, plane_height],
+                          color=np.array([230, 230, 256, 40]) / 256., size=plane_size)
+    plot_reflection_plane(pb, R=rt.matrix_from_two_vectors(a=[1, 0, 0], b=[0, 1, 0]),
+                          p=[0.0, 0.0, plane_height],
+                          color=np.array([256, 230, 230, 40]) / 256., size=plane_size)
+    plot_reflection_plane(pb, R=rt.matrix_from_two_vectors(a=[0, 0, 1], b=[0, 1, 0]),
+                          p=[0.0, 0.0, 0.0],
+                          color=np.array([250, 250, 250, 80]) / 256.,
+                          size=(0.01, robot.hip_height * 6, robot.hip_height * 6))
 
     robots = [robot]
     com_pos = None
@@ -200,7 +266,8 @@ def display_robots_and_vectors(pb, robot, base_confs, Gq_js, Gdq_js, Ghg, forces
         if i > 0:
             grobot = robot if i == 0 else copy.copy(robot)
             grobot.configure_bullet_simulation(pb, world=None)
-            tint_robot(pb, grobot)
+            if tint:
+                tint_robot(pb, grobot)
             robots.append(grobot)
         # Place robots in env
         base_q = SE3_2_gen_coordinates(XB_w)
@@ -208,7 +275,8 @@ def display_robots_and_vectors(pb, robot, base_confs, Gq_js, Gdq_js, Ghg, forces
         grobot.reset_state(np.concatenate((base_q, q_js)), np.concatenate((np.zeros(6), dq_js)))
         # Add small offset to COM for visualization.
         if com_pos is None:
-            com_pos = robot.pinocchio_robot.com(q=np.concatenate((base_q, q_js))) + (RB_w @ np.array([-0.3, 0.5, 0.05]))
+            com_pos = robot.pinocchio_robot.com(q=np.concatenate((base_q, q_js))) + \
+                      (RB_w @ np.array([robot.hip_height, robot.hip_height, 0.05]))
 
         gcom_pos = tr.transform(rho_X_gbar, tr.vector_to_point(com_pos), strict_check=False)[:3]
         # Draw COM momentum and COM location
@@ -231,12 +299,12 @@ def display_robots_and_vectors(pb, robot, base_confs, Gq_js, Gdq_js, Ghg, forces
             body_id = pb.createVisualShape(shapeType=pb.GEOM_BOX, halfExtents=[.2 * robot.hip_height,
                                                                                .2 * robot.hip_height,
                                                                                0.01],
-                                           rgbaColor=np.array([235, 255, 255, 150]) / 255.)
+                                           rgbaColor=np.array([115, 140, 148, 150]) / 255.)
             mb = pb.createMultiBody(baseMass=1,
                                     baseInertialFramePosition=[0, 0, 0],
                                     baseCollisionShapeIndex=body_id,
                                     baseVisualShapeIndex=body_id,
-                                    basePosition=rf_orbit[i] - GRf_w[i] @ np.array([0, 0, 0.03]),
+                                    basePosition=rf_orbit[i],
                                     baseOrientation=matrix_to_quat_xyzw(GRf_w[i]))
         # Draw Base orientation
         draw_vector(pb, origin=tB_w + RB_w @ np.array((0.06, 0, 0.03)), vector=RB_w[:, 0], v_color=[1, 1, 1, 1],
@@ -249,8 +317,11 @@ def get_mock_ground_reaction_forces(pb, robot, robot_cfg):
     rf1_w, quatf1_w = (np.array(x) for x in pb.getLinkState(robot.robot_id, end_effectors[0])[0:2])
     rf2_w, quatf2_w = (np.array(x) for x in pb.getLinkState(robot.robot_id, end_effectors[1])[0:2])
     Rf1_w, Rf2_w = quat_xyzw_to_SO3(quatf1_w), quat_xyzw_to_SO3(quatf2_w)
+
     if not np.any([s in robot.robot_name for s in ["atlas"]]):  # Ignore
         Rf1_w, Rf2_w = np.eye(3), np.eye(3)
+    rf1_w -= Rf1_w @ np.array([0, 0, 0.03])
+    rf2_w -= Rf2_w @ np.array([0, 0, 0.03])
     # Add some random force magnitures to the vectors. # Rf_w[:, 2] := Surface normal
     f1_w = Rf1_w[:, 2] + [2 * np.random.rand() - 1, 2 * np.random.rand() - 1, np.random.rand()]
     f2_w = Rf2_w[:, 2] + [2 * np.random.rand() - 1, 2 * np.random.rand() - 1, np.random.rand()]

@@ -12,8 +12,8 @@ import torch
 import torch.nn as nn
 from scipy.sparse import issparse
 
-from ..groups.SparseRepresentation import SparseRep
-from ..groups.SymmetryGroups import C2
+from groups.SparseRepresentation import SparseRep
+from groups.SymmetryGroups import C2
 from .EquivariantModules import BasisLinear, EquivariantModel, BasisConv1d
 from .EMLP import EMLP, EquivariantBlock
 from emlp.groups import Group

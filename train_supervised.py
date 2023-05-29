@@ -15,7 +15,7 @@ from nn.EMLP import MLP, EMLP
 from utils.robot_utils import load_robot_and_symmetries
 
 import hydra
-from utils.utils import check_if_resume_experiment
+from utils.algebra_utils import check_if_resume_experiment
 
 from hydra.utils import get_original_cwd
 from omegaconf import DictConfig

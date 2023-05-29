@@ -2,5 +2,10 @@
 defaults:
   - hyq
 
-G_sub: C2
-gens_ids: [0]
+group_label: C2
+
+# Configure qj (joint-space) group actions
+#                  Sagittal Symmetry
+perm_qj: [[6, 7, 8, 9, 10, 11, 0, 1, 2, 3, 4, 5]]
+# Reflections are determined by joint frame predefined orientation.
+refx_qj: [[1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]]

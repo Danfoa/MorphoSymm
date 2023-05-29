@@ -44,7 +44,7 @@ from torch.utils.data._utils.collate import default_collate
 from tqdm import tqdm
 
 from groups.SymmetryGroups import C2
-from utils.utils import reflection_matrix, coo2torch_coo
+from utils.algebra_utils import reflection_matrix, coo2torch_coo
 
 
 class UmichContactDataset(contact_dataset):

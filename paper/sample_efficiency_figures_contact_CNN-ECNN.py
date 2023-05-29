@@ -10,7 +10,7 @@ import numpy as np
 import re
 from datasets.umich_contact_dataset import UmichContactDataset
 
-from utils.utils import cm2inch
+from utils.algebra_utils import cm2inch
 
 import re
 

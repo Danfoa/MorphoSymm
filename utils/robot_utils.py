@@ -7,17 +7,19 @@
 import importlib
 import re
 
-import escnn
 import numpy as np
+import escnn
+import escnn.group
+from escnn.group import Group, CyclicGroup, DihedralGroup, DirectProductGroup
 from omegaconf import DictConfig
-from scipy import sparse
 
 # from groups.SparseRepresentation import SparseRep, SparseRepE3
 # from groups.SymmetryGroups import C2, Klein4, Sym
 from robots.PinBulletWrapper import PinBulletWrapper
-from . import algebra_utils
+from .algebra_utils import configure_bullet_simulation, gen_permutation_matrix
+from .group_utils import group_rep_from_gens
 from .pybullet_visual_utils import setup_debug_sliders, listen_update_robot_sliders
-from .algebra_utils import reflection_matrix, configure_bullet_simulation
+from .simultaneous_block_diagonalization import escnn_representation_form_mapping
 
 
 def class_from_name(module_name, class_name):
@@ -30,7 +32,6 @@ def class_from_name(module_name, class_name):
 
 def get_escnn_group(cfg: DictConfig):
     group_label = cfg.group_label
-
     label_pattern = r'([A-Za-z]+)(\d+)'
     match = re.match(label_pattern, group_label)
     if match:
@@ -52,12 +53,11 @@ def get_escnn_group(cfg: DictConfig):
     elif group_class.lower() == "k":  # Klein four group
         is_planar_subgroup = True
         symmetry_space = escnn.gspaces.GSpace3D(sg_id=(is_planar_subgroup, False, 2))
-
+    elif group_class.lower() == "dh":  # Dn x C2. Group of regular rectangular cuboid
+        symmetry_space = escnn.gspaces.GSpace3D(sg_id=(True, True, order))
     else:
         raise NotImplementedError(f"We have to implement the case of {group_label}")
 
-    if cfg.subgroup_id is not None:
-        pass
     return symmetry_space
 
 
@@ -87,46 +87,41 @@ def load_robot_and_symmetries(robot_cfg, debug=False) -> [PinBulletWrapper, escn
 
     # Transformation required to obtain ρ_Q_js(g) ∈ G from the regular fields / permutation rep.
     num_symmetric_dof = robot.nj - robot_cfg.unique_bodies
-    assert num_symmetric_dof % G.order() == 0, f"Number of symmetric DoF ({num_symmetric_dof}) must be a multiple of " \
-                                               f"the group order ({G.order()})"
-    norbits = num_symmetric_dof // G.order()
 
-    # rep_reg = G.regular_representation
-    # p = [np.asarray(rep_reg(g)) for g in G.elements]
-    # pp = [np.asarray((G.irrep(1) + G.irrep(1))(g)) for g in G.elements]
-    rep_QJ_reg = escnn.group.directsum([G.regular_representation] * (norbits))
-    if robot_cfg.unique_bodies > 0:
-        # In the case there are 'nu' unique DoF unafected by the representation rep_QJ we add 'nu' trivial reps
-        # at the back of the space of the regular representation.
-        rep_QJ_unique = escnn.group.directsum([G.trivial_representation] * (robot_cfg.unique_bodies))
-        rep_QJ_reg = rep_QJ_reg + rep_QJ_unique
+    rep_field = np.float if robot_cfg.rep_fields.lower() != 'complex' else np.complex
+    # Configuration file of robot provides oneline notations of the reps_QJ of generators of the group.
+    rep_QJ = {G.identity: np.eye(robot.nj, dtype=rep_field)}
+    for g_gen, perm, refx in zip(G.generators, robot_cfg.perm_qj, robot_cfg.refx_qj):
+        assert len(perm) == robot.nj == len(refx), f"Perm {len(perm)} Reflx: {len(refx)}"
+        refx = np.array(refx, dtype=rep_field)
+        rep_QJ[g_gen] = gen_permutation_matrix(oneline_notation=perm, reflections=refx)
 
-    # Define the coordinate change matrix P, which goes from the canonical regular rep (with trivial reps at the end)
-    # to the joint-space basis defined by Pinocchio and the URDF. TODO: Add example of this to documentation.
-    P = algebra_utils.permutation_matrix(robot_cfg.perm_qj)
-    P = np.array(robot_cfg.refx_qj, dtype=np.int)[None, :] * P
-    rep_QJ = escnn.group.change_basis(rep_QJ_reg, P, name="QJ",
-                                      supported_nonlinearities=rep_QJ_reg.supported_nonlinearities)
-    G.representations.update(QJ=rep_QJ)  # Save rep in group representations for future use.
+    # Add `Ed` and `QJ` representations to the group.
+    rep_QJ = group_rep_from_gens(G, rep_QJ)
+    rep_Ed = generate_E3_rep(G)
 
-    x = np.random.rand(robot.nj)
+    # a = [rep_QJ(g) for g in G.elements]
+    G.representations.update(Ed=rep_Ed, QJ=rep_QJ)
+    return robot, symmetry_space
 
-    for i, g in enumerate(G.elements):
-        if i == 0: continue
-        gg = rep_QJ(g)
-        # gx = (a_reg @ x[:, None]).flatten()
-        print(f"ρ_QJ({g}) = {rep_QJ(g)}")
+
+def generate_E3_rep(G: Group) -> None:
     # Configure E3 representations and group
-    if isinstance(G, escnn.group.CyclicGroup):
+    if isinstance(G, CyclicGroup):
         rep_E3 = G.irrep(0) + G.irrep(1) + G.trivial_representation
-    elif isinstance(G, escnn.group.DihedralGroup):
-        rep_E3 = G.irrep(1) + G.irrep(0) + G.trivial_representation
-    elif isinstance(G, escnn.group.DirectProductGroup):
-        rep_E3 = G.representations['square'] + G.trivial_representation
+    elif isinstance(G, DihedralGroup):
+        rep_E3 = G.irrep(0, 1) + G.irrep(1, 1) + G.trivial_representation
+    elif isinstance(G, DirectProductGroup):
+        if G.name == "Klein4":
+            rep_E3 = G.representations['rectangle'] + G.trivial_representation
+            rep_E3 = escnn.group.change_basis(rep_E3, np.array([[0, 1, 0], [1, 0, 0], [0, 0, 1]]), name="E3")
+        elif G.name == "FullCylindricalDiscrete":
+            rep_hx = np.array(np.array([[-1, 0, 0], [0,  1, 0], [0, 0,  1]]))
+            rep_hy = np.array(np.array([[ 1, 0, 0], [0, -1, 0], [0, 0,  1]]))
+            rep_hz = np.array(np.array([[ 1, 0, 0], [0,  1, 0], [0, 0, -1]]))
+            rep_E3_gens = {h: rep_h for h, rep_h in zip(G.generators, [rep_hy, rep_hx, rep_hz])}
+            rep_E3 = group_rep_from_gens(G, rep_E3_gens)
     else:
         raise NotImplementedError(f"Group {G} not implemented yet.")
-
     rep_E3.name = "E3"
-    G.representations.update(E3=rep_E3)  # Save E3 rep in group representations for future use.
-
-    return robot, symmetry_space
+    return rep_E3

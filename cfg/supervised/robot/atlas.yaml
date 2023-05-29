@@ -3,14 +3,13 @@ defaults:
 
 name: atlas_v4
 
-G: C2
 hip_height: 0.85
-
 # ______|___Base Pos___|___Base Ori__|______________________________QJ____________________________|
 init_q: null
 endeff_names: ['l_leg_akx', 'r_leg_akx']
-# E3: Euclidean Group symmetries____________________________________
-n_reflex: [[0, 1, 0]]   # normal vector to reflection planes
+
+group_label: C2
+
 # QJ: Joint Space symmetries____________________________________
 perm_qj: [[0, 1, 2,  # ['back_bkz', 'back_bky', 'back_bkx',
            11, 12, 13, 14, 15, 16, 17,  # 'r_arm_shz', 'r_arm_shx', 'r_arm_ely', 'r_arm_elx', 'r_arm_wry', 'r_arm_wrx', 'r_arm_wry2',
