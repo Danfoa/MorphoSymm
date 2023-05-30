@@ -1,15 +1,16 @@
 # Robot (description) name for loading robot_descriptions.py
 name: ???
-seed: 100
+seed: -1
 
-tint_bodies: True
 # Full Symmetry group of the system
 group_label: null
 rep_fields: 'real'
 
 unique_bodies: 0
+fix_base: False
 
 # Visualization aux variables
+tint_bodies: True
 hip_height: 1.0
 endeff_names: null
 init_q: null

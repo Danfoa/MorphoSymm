@@ -122,7 +122,10 @@ def generate_E3_rep(G: Group) -> Representation:
     """
     # Configure E3 representations and group
     if isinstance(G, CyclicGroup):
-        rep_E3 = G.irrep(0) + G.irrep(1) + G.trivial_representation
+        if G.order() == 2: # Reflection symmetry
+            rep_E3 = G.irrep(0) + G.irrep(1) + G.trivial_representation
+        else:
+            rep_E3 = G.irrep(1) + G.trivial_representation
     elif isinstance(G, DihedralGroup):
         rep_E3 = G.irrep(0, 1) + G.irrep(1, 1) + G.trivial_representation
     elif isinstance(G, DirectProductGroup):

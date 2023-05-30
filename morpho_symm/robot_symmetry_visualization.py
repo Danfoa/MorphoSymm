@@ -16,7 +16,7 @@ from utils.pybullet_visual_utils import (
 )
 from utils.robot_utils import load_robot_and_symmetries
 
-import morpho_symm.utils.pybullet_visual_utils
+import morpho_symm
 from morpho_symm.utils.pybullet_visual_utils import configure_bullet_simulation
 
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
@@ -28,7 +28,8 @@ def main(cfg: DictConfig):
 
     This script visualizes the DMSs transformations on robot state and on proprioceptive and exteroceptive measurements.
     """
-    np.random.seed(100 if "seed" not in cfg.robot else cfg.robot.seed)
+    cfg.robot.seed = cfg.robot.seed if cfg.robot.seed >= 0 else np.random.randint(0, 1000)
+    np.random.seed(cfg.robot.seed)
     # Get robot instance, along with representations of the symmetry group on the Euclidean space (in which the robot
     # base B evolves in) and Joint Space (in which the internal configuration of the robot evolves in).
     robot, symmetry_space = load_robot_and_symmetries(robot_cfg=cfg.robot, debug=cfg.debug)
@@ -45,12 +46,12 @@ def main(cfg: DictConfig):
     offset = 1.8 * robot.hip_height
 
     pb = configure_bullet_simulation(gui=cfg.gui, debug=cfg.debug)
-    morpho_symm.utils.pybullet_visual_utils.configure_bullet_simulation(pb, world=None)
+    robot.configure_bullet_simulation(pb, world=None)
     if cfg.robot.tint_bodies:
         tint_robot(pb, robot)
 
     # Get initial random configuration of the system
-    q, dq = robot.get_init_config(random=True, angle_sweep=robot_cfg.angle_sweep)
+    q, dq = robot.get_init_config(random=True, angle_sweep=robot_cfg.angle_sweep, fix_base=cfg.robot.fix_base)
     q_offset = np.zeros_like(q) if robot_cfg.offset_q is None else np.array([eval(str(s)) for s in robot_cfg.offset_q])
     q = q + q_offset
     rB0 = np.array([-offset if G.order() != 2 else 0, -offset] + [robot.hip_height * 1.5])
@@ -105,7 +106,7 @@ def main(cfg: DictConfig):
         # g_e3 = rep_Ed(g)
         # g_qj = rep_QJ(g)
         # Get symmetric g.x=[g.q, g.dq], g·h=[g·l, g·k] -------------------------------------------------------
-        gx_w, gh_B = rep_x(g) @ x, rep_h(g) @ hg_B
+        gx_w, gh_B = (rep_x(g) @ x).astype(x.dtype), (rep_h(g) @ hg_B).astype(hg_B.dtype)
         if np.linalg.det(rep_Ed(g)) < 0:  # If g is a reflection, we need to flip the sign of the angular momentum
             gh_B[3:] = -gh_B[3:]
         Gx.append(gx_w), Ghg_B.append(gh_B)
@@ -141,13 +142,13 @@ def main(cfg: DictConfig):
                                forces=[Gf1_w, Gf2_w], forces_points=[Gr1_w, Gr2_w], surface_normals=[GRf1_w, GRf2_w],
                                GX_g_bar=GX_g_bar, tint=cfg.robot.tint_bodies)
 
-
+    root_path = pathlib.Path(morpho_symm.__file__).parents[1].absolute()
     if cfg.make_gif:
         # To get the optimal visualization you might need to play a bit with the rendering parameters for each robot.
         # this params seem to work mostly ok for all.
         cam_distance = offset * 5
         cam_target_pose = [0, 0, 0]
-        save_path = pathlib.Path("../paper/animations")
+        save_path = root_path / "paper/animations"
         save_path.mkdir(exist_ok=True)
         render_orbiting_animation(pb, cam_target_pose=cam_target_pose, cam_distance=cam_distance,
                                   save_path=save_path, anim_time=10, fps=15, periods=1,
@@ -159,7 +160,7 @@ def main(cfg: DictConfig):
     elif cfg.make_imgs:
         cam_distance = offset * 6
         cam_target_pose = [0, 0, 0]
-        save_path = pathlib.Path(f"paper/images/{cfg.robot.name}")
+        save_path = root_path / "paper/images/{cfg.robot.name}"
         save_path.mkdir(exist_ok=True)
         render_orbiting_animation(pb, cam_target_pose=cam_target_pose, cam_distance=cam_distance,
                                   anim_time=2, fps=2, periods=1, pitch_sin_amplitude=0,

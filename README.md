@@ -23,21 +23,26 @@ python morpho_symm.robot_symmetry_visualization.py robot=<robot> gui=True
 ```
 This script functions as an introductory tutorial showing how we define the representations of Discrete Morphological Symmetries in order to perform symmetry transformations on the robot state, and proprioceptive and exteroceptive measurements.
 ### $\mathcal{G}=\mathcal{C}_2$: Reflection Symmetry
-|                                       Solo-C2   	                                       |                                                                Atlas   	                                                                |                                      Bolt   	                                       |                                                                A1 	                                                                |   
+|               [Solo](https://open-dynamic-robot-initiative.github.io/)  	               |                                                                Atlas   	                                                                |                                      Bolt   	                                       |                                                                A1 	                                                                |   
 |:---------------------------------------------------------------------------------------:|:---------------------------------------------------------------------------------------------------------------------------------------:|:-----------------------------------------------------------------------------------:|:----------------------------------------------------------------------------------------------------------------------------------:|
 |   ![solo-symmetries_anim_static](paper/animations/solo-C2-symmetries_anim_static.gif)   | 	 ![atlas-symmetries_anim_static](https://user-images.githubusercontent.com/8356912/200183197-94242c57-bd9d-41cb-8a0b-509dceef5cb9.gif) | ![bolt-symmetries_anim_static](paper/animations/bolt-C2-symmetries_anim_static.gif) | ![a1-symmetries_anim_static](https://user-images.githubusercontent.com/8356912/203263932-1258a540-41d9-4b3d-9eb3-b67a840a7f5a.gif) | 	        
- |                                     **Cassie**   	                                      |                                                             **Baxter**   	                                                              |                                    **HyQ**-C2  	                                    |                                                                ---	                                                                |   
+ |                                     **Cassie**   	                                      |                                                             **Baxter**   	                                                              |                                     **HyQ**  	                                      |                                                                ---	                                                                |   
 | ![cassie-symmetries_anim_static](paper/animations/cassie-C2-symmetries_anim_static.gif) |                         ![baxter-symmetries_anim_static](paper/animations/baxter-C2-symmetries_anim_static.gif)                         | ![bolt-symmetries_anim_static](paper/animations/hyq-C2-symmetries_anim_static.gif)  |
 
+### $\mathcal{G}=\mathcal{C}_n$: Symmetric Systems with Cyclic Group Symmetries 
+|       [Trifinger](https://sites.google.com/view/trifinger/home-page)-C3 	       |   
+|:-------------------------------------------------------------------------------:|
+| 	![trifinger-edu](paper/animations/trifinger_edu-C3-symmetries_anim_static.gif) | 	        
+
 ### $\mathcal{G}=\mathcal{K}_4$: Klein-Four Symmetry
-|                          Solo-K4=C2xC2   	                           |                                       HyQ-K4   	                                        |   
-|:--------------------------------------------------------------------:|:---------------------------------------------------------------------------------------:|
-| 	![Solo-K4](paper/animations/solo-Klein4-symmetries_anim_static.gif) | 	 ![hyq-symmetries_anim_static](paper/animations/hyq-Klein4-symmetries_anim_static.gif) | 	        
+| [Solo](https://open-dynamic-robot-initiative.github.io/)|                                          HyQ 	                                          |   
+|:---------------------------------------------------------------------------------------------------------------:|:---------------------------------------------------------------------------------------:|
+|                      	![Solo-K4](paper/animations/solo-Klein4-symmetries_anim_static.gif)                       | 	 ![hyq-symmetries_anim_static](paper/animations/hyq-Klein4-symmetries_anim_static.gif) | 	        
 
 ### $\mathcal{G}=\mathcal{C}_2\times\mathcal{C}_2\times\mathcal{C}_2$: Regular cube symmetry 
-|                              Solo-C2xC2xC2   	                               |   
-|:----------------------------------------------------------------------------:|
-| 	![solo-c2xc2xc2](paper/animations/solo-C2xC2xC2-symmetries_anim_static.gif) | 	        
+|                              [Solo](https://open-dynamic-robot-initiative.github.io/) 	                              |   
+|:--------------------------------------------------------------------------------------------------------------------:|
+|                     	![solo-c2xc2xc2](paper/animations/solo-C2xC2xC2-symmetries_anim_static.gif)                     | 	        
 
 ### Addition of new dynamical systems to the library.
 

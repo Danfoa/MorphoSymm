@@ -367,7 +367,7 @@ class PinBulletWrapper:
                                                   useFixedBase=self.useFixedBase)
         return self.robot_id
 
-    def get_init_config(self, random=False, angle_sweep=None):
+    def get_init_config(self, random=False, angle_sweep=None, fix_base=False):
         """Get initial configuration of the robot.
 
         Args:
@@ -384,9 +384,9 @@ class PinBulletWrapper:
         base_pos, base_ori = q[:3], q[3:7]
 
         if random:
-            pitch = np.random.uniform(low=-np.deg2rad(25), high=np.deg2rad(25))
-            roll = np.random.uniform(low=-np.deg2rad(25), high=np.deg2rad(25))
-            yaw = np.random.uniform(low=-np.deg2rad(25), high=np.deg2rad(25))
+            pitch = np.random.uniform(low=-np.deg2rad(25), high=np.deg2rad(25)) if not fix_base else 0
+            roll = np.random.uniform(low=-np.deg2rad(25), high=np.deg2rad(25)) if not fix_base else 0
+            yaw = np.random.uniform(low=-np.deg2rad(25), high=np.deg2rad(25)) if not fix_base else 0
             base_ori = scipy.spatial.transform.Rotation.from_euler("xyz", [roll, pitch, yaw]).as_quat()
 
             if angle_sweep is not None:

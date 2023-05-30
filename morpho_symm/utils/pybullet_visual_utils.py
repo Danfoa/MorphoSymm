@@ -223,11 +223,11 @@ def tint_robot(pb, robot):
         joint_name = pb.getJointInfo(robot.robot_id, i)[1].decode("UTF-8")
         if link_name in robot.endeff_names or (joint_name in robot.endeff_names):
             color = endeff_color
-        elif np.any([s in joint_name.lower() for s in ["fl_", "lf_", "left"]]):
+        elif np.any([s in joint_name.lower() for s in ["fl_", "lf_", "left", "_0"]]):
             color = FL_leg_color
-        elif np.any([s in joint_name.lower() for s in ["fr_", "rf_", "right"]]):
+        elif np.any([s in joint_name.lower() for s in ["fr_", "rf_", "right", "_120"]]):
             color = FR_leg_color
-        elif np.any([s in joint_name.lower() for s in ["rl_", "hl_", "lh_", "left"]]):
+        elif np.any([s in joint_name.lower() for s in ["rl_", "hl_", "lh_", "left",]]):
             color = HL_leg_color
         elif np.any([s in joint_name.lower() for s in ["rr_", "hr_", "rh_", "right"]]):
             color = HR_leg_color
@@ -271,7 +271,7 @@ def display_robots_and_vectors(pb, robot, base_confs, Gq_js, Gdq_js, Ghg, forces
         grobot = robot
         if i > 0:
             grobot = robot if i == 0 else copy.copy(robot)
-            configure_bullet_simulation(pb, world=None)
+            grobot.configure_bullet_simulation(pb, world=None)
             if tint:
                 tint_robot(pb, grobot)
             robots.append(grobot)
@@ -312,8 +312,9 @@ def display_robots_and_vectors(pb, robot, base_confs, Gq_js, Gdq_js, Ghg, forces
                                basePosition=rf_orbit[i],
                                baseOrientation=matrix_to_quat_xyzw(GRf_w[i]))
         # Draw Base orientation
-        draw_vector(pb, origin=tB_w + RB_w @ np.array((0.06, 0, 0.03)), vector=RB_w[:, 0], v_color=[1, 1, 1, 1],
-                    scale=0.05)
+        if robot.nq == 12:  # Only for Solo
+            draw_vector(pb, origin=tB_w + RB_w @ np.array((0.06, 0, 0.03)), vector=RB_w[:, 0], v_color=[1, 1, 1, 1],
+                        scale=0.05)
 
 
 def get_mock_ground_reaction_forces(pb, robot, robot_cfg):
