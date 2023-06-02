@@ -334,7 +334,7 @@ class COMMomentum(Dataset):
             np.minimum(q_min, -2 * np.pi)
             q_max = np.minimum(q_max, 2 * np.pi)
 
-            x = np.zeros((self._samples, self.robot.nj * 2))
+            x = np.zeros((self._samples, self.robot.n_js * 2))
             y = np.zeros((self._samples, 6))
             for i in range(self._samples):
                 q[7:] = np.random.uniform(q_min, q_max, size=None)

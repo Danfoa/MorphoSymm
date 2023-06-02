@@ -75,8 +75,10 @@ def load_robot_and_symmetries(robot_cfg: DictConfig, debug=False) -> [PinBulletW
         rep_QJ: Representation of the symmetry group of the robot on the Joint Space of the robot.
     """
     robot_name = str.lower(robot_cfg.name)
-    robot = PinBulletWrapper(robot_name=robot_name, init_q=robot_cfg.init_q, hip_height=robot_cfg.hip_height,
-                             endeff_names=robot_cfg.endeff_names)
+    # We allow symbolic expressions (e.g. `np.pi/2`) in the q_zero.
+    q_zero = np.array([eval(str(s)) for s in robot_cfg.q_zero], dtype=float) if robot_cfg.q_zero is not None else None
+    robot = PinBulletWrapper(robot_name=robot_name, init_q=robot_cfg.init_q, q_zero=q_zero,
+                             hip_height=robot_cfg.hip_height, endeff_names=robot_cfg.endeff_names)
 
     if debug:
         pb = configure_bullet_simulation(gui=True, debug=debug)
@@ -89,20 +91,21 @@ def load_robot_and_symmetries(robot_cfg: DictConfig, debug=False) -> [PinBulletW
     G = symmetry_space.fibergroup
 
     # Transformation required to obtain ρ_Q_js(g) ∈ G from the regular fields / permutation rep.
-    robot.nj - robot_cfg.unique_bodies
+    # robot.n_js - robot_cfg.unique_bodies
 
     rep_field = np.float if robot_cfg.rep_fields.lower() != 'complex' else np.complex
     # Configuration file of robot provides oneline notations of the reps_QJ of generators of the group.
-    rep_QJ = {G.identity: np.eye(robot.nj, dtype=rep_field)}
+    rep_QJ = {G.identity: np.eye(robot.n_js, dtype=rep_field)}
     for g_gen, perm, refx in zip(G.generators, robot_cfg.perm_qj, robot_cfg.refx_qj):
-        assert len(perm) == robot.nj == len(refx), f"Perm {len(perm)} Reflx: {len(refx)}"
+        assert len(perm) == robot.n_js == len(refx), f"Perm {len(perm)} Reflx: {len(refx)}"
         refx = np.array(refx, dtype=rep_field)
         rep_QJ[g_gen] = gen_permutation_matrix(oneline_notation=perm, reflections=refx)
 
     # Add `Ed` and `QJ` representations to the group.
     rep_QJ = group_rep_from_gens(G, rep_QJ)
     rep_Ed = generate_E3_rep(G)
-
+    rep_QJ.name = 'QJ'
+    rep_Ed.name = 'Ed'
     # a = [rep_QJ(g) for g in G.elements]
     G.representations.update(Ed=rep_Ed, QJ=rep_QJ)
     return robot, symmetry_space

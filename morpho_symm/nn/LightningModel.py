@@ -15,6 +15,7 @@ log = logging.getLogger(__name__)
 LossCallable = Callable[[torch.Tensor, torch.Tensor, ], torch.Tensor]
 MetricCallable = Callable[[torch.Tensor, torch.Tensor, ], dict]
 
+
 class LightningModel(pl.LightningModule):
 
     def __init__(self, lr, loss_fn: LossCallable, metrics_fn: MetricCallable, test_epoch_metrics_fn=None,
@@ -34,7 +35,7 @@ class LightningModel(pl.LightningModule):
         # TODO: Fix this/home/dordonez/Projects/MorphoSymm/launch/sample_eff
         self.save_hyperparameters()
 
-    def set_model(self, model:[EMLP, MLP]):
+    def set_model(self, model: [EMLP, MLP]):
         self.model = model
         self.model_type = model.__class__.__name__
 
@@ -124,7 +125,8 @@ class LightningModel(pl.LightningModule):
     def on_train_end(self) -> None:
         ckpt_call = self.trainer.checkpoint_callback
         if ckpt_call is not None:
-            ckpt_path = pathlib.Path(ckpt_call.dirpath).joinpath(ckpt_call.CHECKPOINT_NAME_LAST + ckpt_call.FILE_EXTENSION)
+            ckpt_path = pathlib.Path(ckpt_call.dirpath).joinpath(
+                ckpt_call.CHECKPOINT_NAME_LAST + ckpt_call.FILE_EXTENSION)
             best_path = pathlib.Path(ckpt_call.dirpath).joinpath(ckpt_call.filename + ckpt_call.FILE_EXTENSION)
             if ckpt_path.exists() and best_path.exists():
                 # Remove last model ckpt leave only best, to hint training successful termination.

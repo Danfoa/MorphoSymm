@@ -12,7 +12,7 @@ init_q:   [0.0, 0.0, 0.24, 0, 0, 0, 1,  0.0, 0.8, -1.6, 0.0,   0.8, -1.6, 0.0,  
 group_label: DH2
 
 # This offset enables the definition of frontal symmetry as a reflection of the angle of shoulder joint.
-offset_q: [0,    0,   0, 0, 0, 0, 0,    0,-np.pi/2,    0,   0, -np.pi/2,   0,    0, np.pi/2,    0,   0,  np.pi/2,   0]
+q_zero: [0,    0,   0, 0, 0, 0, 0,    0,-np.pi/2,    0,   0, -np.pi/2,   0,    0, np.pi/2,    0,   0,  np.pi/2,   0]
 
 # QJ: Joint Space symmetries____________________________________
 #        ____FL___|___FR____|___HL______|____HR____|

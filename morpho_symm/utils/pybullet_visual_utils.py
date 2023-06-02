@@ -1,12 +1,16 @@
 import copy
 import pathlib
+from typing import List, Optional
 
 import numpy as np
+import pybullet
+from pybullet_utils.bullet_client import BulletClient
 from pytransform3d import rotations as rt
 from pytransform3d import transformations as tr
 from tqdm import tqdm
 
-from .algebra_utils import SE3_2_gen_coordinates, matrix_to_quat_xyzw, quat_xyzw_to_SO3
+from morpho_symm.robots.PinBulletWrapper import PinBulletWrapper
+from morpho_symm.utils.algebra_utils import SE3_2_gen_coordinates, matrix_to_quat_xyzw, quat_xyzw_to_SO3
 
 
 def draw_vector(pb, origin, vector, v_color, scale=1.0):
@@ -210,31 +214,93 @@ def listen_update_robot_sliders(pb, robot):
         time.sleep(0.1)
 
 
-def tint_robot(pb, robot):
+def change_robot_appearance(pb, robot: PinBulletWrapper, change_color=True, alpha: float = 1.0):
     """Tint the robot in pybullet to get similar visualization of symmetric robots."""
-    robot_color = [0.054, 0.415, 0.505, 1.0]
-    FL_leg_color = [0.698, 0.376, 0.082, 1.0]
-    FR_leg_color = [0.260, 0.263, 0.263, 1.0]
-    HL_leg_color = [0.800, 0.480, 0.000, 1.0]
-    HR_leg_color = [0.710, 0.703, 0.703, 1.0]
-    endeff_color = [0, 0, 0, 1]
-    for i in range(pb.getNumJoints(robot.robot_id)):
-        link_name = pb.getJointInfo(robot.robot_id, i)[12].decode("UTF-8")
-        joint_name = pb.getJointInfo(robot.robot_id, i)[1].decode("UTF-8")
-        if link_name in robot.endeff_names or (joint_name in robot.endeff_names):
-            color = endeff_color
-        elif np.any([s in joint_name.lower() for s in ["fl_", "lf_", "left", "_0"]]):
-            color = FL_leg_color
-        elif np.any([s in joint_name.lower() for s in ["fr_", "rf_", "right", "_120"]]):
-            color = FR_leg_color
-        elif np.any([s in joint_name.lower() for s in ["rl_", "hl_", "lh_", "left",]]):
-            color = HL_leg_color
-        elif np.any([s in joint_name.lower() for s in ["rr_", "hr_", "rh_", "right"]]):
-            color = HR_leg_color
-        else:
-            color = robot_color
-        pb.changeVisualShape(objectUniqueId=robot.robot_id, linkIndex=i, rgbaColor=color, specularColor=[0, 0, 0])
-    pb.changeVisualShape(objectUniqueId=robot.robot_id, linkIndex=-1, rgbaColor=robot_color, specularColor=[0, 0, 0])
+    if not change_color and alpha == 1.0:
+        return
+
+    # Define repo awsome colors
+    robot_color = [0.054, 0.415, 0.505 , alpha]
+    FL_leg_color = [0.698, 0.376, 0.082, alpha]
+    FR_leg_color = [0.260, 0.263, 0.263, alpha]
+    HL_leg_color = [0.800, 0.480, 0.000, alpha]
+    HR_leg_color = [0.710, 0.703, 0.703, alpha]
+    endeff_color = [0, 0, 0, alpha]
+
+    # Get robot bodies visual data.
+    # visual_data = pb.getVisualShapeData(robot.robot_id)
+    # Pybullet makes it hard to match joints and links visual data. This is an approach to get it done.
+    # get_link_visual_data = lambda link_idx: [data for data in visual_data if data[1] == link_idx][0]
+
+    for joint_idx in range(pb.getNumJoints(robot.robot_id)):
+        joint_info = pb.getJointInfo(robot.robot_id, joint_idx)
+        link_name = joint_info[12].decode("UTF-8")
+        joint_name = joint_info[1].decode("UTF-8")
+        # link_data = get_link_visual_data(link_idx)
+        # link_body_id, link_color = link_data[0], link_data[1], link_data[7]
+
+        if change_color:
+            if link_name in robot.endeff_names or (joint_name in robot.endeff_names):
+                color = endeff_color
+            elif np.any([s in joint_name.lower() for s in ["fl_", "lf_", "left", "_0"]]):
+                color = FL_leg_color
+            elif np.any([s in joint_name.lower() for s in ["fr_", "rf_", "right", "_120"]]):
+                color = FR_leg_color
+            elif np.any([s in joint_name.lower() for s in ["rl_", "hl_", "lh_", "left",]]):
+                color = HL_leg_color
+            elif np.any([s in joint_name.lower() for s in ["rr_", "hr_", "rh_", "right"]]):
+                color = HR_leg_color
+            else:
+                color = robot_color
+
+            pb.changeVisualShape(objectUniqueId=robot.robot_id, linkIndex=joint_idx,
+                                 rgbaColor=color, specularColor=[0, 0, 0])
+
+    if change_color:
+        pb.changeVisualShape(objectUniqueId=robot.robot_id, linkIndex=-1, rgbaColor=robot_color,
+                             specularColor=[0, 0, 0])
+
+
+def spawn_robot_instances(
+        robot: PinBulletWrapper, bullet_client: Optional[BulletClient],
+        base_positions: List[List], base_orientations: Optional[List[List]] = None,
+        tint: bool = False, alpha: float = 1.0,
+        ) -> List[PinBulletWrapper]:
+    """Spawn multiple instances of the same robot in pybullet in de defined locations and orientations.
+
+    Args:
+        robot (PinBulletWrapper): Original robot instance
+        bullet_client (Optional[BulletClient]): Pybullet client to spawn the robots.
+        base_positions (Union[List[List], List]): List of base positions for each robot base.
+        base_orientations (Union[List[List], List]): List of base orientation quaternions for each robot base.
+        tint (bool, optional): Whether to change the color of the robot bodies.
+        alpha (float, optional): Alpha value for robot body colors.
+
+    Returns:
+        spawned_robots (List[PinBulletWrapper]): List of the spawned robots.
+
+    """
+    if bullet_client is None:
+        bullet_client = BulletClient(connection_mode=pybullet.DIRECT)
+
+    n_instances = len(base_positions)
+    if base_orientations is None:
+        base_orientations = [[0, 0, 0, 1] for _ in range(n_instances)]
+
+    assert n_instances == len(base_orientations), "Need to provide a base position and orientation per robot instance"
+
+    # TODO: Copy error from Pinocchio. To be checked
+    # robots = [PinBulletWrapper.from_instance(robot) for _ in range(n_instances)]
+    kwargs = dict(robot_name=robot.robot_name, init_q=robot._init_q, hip_height=robot.hip_height,
+                  endeff_names=robot.endeff_names, q_zero=robot._q_zero)
+    robots = [PinBulletWrapper(**kwargs) for _ in range(n_instances)]
+    world = robot.world
+    for r, pos, ori in zip(robots, base_positions, base_orientations):
+        r.configure_bullet_simulation(bullet_client=bullet_client, world=world, base_pos=pos, base_ori=ori)
+        change_robot_appearance(bullet_client, r, change_color=tint, alpha=alpha)
+        world = r.world
+
+    return robots
 
 
 def display_robots_and_vectors(pb, robot, base_confs, Gq_js, Gdq_js, Ghg, forces, forces_points, surface_normals,
@@ -273,7 +339,7 @@ def display_robots_and_vectors(pb, robot, base_confs, Gq_js, Gdq_js, Ghg, forces
             grobot = robot if i == 0 else copy.copy(robot)
             grobot.configure_bullet_simulation(pb, world=None)
             if tint:
-                tint_robot(pb, grobot)
+                change_robot_appearance(pb, grobot)
             robots.append(grobot)
         # Place robots in env
         base_q = SE3_2_gen_coordinates(XB_w)

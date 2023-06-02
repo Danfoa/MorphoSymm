@@ -5,7 +5,7 @@ import numpy as np
 from escnn.group import CyclicGroup, DihedralGroup, DirectProductGroup, Group, GroupElement
 from escnn.group.representation import Representation
 
-from morpho_symm.utils.simultaneous_block_diagonalization import escnn_representation_form_mapping
+from morpho_symm.groups.isotypic_decomposition import escnn_representation_form_mapping
 
 
 def generate_cyclic_rep(G: CyclicGroup, rep):

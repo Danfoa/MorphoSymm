@@ -23,6 +23,7 @@ except ImportError:
 import logging
 import pathlib
 
+import morpho_symm
 from morpho_symm.nn import ContactECNN
 from morpho_symm.utils.algebra_utils import check_if_resume_experiment
 
@@ -31,13 +32,13 @@ os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
 log = logging.getLogger(__name__)
 
 
-def get_model(cfg, rep_in=None, rep_out=None, cache_dir=None):
+def get_model(cfg: DictConfig, rep_in=None, rep_out=None, cache_dir=None):
     if "ecnn" in cfg.model_type.lower():
         model = ContactECNN(rep_in, rep_out, cache_dir=cache_dir, dropout=cfg.dropout,
                             init_mode=cfg.init_mode, inv_dim_scale=cfg.inv_dims_scale, bias=cfg.bias)
     elif "cnn" == cfg.model_type.lower():
         import sys
-        deep_contact_estimator_path = pathlib.Path(__file__).parent / 'data/contact_dataset/'
+        deep_contact_estimator_path = pathlib.Path(morpho_symm.__file__).parent / 'dataset/contact_dataset/'
         assert deep_contact_estimator_path.exists(), deep_contact_estimator_path
         sys.path.append(str(deep_contact_estimator_path / 'deep-contact-estimator/src'))
         from contact_cnn import contact_cnn
@@ -95,7 +96,7 @@ def get_datasets(cfg, device, root_path):
                                      collate_fn=lambda x: val_dataset.collate_fn(x), num_workers=cfg.num_workers)
 
     elif cfg.dataset.name == "com_momentum":
-        data_path = root_path.joinpath(f"data/com_momentum/{cfg.robot.name.lower()}")
+        data_path = root_path.joinpath(f"datasets/com_momentum/{cfg.robot.name.lower()}")
         # Training only sees the model symmetries
         train_dataset = COMMomentum(robot_cfg=cfg.robot, type='train', samples=cfg.dataset.samples,
                                     train_ratio=cfg.dataset.train_ratio, angular_momentum=cfg.dataset.angular_momentum,

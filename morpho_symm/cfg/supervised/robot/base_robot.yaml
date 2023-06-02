@@ -14,5 +14,5 @@ tint_bodies: True
 hip_height: 1.0
 endeff_names: null
 init_q: null
-offset_q: null
+q_zero: null    # Zero vector of the generalized positions. Can be different from the Zero defined in URDF.
 angle_sweep: 0.43

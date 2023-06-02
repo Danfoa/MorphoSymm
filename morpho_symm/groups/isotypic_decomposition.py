@@ -14,7 +14,7 @@ from morpho_symm.utils.algebra_utils import permutation_matrix
 
 def is_complex_irreducible(
         G: Group, representation: Union[Dict[GroupElement, np.ndarray], Callable[[GroupElement], np.ndarray]]
-):
+        ):
     """Check if a representation is complex irreducible.
 
     We check this by asserting weather non-scalar (no multiple of
@@ -57,7 +57,7 @@ def is_complex_irreducible(
 
 def decompose_representation(
         G: Group, representation: Union[Dict[GroupElement, np.ndarray], Callable[[GroupElement], np.ndarray]]
-):
+        ):
     """Find the Hermitian matrix `Q` that block-diagonalizes the representation `rep` of group `G`.
 
     Such that `Q @ rep[g] @ Q^H = block_diag(rep_1[g], ..., rep_m[g])` for all `g` in `G`.
@@ -148,7 +148,7 @@ def decompose_representation(
 
 def cplx_isotypic_decomposition(
         G: Group, representation: Union[Dict[GroupElement, np.ndarray], Callable[[GroupElement], np.ndarray]]
-):
+        ):
     """Perform the isotypic decomposition of unitary representation, decomposing the rep into complex irreps.
 
     Args:
@@ -260,7 +260,7 @@ def map_character_tables(in_table: np.ndarray, reference_table: np.ndarray):
 
 def escnn_representation_form_mapping(
         G: Group, representation: Union[Dict[GroupElement, np.ndarray], Callable[[GroupElement], np.ndarray]]
-):
+        ):
     """Get a ESCNN representation isntance from a mapping from group elements to unitary matrices.
 
     Args:
@@ -271,6 +271,7 @@ def escnn_representation_form_mapping(
     Returns:
         representation (Representation): ESCNN representation instance.
     """
+
     def rep(g):
         return representation[g] if isinstance(representation, dict) else representation(g)
 

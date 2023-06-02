@@ -12,7 +12,7 @@ from utils.pybullet_visual_utils import (
     display_robots_and_vectors,
     get_mock_ground_reaction_forces,
     render_orbiting_animation,
-    tint_robot,
+    change_robot_appearance,
 )
 from utils.robot_utils import load_robot_and_symmetries
 
@@ -40,19 +40,18 @@ def main(cfg: DictConfig):
     rep_QJ = G.representations['QJ']
     rep_Ed = G.representations['Ed']
 
-    # Configuration of the robot. Check cfg/robot/
-    robot_cfg = cfg.robot
     # Configuration of the 3D visualization -------------------------------------------------------------------------
     offset = 1.8 * robot.hip_height
 
     pb = configure_bullet_simulation(gui=cfg.gui, debug=cfg.debug)
+
     robot.configure_bullet_simulation(pb, world=None)
-    if cfg.robot.tint_bodies:
-        tint_robot(pb, robot)
+
+    change_robot_appearance(pb, robot, change_color=cfg.robot.tint_bodies)
 
     # Get initial random configuration of the system
-    q, dq = robot.get_init_config(random=True, angle_sweep=robot_cfg.angle_sweep, fix_base=cfg.robot.fix_base)
-    q_offset = np.zeros_like(q) if robot_cfg.offset_q is None else np.array([eval(str(s)) for s in robot_cfg.offset_q])
+    q, dq = robot.get_init_config(random=True, angle_sweep=cfg.robot.angle_sweep, fix_base=cfg.robot.fix_base)
+    q_offset = np.zeros_like(q) if cfg.robot.offset_q is None else np.array([eval(str(s)) for s in cfg.robot.offset_q])
     q = q + q_offset
     rB0 = np.array([-offset if G.order() != 2 else 0, -offset] + [robot.hip_height * 1.5])
     q[:3] = rB0
@@ -91,7 +90,7 @@ def main(cfg: DictConfig):
     rep_h = rep_Ed + rep_Ed  # Additions of representations amounts to block-diagonal matrix concatenation.
 
     # Define mock surface orientations `Rf_w`, contact points `rf_w` and contact forces `f_w`
-    Rf1_w, Rf2_w, f1_w, f2_w, rf1_w, rf2_w = get_mock_ground_reaction_forces(pb, robot, robot_cfg)
+    Rf1_w, Rf2_w, f1_w, f2_w, rf1_w, rf2_w = get_mock_ground_reaction_forces(pb, robot, cfg.robot)
 
     # Main part of the script. =======================================================================================
     # Start by defining lists holding the orbits of all the proprioceptive and exteroceptive measurements
@@ -152,7 +151,7 @@ def main(cfg: DictConfig):
         save_path.mkdir(exist_ok=True)
         render_orbiting_animation(pb, cam_target_pose=cam_target_pose, cam_distance=cam_distance,
                                   save_path=save_path, anim_time=10, fps=15, periods=1,
-                                  init_roll_pitch_yaw=(0, 35, 0), invert_roll="dh" in robot_cfg.group_label.lower(),
+                                  init_roll_pitch_yaw=(0, 35, 0), invert_roll="dh" in cfg.robot.group_label.lower(),
                                   pitch_sin_amplitude=20,
                                   file_name=f"{robot.robot_name}-{G.name}-symmetries_anim_static",
                                   gen_gif=True, gen_imgs=False)
@@ -165,7 +164,7 @@ def main(cfg: DictConfig):
         render_orbiting_animation(pb, cam_target_pose=cam_target_pose, cam_distance=cam_distance,
                                   anim_time=2, fps=2, periods=1, pitch_sin_amplitude=0,
                                   init_roll_pitch_yaw=(0, 90, 0) if G.order() > 2 else (0, 0, 0),
-                                  invert_roll="dh" in robot_cfg.group_label.lower(),
+                                  invert_roll="dh" in cfg.robot.group_label.lower(),
                                   save_path=save_path, gen_gif=False, gen_imgs=True)
     if cfg.gui:
         for _ in range(500):

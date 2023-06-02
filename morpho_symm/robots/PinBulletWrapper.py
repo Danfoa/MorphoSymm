@@ -45,25 +45,25 @@ class PinBulletWrapper:
     Attributes:
         nq (int): Dimension of the generalized coordiantes.
         nv (int): Dimension of the generalized velocities.
-        nj (int): Number of joints.
+        n_js (int): Number of joints.
         nf (int): Number of end-effectors.
         robot_id (int): PyBullet id of the robot.
         pinocchio_robot (Pinocchio.RobotWrapper): Pinocchio RobotWrapper for the robot.
-        useFixedBase (bool): Determines if the robot base if fixed.
-        nb_dof (int): The degrees of freedom excluding the base.
+        fixed_base (bool): Determines if the robot base if fixed.
     """
 
-    def __init__(self, robot_name:str, endeff_names: Optional[Iterable] = None, useFixedBase=False,
-                 reference_robot: Optional['PinBulletWrapper'] = None, init_q=None, hip_height=1.0):
+    def __init__(self, robot_name:str, endeff_names: Optional[Iterable] = None, fixed_base=False,
+                 reference_robot: Optional['PinBulletWrapper'] = None, hip_height=1.0, init_q=None, q_zero=None):
         """Initializes the wrapper.
 
         Args:
             robot_name (str): Name of this robot instance
             endeff_names (List[str]): Names of the end-effectors.
-            useFixedBase (bool, optional): Determines if the robot base if fixed. Defaults to False.
+            fixed_base (bool, optional): Determines if the robot base if fixed. Defaults to False.
             reference_robot (PinBulletWrapper, optional): Instance to copy the pinocchio model from. Defaults to None.
-            init_q (List[float]): Initial configuration of the robot of length nq.
             hip_height (float): Height of the hip of the robot. Hip height on resting configuration.
+            init_q (List[float]): Initial configuration of the robot of length nq.
+            q_zero (List[float]): Zero configuration. This can be different from the Zero config defined in the URDF.
         """
         self.robot_name = str.lower(robot_name)
         self.hip_height = hip_height
@@ -75,14 +75,16 @@ class PinBulletWrapper:
         self.pinocchio_robot = self.load_pinocchio_robot(reference_robot)
         self.nq = self.pinocchio_robot.nq
         self.nv = self.pinocchio_robot.nv
-        self.nj = self.nq - 7
+        self.n_js = self.nq - 7
         # assert self.nj == len(self.joint_names), f"{len(self.joint_names)} != {self.nj}"
         self.nf = len(self.endeff_names) if self.endeff_names is not None else -1
-        self.useFixedBase = useFixedBase
-        self.nb_dof = self.nv - 6
+        self.fixed_base = fixed_base
 
-        self._init_q = np.concatenate((np.zeros(6), [1], np.zeros(self.nj))) if init_q is None else np.array(init_q)
-        assert len(self._init_q) == self.nq, f"Expected |q0|=3+4+nj={self.nq}, but received {len(self._init_q)}"
+        self._init_q = np.concatenate((np.zeros(6), [1], np.zeros(self.n_js))) if init_q is None else np.array(init_q)
+        self._q_zero = np.zeros(self.nq) if q_zero is None else np.array(q_zero)
+        assert len(self._init_q) == self.nq, f"Expected |q_init|=3+4+nj={self.nq}, but received {self._init_q.size}"
+        assert self._q_zero.size == self.nq, f"Expected |q_0|=3+4+nj={self.nq}, but received {q_zero}"
+
         self.base_linvel_prev = None
         self.base_angvel_prev = None
         self.base_linacc = np.zeros(3, dtype=np.float32)
@@ -112,7 +114,7 @@ class PinBulletWrapper:
         self.bullet_endeff_ids = {}
         self.bullet_ids_allowed_floor_contacts = []
 
-    def configure_bullet_simulation(self, bullet_client: BulletClient, world,
+    def configure_bullet_simulation(self, bullet_client: BulletClient, world=None,
                                     base_pos=(0, 0, 0), base_ori=(0, 0, 0, 1)):
         """Configures the bullet simulation and loads this robot URDF description."""
         # Load robot to simulation
@@ -124,7 +126,7 @@ class PinBulletWrapper:
         bullet_joint_map = {}  # Key: joint name - Value: joint id
 
         if self._qj_low_limit is None or self._qj_high_limit is None:
-            self._qj_low_limit, self._qj_high_limit, self._dqj_limit = (np.empty(self.nj) for _ in
+            self._qj_low_limit, self._qj_high_limit, self._dqj_limit = (np.empty(self.n_js) for _ in
                                                                         range(3))
         auto_end_eff = False
         if self.endeff_names is None:
@@ -143,7 +145,7 @@ class PinBulletWrapper:
                 self.joint_aux_vars[joint_name].vel_lim = dq_max
                 self.joint_aux_vars[joint_name].tau_lim = tau_max
             elif auto_end_eff and not np.any([s in joint_name for s in ["base", "imu", "hip", "camera", "accelero"]]):
-                log.info(f"Adding end-effector {joint_name}")
+                log.debug(f"Adding end-effector {joint_name}")
                 self._endeff_names.append(joint_name)
             else:
                 log.debug(f"unrecognized joint semantic type {joint_name}")
@@ -227,7 +229,7 @@ class PinBulletWrapper:
         q = zero(self.nq)
         dq = zero(self.nv)
 
-        if not self.useFixedBase:
+        if not self.fixed_base:
             base_inertia_pos, base_inertia_quat = self.bullet_client.getBasePositionAndOrientation(self.robot_id)
             # Get transform between inertial frame and link frame in base
             base_stat = self.bullet_client.getDynamicsInfo(self.robot_id, -1)
@@ -256,6 +258,8 @@ class PinBulletWrapper:
             q[self.joint_aux_vars[joint_name].idx_q] = joint_states[i][0]
             dq[self.joint_aux_vars[joint_name].idx_dq] = joint_states[i][1]
 
+        # Center the Joint-Space around defined 0 vector.
+        q += self._q_zero
         self.last_q = q
         self.last_dq = dq
         return q, dq
@@ -297,17 +301,24 @@ class PinBulletWrapper:
         self.update_pinocchio(q, dq)
         return q, dq
 
-    def reset_state(self, q, dq):
+    def reset_state(self, q_new, dq_new):
         """Reset the robot to the desired states.
 
         Args:
-            q (ndarray): Desired generalized positions.
-            dq (ndarray): Desired generalized velocities.
+            q_new (ndarray): Desired generalized positions.
+            dq_new (ndarray): Desired generalized velocities.
         """
-        def vec2list(m):
-            return np.array(m.T).reshape(-1).tolist()
+        assert not np.iscomplexobj(q_new), "q must be real valued"
+        assert not np.iscomplexobj(dq_new), "q must be real valued"
 
-        if not self.useFixedBase:
+        q, dq = np.array(q_new), np.array(dq_new)
+        # If Joint-Space has a different 0 vector, enforce it here. # TODO: This should be forced in the URDF file.
+        q -= self._q_zero
+
+        def vec2list(m):
+            return np.asarray(m.T).reshape(-1).tolist()
+
+        if not self.fixed_base:
             for joint_name in self.joint_names:
                 joint_info = self.joint_aux_vars[joint_name]
                 self.bullet_client.resetJointState(
@@ -345,9 +356,8 @@ class PinBulletWrapper:
         """
         if reference_robot is not None:
             import sys
-            assert np.all(self.joint_names == reference_robot.joint_names), "Invalid reference RobotWrapper"
             pin_robot = copy.copy(reference_robot.pinocchio_robot)
-            pin_robot.data = copy.deepcopy(reference_robot.pinocchio_robot.data)
+            pin_robot.data = copy.copy(reference_robot.pinocchio_robot.data)
             assert sys.getrefcount(pin_robot.data) <= 2
         else:
             pin_robot = pin_load_robot_description(f"{self.robot_name}_description", root_joint=JointModelFreeFlyer())
@@ -364,23 +374,24 @@ class PinBulletWrapper:
                                                   basePosition=base_pos, baseOrientation=base_ori,
                                                   flags=self.bullet_client.URDF_USE_INERTIA_FROM_FILE |
                                                         self.bullet_client.URDF_USE_SELF_COLLISION,
-                                                  useFixedBase=self.useFixedBase)
+                                                  useFixedBase=self.fixed_base)
         return self.robot_id
 
     def get_init_config(self, random=False, angle_sweep=None, fix_base=False):
         """Get initial configuration of the robot.
 
         Args:
-            random: if True, randomize the initial configuration.
-            angle_sweep: if not None, randomize the initial configuration within the given angle sweep.
+            random (bool): if True, randomize the initial configuration.
+            angle_sweep (float): if not None, randomize the initial configuration within the given angle sweep.
+            fix_base (bool): if True, do not randomize base orientation.
 
         Returns:
             q (ndarray): generalized positions.
             dq (ndarray): generalized velocities.
         """
         q = self._init_q
-        qj = self._init_q[7:]
-        dqj = np.zeros_like(qj)
+        q_js = self._init_q[7:]
+        dqj = np.zeros_like(q_js)
         base_pos, base_ori = q[:3], q[3:7]
 
         if random:
@@ -393,13 +404,14 @@ class PinBulletWrapper:
                 low_lim, high_lim = -angle_sweep, angle_sweep
             else:
                 low_lim, high_lim = self._qj_low_limit, self._qj_high_limit
-            qj_offset = np.random.uniform(low=low_lim, high=high_lim, size=(self.nj,))
-            qj += qj_offset  # [rad]
+            q_js_offset = np.random.uniform(low=low_lim, high=high_lim, size=(self.n_js,))
+            q_js += q_js_offset  # [rad]
             dqj_lim = np.minimum(2 * np.pi, self._dqj_limit)
-            dqj_offset = np.random.uniform(low=-dqj_lim, high=dqj_lim, size=(self.nj,))
+            dqj_offset = np.random.uniform(low=-dqj_lim, high=dqj_lim, size=(self.n_js,))
             dqj += dqj_offset  # [rad/s]
 
-        q = np.concatenate([base_pos, base_ori, qj])
+        q = np.concatenate([base_pos, base_ori, q_js])
+        q += self._q_zero
         dq = np.concatenate([np.zeros(6), dqj])
         return q, dq
 
@@ -502,3 +514,30 @@ class PinBulletWrapper:
             np.array((6,1)) vector of linear and angular acceleration
         """
         return np.concatenate((self.base_linacc, self.base_angacc))
+
+    def __repr__(self):
+        """."""
+        bullet_id = f"({self.robot_id})" if self.robot_id is not None else ""
+        return f"{self.robot_name}{bullet_id}-nq:{self.nq}-nv:{self.nv}"
+
+    @staticmethod
+    def from_instance(other: 'PinBulletWrapper') -> 'PinBulletWrapper':
+        """Creates another instance of this robot wrapper without duplicating the model or data from pinocchio robot.
+
+        This is usefull when we want to spawn multiple instances of the same robot on the physics simulator.
+
+
+        Args:
+            other (PinBulletWrapper): The instance from which to get the model and data for the pinocchio model
+
+        Returns:
+            PinBulletWrapper: A new instance of this robot wrapper
+        """
+        return PinBulletWrapper(
+            robot_name=other.robot_name,
+            endeff_names=other.endeff_names,
+            fixed_base=other.fixed_base,
+            reference_robot=other,
+            init_q=other._init_q,
+            hip_height=other.hip_height,
+            )
