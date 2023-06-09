@@ -34,7 +34,7 @@ def get_escnn_group(cfg: DictConfig):
         raise AttributeError(f'Group label {group_label} is not a known group label (Dn: Dihedral, Cn: Cyclic) order n')
 
     group_axis = np.array([0, 0, 1])
-    subgroup_id = np.zeros_like(group_axis, dtype=np.bool).astype(object)
+    subgroup_id = np.zeros_like(group_axis, dtype=bool).astype(object)
     if group_class.lower() == 'd':  # Dihedral
         # Define the symmetry space using presets from ESCNN
         # subgroup_id[group_axis == 1] = order
@@ -93,7 +93,7 @@ def load_robot_and_symmetries(robot_cfg: DictConfig, debug=False) -> [PinBulletW
     # Transformation required to obtain ρ_Q_js(g) ∈ G from the regular fields / permutation rep.
     # robot.n_js - robot_cfg.unique_bodies
 
-    rep_field = np.float if robot_cfg.rep_fields.lower() != 'complex' else np.complex
+    rep_field = float if robot_cfg.rep_fields.lower() != 'complex' else complex
     # Configuration file of robot provides oneline notations of the reps_QJ of generators of the group.
     rep_QJ = {G.identity: np.eye(robot.n_js, dtype=rep_field)}
     for g_gen, perm, refx in zip(G.generators, robot_cfg.perm_qj, robot_cfg.refx_qj):

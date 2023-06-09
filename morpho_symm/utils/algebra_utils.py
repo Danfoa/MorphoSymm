@@ -40,7 +40,7 @@ def permutation_matrix(oneline_notation):
     """Generate a permutation matrix from its oneline notation."""
     d = len(oneline_notation)
     assert d == np.unique(oneline_notation).size, "oneline_notation must describe a non-defective permutation"
-    P = np.zeros((d, d), dtype=np.int)
+    P = np.zeros((d, d), dtype=int)
     P[range(d), np.abs(oneline_notation)] = 1
     return P
 
