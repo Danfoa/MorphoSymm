@@ -304,7 +304,7 @@ class COMMomentum(Dataset):
             base_q[1] += offset * i
 
             # Set positions:
-            robot.reset_state(np.concatenate((base_q, q)), np.concatenate((self.base_dq, dq)))
+            robot.reset_sim_state(np.concatenate((base_q, q)), np.concatenate((self.base_dq, dq)))
 
             # Draw linear momentum
             linear_color, angular_color = (0.682, 0.576, 0.039), (0.392, 0.047, 0.047)

@@ -2,7 +2,7 @@ defaults:
   - base_robot
 
 name: solo
-angle_sweep: 0.7
+angle_sweep: 0.55
 hip_height: 0.30
 
 #                                       _______FL______|_______FR________|_________HL______|______HR______|
@@ -19,6 +19,6 @@ q_zero: [0,    0,   0, 0, 0, 0, 0,    0,-np.pi/2,    0,   0, -np.pi/2,   0,    0
 # q    = [ 0, 1, 2,  3, 4, 5,  6,  7,  8, 9, 10, 11]
 # Configure qj (joint-space) group actions
 #                  Sagittal Symmetry                          Transversal symmetry                            Frontal Symmetry
-perm_qj: [[3, 4, 5, 0, 1, 2, 9, 10, 11, 6, 7, 8],   [6, 7, 8, 9, 10, 11, 0, 1, 2, 3, 4, 5],       [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]]
+permutation_Q_js: [[3, 4, 5, 0, 1, 2, 9, 10, 11, 6, 7, 8],   [6, 7, 8, 9, 10, 11, 0, 1, 2, 3, 4, 5],       [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]]
 # Reflections are determined by joint frame predefined orientation.
-refx_qj: [[-1, 1, 1, -1, 1, 1, -1, 1, 1, -1, 1, 1], [1, -1, -1, 1, -1, -1, 1, -1, -1, 1, -1, -1], [-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1]]
+reflection_Q_js: [[-1, 1, 1, -1, 1, 1, -1, 1, 1, -1, 1, 1], [1, -1, -1, 1, -1, -1, 1, -1, -1, 1, -1, -1], [-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1]]

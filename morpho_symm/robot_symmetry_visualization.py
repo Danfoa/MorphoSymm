@@ -9,10 +9,10 @@ from omegaconf import DictConfig
 from pytransform3d import transformations as tr
 from utils.algebra_utils import quat_xyzw_to_SO3
 from utils.pybullet_visual_utils import (
+    change_robot_appearance,
     display_robots_and_vectors,
     get_mock_ground_reaction_forces,
     render_orbiting_animation,
-    change_robot_appearance,
 )
 from utils.robot_utils import load_robot_and_symmetries
 
@@ -36,8 +36,10 @@ def main(cfg: DictConfig):
 
     G = symmetry_space.fibergroup
     assert isinstance(G, Group)
-    assert 'QJ' in G.representations and 'Ed' in G.representations, "We need these two reps to do visualizations"
-    rep_QJ = G.representations['QJ']
+    assert np.all(rep_name in G.representations for rep_name in ['Ed', 'Q_js', 'TqQ_js']), \
+        f"Group {G} should have representations for Ed, Q_js and TqQ_js, found: {list(G.representations.keys())}"
+    rep_QJ = G.representations['Q_js']
+    rep_TqJ = G.representations['TqQ_js']
     rep_Ed = G.representations['Ed']
 
     # Configuration of the 3D visualization -------------------------------------------------------------------------
@@ -51,12 +53,9 @@ def main(cfg: DictConfig):
 
     # Get initial random configuration of the system
     q, dq = robot.get_init_config(random=True, angle_sweep=cfg.robot.angle_sweep, fix_base=cfg.robot.fix_base)
-    q_offset = np.zeros_like(q) if cfg.robot.offset_q is None else np.array([eval(str(s)) for s in cfg.robot.offset_q])
-    q = q + q_offset
     rB0 = np.array([-offset if G.order() != 2 else 0, -offset] + [robot.hip_height * 1.5])
     q[:3] = rB0
-    robot.reset_state(q - q_offset, dq)
-    # robot.reset_state(q + q_offset, dq)
+    robot.reset_state(q, dq)
     # --------------------------------------------------------------------------------------------------------------
 
     # NOTATION:
@@ -79,7 +78,7 @@ def main(cfg: DictConfig):
     x = np.concatenate((q[7:], dq[6:]))
     x = x.astype(np.float64)
     # Get the representation of the symmetry group of the robot on the joint space (JS) state-space x=[q_js, dq_js]
-    rep_x = rep_QJ + rep_QJ  # Since rep_QJ acts linearly on q, the representation on dq is the same (Eq.2 of paper)
+    rep_x = rep_QJ + rep_TqJ
 
     # To visualize how the symmetries of the robotic system affect propioceptive and exteroceptive measurements we use:
     # - Propioceptive: `hg_B` The center of mass linear and angular momentum of the robot, and `f1/2` contact forces
@@ -134,9 +133,8 @@ def main(cfg: DictConfig):
     # Visualization of orbits of robot states and of data ==========================================================
     # Use Ctrl and mouse-click+drag to rotate the 3D environment.
     # Get the robot joint state (q_js, dq_js) from the state x for all system configurations.
-    splited_orbits = [np.split(x, 2) for x in Gx]
+    splited_orbits = [(x[:robot.nq - 7], x[robot.nq - 7:]) for x in Gx]
     Gq_js, Gdq_js = [x[0] for x in splited_orbits], [x[1] for x in splited_orbits]
-    Gq_js = [qj - q_offset[7:] for qj in Gq_js]  # Remove the offset from the joint angles
     display_robots_and_vectors(pb, robot, base_confs=GXB_w, Gq_js=Gq_js, Gdq_js=Gdq_js, Ghg=Ghg_B,
                                forces=[Gf1_w, Gf2_w], forces_points=[Gr1_w, Gr2_w], surface_normals=[GRf1_w, GRf2_w],
                                GX_g_bar=GX_g_bar, tint=cfg.robot.tint_bodies)

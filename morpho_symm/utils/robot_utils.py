@@ -16,6 +16,7 @@ from morpho_symm.robots.PinBulletWrapper import PinBulletWrapper
 from morpho_symm.utils.algebra_utils import gen_permutation_matrix
 from morpho_symm.utils.group_utils import group_rep_from_gens
 from morpho_symm.utils.pybullet_visual_utils import (
+    change_robot_appearance,
     configure_bullet_simulation,
     listen_update_robot_sliders,
     setup_debug_sliders,
@@ -26,6 +27,7 @@ def get_escnn_group(cfg: DictConfig):
     """Get the ESCNN group object from the group label in the config file."""
     group_label = cfg.group_label
     label_pattern = r'([A-Za-z]+)(\d+)'
+    assert cfg.group_label is not None, f'Group label unspecified. Not clear which symmetry group {cfg.name} has'
     match = re.match(label_pattern, group_label)
     if match:
         group_class = match.group(1)
@@ -38,7 +40,7 @@ def get_escnn_group(cfg: DictConfig):
     if group_class.lower() == 'd':  # Dihedral
         # Define the symmetry space using presets from ESCNN
         # subgroup_id[group_axis == 1] = order
-        symmetry_space = escnn.gspaces.dihedralOnR3(n=order//2, axis=0.0)
+        symmetry_space = escnn.gspaces.dihedralOnR3(n=order // 2, axis=0.0)
     elif group_class.lower() == 'c':  # Cyclic
         assert order >= 2, f'Order of cyclic group must be greater than 2, got {order}'
         subgroup_id[group_axis == 1] = order
@@ -57,32 +59,32 @@ def get_escnn_group(cfg: DictConfig):
 def load_robot_and_symmetries(robot_cfg: DictConfig, debug=False) -> [PinBulletWrapper, escnn.gspaces.GSpace3D]:
     """Utility function to get the symmetry group and representations of a robotic system defined in config.
 
+    This function loads the robot into pinocchio, and generate the symmetry group representations for the following
+    spaces:
+        1. The joint-space (Q_js), known as the space of generalized position coordinates.
+        2. The joint-space tangent space (TqQ_js), known as the space of generalized velocities.
+        3. The Euclidean space (Ed) in which the dynamical system evolves in.
+
     Args:
         robot_cfg (DictConfig): Dictionary holding the configuration parameters of the robot. Check `cfg/robot/`
         debug (bool): if true we load the robot into an interactive simulation session to visually inspect URDF
 
     Returns:
         robot (PinBulletWrapper): instance with the robot loaded in pinocchio and ready to be loaded in pyBullet
-        gspace (GSpace3D): TODO: add description
-    """
-    """
-
-    robot_cfg (DictConfig): Dictionary holding the configuration parameters of the robot. Check `cfg/robot/`
-    :param debug: whether to load the robot into an interactive simulation session to visually debug URDF
-    :return:
-        robot: `PinBulletWrapper` instance with the robot loaded in pinocchio and ready to be loaded in pyBullet
-        rep_Ed: Representation of the symmetry group of the robot on the Euclidean space of `d` dimensions.
-        rep_QJ: Representation of the symmetry group of the robot on the Joint Space of the robot.
+        gspace (GSpace3D): Instance of the symmetry space of the robot. The representations for Q_js, TqQ_js and Ed are
+        added to the list of representations of the group (`gspace.G.representations`).
     """
     robot_name = str.lower(robot_cfg.name)
-    # We allow symbolic expressions (e.g. `np.pi/2`) in the q_zero.
+    # We allow symbolic expressions (e.g. `np.pi/2`) in the `q_zero` and `init_q`.
     q_zero = np.array([eval(str(s)) for s in robot_cfg.q_zero], dtype=float) if robot_cfg.q_zero is not None else None
-    robot = PinBulletWrapper(robot_name=robot_name, init_q=robot_cfg.init_q, q_zero=q_zero,
+    init_q = np.array([eval(str(s)) for s in robot_cfg.init_q], dtype=float) if robot_cfg.init_q is not None else None
+    robot = PinBulletWrapper(robot_name=robot_name, init_q=init_q, q_zero=q_zero,
                              hip_height=robot_cfg.hip_height, endeff_names=robot_cfg.endeff_names)
 
     if debug:
         pb = configure_bullet_simulation(gui=True, debug=debug)
         robot.configure_bullet_simulation(pb, world=None)
+        change_robot_appearance(pb, robot)
         setup_debug_sliders(pb, robot)
         listen_update_robot_sliders(pb, robot)
 
@@ -90,24 +92,57 @@ def load_robot_and_symmetries(robot_cfg: DictConfig, debug=False) -> [PinBulletW
 
     G = symmetry_space.fibergroup
 
-    # Transformation required to obtain ρ_Q_js(g) ∈ G from the regular fields / permutation rep.
-    # robot.n_js - robot_cfg.unique_bodies
-
+    # Select the field for the representations.
     rep_field = float if robot_cfg.rep_fields.lower() != 'complex' else complex
-    # Configuration file of robot provides oneline notations of the reps_QJ of generators of the group.
-    rep_QJ = {G.identity: np.eye(robot.n_js, dtype=rep_field)}
-    for g_gen, perm, refx in zip(G.generators, robot_cfg.perm_qj, robot_cfg.refx_qj):
-        assert len(perm) == robot.n_js == len(refx), f"Perm {len(perm)} Reflx: {len(refx)}"
+
+    # Get the dimensions of the spaces Q_js and TqQ_js
+    dimQ_js, dimTqQ_js = robot.nq - 7, robot.nv - 6
+
+    # Joint-Space Q_js (generalized position coordinates)
+    rep_Q_js = {G.identity: np.eye(dimQ_js, dtype=rep_field)}
+    # Check a representation for each generator is provided
+    assert len(robot_cfg.permutation_Q_js) == len(robot_cfg.reflection_Q_js) >= len(G.generators), \
+        f"Not enough representation provided for the joint-space `Q_js`. " \
+        f"Found {len(robot_cfg.permutation_TqQ_js)} but symmetry group {G} has {len(G.generators)} generators."
+
+    # Generate ESCNN representation of generators
+    for g_gen, perm, refx in zip(G.generators, robot_cfg.permutation_Q_js, robot_cfg.reflection_Q_js):
+        assert len(perm) == dimQ_js == len(refx), \
+            f"Dimension of joint-space position coordinates dim(Q_js)={robot.n_js} != dim(rep_Q_JS): {len(refx)}"
         refx = np.array(refx, dtype=rep_field)
-        rep_QJ[g_gen] = gen_permutation_matrix(oneline_notation=perm, reflections=refx)
+        rep_Q_js[g_gen] = gen_permutation_matrix(oneline_notation=perm, reflections=refx)
+    # Generate the entire group
+    rep_Q_js = group_rep_from_gens(G, rep_Q_js)
+
+    # Joint-Space Tangent bundle TqQ_js (generalized velocity coordinates)
+    rep_TqQ_js = {G.identity: np.eye(dimTqQ_js, dtype=rep_field)}
+    if dimQ_js == dimTqQ_js:  # If position and velocity coordinates have the same dimensions
+        rep_TqQ_js = rep_Q_js
+    else:
+        # Check a representation for each generator is provided
+        assert robot_cfg.permutation_TqQ_js is not None and robot_cfg.reflection_TqQ_js is not None, \
+            f"No representations provided for the joint-space tangent bundle rep_TqQ_js of {robot_name}"
+        assert len(robot_cfg.permutation_TqQ_js) == len(robot_cfg.reflection_TqQ_js) >= len(G.generators), \
+            f"Not enough representation provided for the joint-space tangent bundle `TqQ_js`. " \
+            f"Found {len(robot_cfg.permutation_TqQ_js)} but symmetry group {G} has {len(G.generators)} generators."
+
+        # Generate ESCNN representation of generators
+        for g_gen, perm, refx in zip(G.generators, robot_cfg.permutation_TqQ_js, robot_cfg.reflection_TqQ_js):
+            assert len(perm) == dimTqQ_js == len(refx), \
+                f"Dimension of joint-space position coordinates dim(Q_js)={robot.n_js} != dim(rep_Q_JS): {len(refx)}"
+            refx = np.array(refx, dtype=rep_field)
+            rep_TqQ_js[g_gen] = gen_permutation_matrix(oneline_notation=perm, reflections=refx)
+        # Generate the entire group
+        rep_TqQ_js = group_rep_from_gens(G, rep_TqQ_js)
 
     # Add `Ed` and `QJ` representations to the group.
-    rep_QJ = group_rep_from_gens(G, rep_QJ)
     rep_Ed = generate_E3_rep(G)
-    rep_QJ.name = 'QJ'
+    rep_Q_js.name = 'Q_js'
+    rep_TqQ_js.name = 'TqQ_js'
     rep_Ed.name = 'Ed'
-    # a = [rep_QJ(g) for g in G.elements]
-    G.representations.update(Ed=rep_Ed, QJ=rep_QJ)
+
+    # Add representations to the group.
+    G.representations.update(Ed=rep_Ed, Q_js=rep_Q_js, TqQ_js=rep_TqQ_js)
     return robot, symmetry_space
 
 
@@ -125,7 +160,7 @@ def generate_E3_rep(G: Group) -> Representation:
     """
     # Configure E3 representations and group
     if isinstance(G, CyclicGroup):
-        if G.order() == 2: # Reflection symmetry
+        if G.order() == 2:  # Reflection symmetry
             rep_E3 = G.irrep(0) + G.irrep(1) + G.trivial_representation
         else:
             rep_E3 = G.irrep(1) + G.trivial_representation
@@ -136,9 +171,9 @@ def generate_E3_rep(G: Group) -> Representation:
             rep_E3 = G.representations['rectangle'] + G.trivial_representation
             rep_E3 = escnn.group.change_basis(rep_E3, np.array([[0, 1, 0], [1, 0, 0], [0, 0, 1]]), name="E3")
         elif G.name == "FullCylindricalDiscrete":
-            rep_hx = np.array(np.array([[-1, 0, 0], [0,  1, 0], [0, 0,  1]]))
-            rep_hy = np.array(np.array([[ 1, 0, 0], [0, -1, 0], [0, 0,  1]]))
-            rep_hz = np.array(np.array([[ 1, 0, 0], [0,  1, 0], [0, 0, -1]]))
+            rep_hx = np.array(np.array([[-1, 0, 0], [0, 1, 0], [0, 0, 1]]))
+            rep_hy = np.array(np.array([[1, 0, 0], [0, -1, 0], [0, 0, 1]]))
+            rep_hz = np.array(np.array([[1, 0, 0], [0, 1, 0], [0, 0, -1]]))
             rep_E3_gens = {h: rep_h for h, rep_h in zip(G.generators, [rep_hy, rep_hx, rep_hz])}
             rep_E3 = group_rep_from_gens(G, rep_E3_gens)
         else:
