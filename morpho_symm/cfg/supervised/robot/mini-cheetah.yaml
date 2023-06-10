@@ -3,7 +3,8 @@ defaults:
 
 name: mini_cheetah
 angle_sweep: 0.7
-hip_height: 0.40
+hip_height: 0.35
+seed: 50
 endeff_names: [ 'thigh_fr_to_knee_fr_j', 'thigh_fl_to_knee_fl_j', 'thigh_hr_to_knee_hr_j', 'thigh_hl_to_knee_hl_j' ]
 # ______|Base Pos|_Base Ori__|       torso                         abduct                              tight           |       torso                              abduct                          tight          |       torso                        abduct                               tight          |       torso                          abduct                              tight           |
 init_q: [ 0, 0, 0, 0, 0, 0, 1, np.cos(0),np.sin(0) ,  np.cos(-2*np.pi/3),np.sin(-2*np.pi/3) ,  np.cos(1.0),np.sin(1.0) ,  np.cos(0),np.sin(0) ,  np.cos(-2*np.pi/3),np.sin(-2*np.pi/3) ,  np.cos(1.0),np.sin(1.0), np.cos(0),np.sin(0) ,  np.cos(2*np.pi/3),np.sin(2*np.pi/3) ,  np.cos(-1.0),np.sin(-1.0), np.cos(0),np.sin(0) ,  np.cos(2*np.pi/3),np.sin(2*np.pi/3) ,  np.cos(-1.0),np.sin(-1.0) ]

@@ -178,7 +178,9 @@ def render_camera_trajectory(pb, pitch, roll, yaw, n_frames, cam_distance, cam_t
         # Render image
         img_arr = pb.getCameraImage(render_width, render_height, viewMatrix, projectionMatrix, shadow=shadow,
                                     lightDirection=light_direction, lightDistance=light_distance,
-                                    renderer=pb.ER_TINY_RENDERER, lightColor=[1, 1, 1],
+                                    renderer=pb.ER_TINY_RENDERER,
+                                    # renderer=pb.ER_BULLET_HARDWARE_OPENGL,
+                                    lightColor=[1, 1, 1],
                                     lightSpecularCoeff=0.32)
         w = img_arr[0]  # width of the image, in pixels
         h = img_arr[1]  # height of the image, in pixels

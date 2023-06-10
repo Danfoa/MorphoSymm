@@ -14,3 +14,5 @@ output/
 *.DS_Store
 .ipynb_checkpoints/
 *.log
+
+morpho_symm/robot_harmonic_decomposition.py
