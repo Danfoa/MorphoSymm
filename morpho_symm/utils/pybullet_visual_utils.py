@@ -305,7 +305,7 @@ def spawn_robot_instances(
 
 
 def display_robots_and_vectors(pb, robot, base_confs, Gq_js, Gdq_js, Ghg, forces, forces_points, surface_normals,
-                               GX_g_bar, tint=True):
+                               GX_g_bar, tint=True, draw_floor=True):
     """Plot side by side robots with different configurations, CoM momentums and expected CoM after an action g."""
     # pb.resetSimulation()
 
@@ -370,16 +370,17 @@ def display_robots_and_vectors(pb, robot, base_confs, Gq_js, Gdq_js, Ghg, forces
         force_color = (0.590, 0.153, 0.510, 1.0)
         for force_orbit, rf_orbit, GRf_w in zip(forces, forces_points, surface_normals):
             draw_vector(pb, origin=rf_orbit[i], vector=force_orbit[i], v_color=force_color)
-            body_id = pb.createVisualShape(shapeType=pb.GEOM_BOX, halfExtents=[.2 * robot.hip_height,
-                                                                               .2 * robot.hip_height,
-                                                                               0.01],
-                                           rgbaColor=np.array([115, 140, 148, 150]) / 255.)
-            pb.createMultiBody(baseMass=1,
-                               baseInertialFramePosition=[0, 0, 0],
-                               baseCollisionShapeIndex=body_id,
-                               baseVisualShapeIndex=body_id,
-                               basePosition=rf_orbit[i],
-                               baseOrientation=matrix_to_quat_xyzw(GRf_w[i]))
+            if draw_floor:
+                body_id = pb.createVisualShape(shapeType=pb.GEOM_BOX, halfExtents=[.2 * robot.hip_height,
+                                                                                   .2 * robot.hip_height,
+                                                                                   0.01],
+                                               rgbaColor=np.array([115, 140, 148, 150]) / 255.)
+                pb.createMultiBody(baseMass=1,
+                                   baseInertialFramePosition=[0, 0, 0],
+                                   baseCollisionShapeIndex=body_id,
+                                   baseVisualShapeIndex=body_id,
+                                   basePosition=rf_orbit[i],
+                                   baseOrientation=matrix_to_quat_xyzw(GRf_w[i]))
         # Draw Base orientation
         if robot.nq == 12:  # Only for Solo
             draw_vector(pb, origin=tB_w + RB_w @ np.array((0.06, 0, 0.03)), vector=RB_w[:, 0], v_color=[1, 1, 1, 1],

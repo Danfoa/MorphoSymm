@@ -122,6 +122,7 @@ class PinBulletWrapper(PinSimWrapper):
 
         self.nf = len(self.endeff_names)
         self.pinocchio_endeff_ids = {name: self.pinocchio_robot.model.getFrameId(name) for name in self.endeff_names}
+        self.bullet_joint_map = bullet_joint_map
 
     def get_force(self):
         """Returns the force readings as well as the set of active contacts.

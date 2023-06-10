@@ -1,0 +1,25 @@
+defaults:
+  - base_robot
+
+name: anymal_c
+angle_sweep: 0.45
+hip_height: 0.6
+draw_floor: False
+seed: 10
+
+endeff_names : ['RH_shank_fixed_RH_FOOT', 'LH_shank_fixed_LH_FOOT', 'RF_shank_fixed_RF_FOOT', 'LF_shank_fixed_LF_FOOT']
+#                                       ____LF_______|________LH____|___RF______|____RH____|
+# ________|__Base Pos____|_Base Ori____|______________________________QJ__________________________________|
+init_q:   [0.0, 0.0, 0.24, 0, 0, 0, 1,  0.0, 0.5, -1, 0.0,   -0.5, 1, 0.0,   0.5, -1, 0.0,  -0.5, 1]
+
+group_label: K4
+
+
+# QJ: Joint Space symmetries____________________________________
+#        ____LF___|___LH____|___RF______|____RH____|
+# q    = [ 0, 1, 2,  3, 4, 5,  6,  7,  8, 9, 10, 11]
+# Configure qj (joint-space) group actions
+#                  Sagittal Symmetry                          Transversal symmetry
+permutation_Q_js: [[6, 7, 8, 9, 10, 11, 0, 1, 2, 3, 4, 5],   [3, 4, 5, 0, 1, 2, 9, 10, 11, 6, 7, 8]]
+# Reflections are determined by joint frame predefined orientation.
+reflection_Q_js: [[-1, 1, 1, -1, 1, 1, -1, 1, 1, -1, 1, 1], [1, -1, -1, 1, -1, -1, 1, -1, -1, 1, -1, -1]]

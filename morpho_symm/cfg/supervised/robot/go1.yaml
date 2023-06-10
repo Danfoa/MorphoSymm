@@ -1,0 +1,6 @@
+defaults:
+  - a1
+
+name: go1
+
+endeff_names: ['FL_foot_fixed', 'FR_foot_fixed', 'RL_foot_fixed', 'RR_foot_fixed']

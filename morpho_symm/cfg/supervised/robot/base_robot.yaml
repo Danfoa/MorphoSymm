@@ -14,6 +14,7 @@ fix_base: False
 
 # Visualization aux variables
 tint_bodies: True
+draw_floor: True
 hip_height: 1.0
 endeff_names: null
 init_q: null

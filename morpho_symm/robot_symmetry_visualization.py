@@ -43,7 +43,7 @@ def main(cfg: DictConfig):
     rep_Ed = G.representations['Ed']
 
     # Configuration of the 3D visualization -------------------------------------------------------------------------
-    offset = 1.8 * robot.hip_height
+    offset = max(0.2, 1.8 * robot.hip_height)
 
     pb = configure_bullet_simulation(gui=cfg.gui, debug=cfg.debug)
 
@@ -137,7 +137,7 @@ def main(cfg: DictConfig):
     Gq_js, Gdq_js = [x[0] for x in splited_orbits], [x[1] for x in splited_orbits]
     display_robots_and_vectors(pb, robot, base_confs=GXB_w, Gq_js=Gq_js, Gdq_js=Gdq_js, Ghg=Ghg_B,
                                forces=[Gf1_w, Gf2_w], forces_points=[Gr1_w, Gr2_w], surface_normals=[GRf1_w, GRf2_w],
-                               GX_g_bar=GX_g_bar, tint=cfg.robot.tint_bodies)
+                               GX_g_bar=GX_g_bar, tint=cfg.robot.tint_bodies, draw_floor=cfg.robot.draw_floor)
 
     root_path = pathlib.Path(morpho_symm.__file__).parents[1].absolute()
     if cfg.make_gif:
