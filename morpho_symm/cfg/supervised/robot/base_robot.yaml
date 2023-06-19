@@ -2,17 +2,21 @@
 name: ???
 seed: -1
 
-# Full Symmetry group of the system
+# Symmetry related parameters
 group_label: null
 rep_fields: 'real'
+permutation_Q_js: null      # Symmetry permutation of joint-space position coordinates Q_js
+permutation_TqQ_js: null    # Symmetry permutations of joint-space tangent space (velocity coordinates) TqQ_js
+reflections_Q_js: null      # Symmetry reflections of joint-space position coordinates Q_js
+reflections_TqQ_js: null    # Symmetry reflections of joint-space tangent space (velocity coordinates) TqQ_js
 
-unique_bodies: 0
 fix_base: False
 
 # Visualization aux variables
 tint_bodies: True
+draw_floor: True
 hip_height: 1.0
 endeff_names: null
 init_q: null
-q_zero: null    # Zero vector of the generalized positions. Can be different from the Zero defined in URDF.
+q_zero: null                # Zero vector of the generalized positions. Can be different from the Zero defined in URDF.
 angle_sweep: 0.43

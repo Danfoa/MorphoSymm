@@ -9,6 +9,6 @@ init_q: [0.0, 0.0, 0.35, 0, 0, 0 , 1 , 0.0, 0.4, -1.2, 0.0, 0.4, -1.2, 0.0, 0.4,
 
 group_label: C2
 # QJ: Joint Space symmetries____________________________________
-perm_qj: [[3, 4, 5, 0, 1, 2, 9, 10, 11, 6, 7, 8]]
+permutation_Q_js: [[3, 4, 5, 0, 1, 2, 9, 10, 11, 6, 7, 8]]
 # Reflections are determined by joint frame predefined orientation.
-refx_qj: [[-1, 1, 1, -1, 1, 1, -1, 1, 1, -1, 1, 1]]
+reflection_Q_js: [[-1, 1, 1, -1, 1, 1, -1, 1, 1, -1, 1, 1]]

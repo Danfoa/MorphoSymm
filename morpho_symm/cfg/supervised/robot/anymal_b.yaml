@@ -1,0 +1,9 @@
+defaults:
+  - anymal_c
+
+name: anymal_b
+
+draw_floor: True
+endeff_names : ['RH_ADAPTER_TO_FOOT', 'LH_ADAPTER_TO_FOOT', 'RF_ADAPTER_TO_FOOT', 'LF_ADAPTER_TO_FOOT']
+
+group_label: K4

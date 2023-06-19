@@ -16,6 +16,6 @@ init_q: [0.0, 0.0, 0.24, 0, 0, 0 , 1 , 0.0, 0.7, -1.5, 0.0, -0.7, 1.5, 0.0, 0.7,
 # q    = [ 0, 1, 2,  3, 4, 5,  6,  7,  8, 9, 10, 11]
 # Configure qj (joint-space) group actions
 #                  Sagittal Symmetry                      Transversal symmetry
-perm_qj: [[6, 7, 8, 9, 10, 11, 0, 1, 2, 3, 4, 5], [3, 4, 5, 0, 1, 2, 9, 10, 11, 6, 7, 8]]
+permutation_Q_js: [[6, 7, 8, 9, 10, 11, 0, 1, 2, 3, 4, 5], [3, 4, 5, 0, 1, 2, 9, 10, 11, 6, 7, 8]]
 # Reflections are determined by joint frame predefined orientation.
-refx_qj: [[1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],   [1, -1, -1, 1, -1, -1, 1, -1, -1, 1, -1, -1]]
+reflection_Q_js: [[1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],   [1, -1, -1, 1, -1, -1, 1, -1, -1, 1, -1, -1]]

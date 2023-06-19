@@ -178,7 +178,9 @@ def render_camera_trajectory(pb, pitch, roll, yaw, n_frames, cam_distance, cam_t
         # Render image
         img_arr = pb.getCameraImage(render_width, render_height, viewMatrix, projectionMatrix, shadow=shadow,
                                     lightDirection=light_direction, lightDistance=light_distance,
-                                    renderer=pb.ER_TINY_RENDERER, lightColor=[1, 1, 1],
+                                    renderer=pb.ER_TINY_RENDERER,
+                                    # renderer=pb.ER_BULLET_HARDWARE_OPENGL,
+                                    lightColor=[1, 1, 1],
                                     lightSpecularCoeff=0.32)
         w = img_arr[0]  # width of the image, in pixels
         h = img_arr[1]  # height of the image, in pixels
@@ -192,13 +194,14 @@ def render_camera_trajectory(pb, pitch, roll, yaw, n_frames, cam_distance, cam_t
 # Setup debug sliders
 def setup_debug_sliders(pb, robot):
     """Setup debug sliders for each joint of the robot in pybullet."""
-    for i, joint_name in enumerate(robot.joint_names):
-        bullet_joint_id = robot.joint_aux_vars[joint_name].bullet_id
-        joint_info = pb.getJointInfo(robot.robot_id, bullet_joint_id)
-        joint_name = joint_info[1].decode("UTF-8")
-        lower_limit, upper_limit = joint_info[8], joint_info[9]
-        pb.addUserDebugParameter(paramName=f"{joint_name}_{i}", rangeMin=lower_limit, rangeMax=upper_limit,
-                                 startValue=0.0)
+    for i, joint_name in enumerate(robot.joint_space_names):
+        joint = robot.joint_space[joint_name]
+        lower_limit = max(joint.sim_joint.pos_limit_low, -np.pi)
+        upper_limit = min(joint.sim_joint.pos_limit_high, np.pi)
+        if lower_limit > upper_limit:
+            lower_limit, upper_limit = -np.pi, np.pi
+        pb.addUserDebugParameter(paramName=f"{i}:{joint_name}", rangeMin=lower_limit,
+                                 rangeMax=upper_limit, startValue=0.0)
 
 
 # Read param values
@@ -206,11 +209,10 @@ def listen_update_robot_sliders(pb, robot):
     """Read the values of the debug sliders and update the robot accordingly in pybullet."""
     import time
     while True:
-        pb_q = np.zeros(pb.getNumJoints(robot.robot_id))
-        for i, joint_name in enumerate(robot.joint_names):
-            bullet_joint_id = robot.joint_aux_vars[joint_name].bullet_id
-            pb_q[bullet_joint_id] = pb.readUserDebugParameter(itemUniqueId=i)
-            pb.resetJointState(robot.robot_id, bullet_joint_id, pb_q[bullet_joint_id])
+        for i, joint_name in enumerate(robot.joint_space_names):
+            joint = robot.joint_space[joint_name]
+            theta = pb.readUserDebugParameter(itemUniqueId=i)
+            pb.resetJointState(robot.robot_id, joint.bullet_idx, theta)
         time.sleep(0.1)
 
 
@@ -219,13 +221,12 @@ def change_robot_appearance(pb, robot: PinBulletWrapper, change_color=True, alph
     if not change_color and alpha == 1.0:
         return
 
-    # Define repo awsome colors
-    robot_color = [0.054, 0.415, 0.505 , alpha]
-    FL_leg_color = [0.698, 0.376, 0.082, alpha]
-    FR_leg_color = [0.260, 0.263, 0.263, alpha]
-    HL_leg_color = [0.800, 0.480, 0.000, alpha]
-    HR_leg_color = [0.710, 0.703, 0.703, alpha]
-    endeff_color = [0, 0, 0, alpha]
+    # Define repo awsome colors. Lets call it Danfoa's color palette :)
+    robot_color = [0.054, 0.415, 0.505 , alpha]  # This is a nice teal
+    FL_leg_color = [0.698, 0.376, 0.082, alpha]  # This is a nice orange
+    FR_leg_color = [0.260, 0.263, 0.263, alpha]  # This is a nice grey
+    HL_leg_color = [0.800, 0.480, 0.000, alpha]  # This is a nice yellow
+    HR_leg_color = [0.710, 0.703, 0.703, alpha]  # This is a nice light grey
 
     # Get robot bodies visual data.
     # visual_data = pb.getVisualShapeData(robot.robot_id)
@@ -234,15 +235,15 @@ def change_robot_appearance(pb, robot: PinBulletWrapper, change_color=True, alph
 
     for joint_idx in range(pb.getNumJoints(robot.robot_id)):
         joint_info = pb.getJointInfo(robot.robot_id, joint_idx)
-        link_name = joint_info[12].decode("UTF-8")
+        joint_info[12].decode("UTF-8")
         joint_name = joint_info[1].decode("UTF-8")
         # link_data = get_link_visual_data(link_idx)
         # link_body_id, link_color = link_data[0], link_data[1], link_data[7]
-
+        # thigh_fr_to_knee_fr_j
         if change_color:
-            if link_name in robot.endeff_names or (joint_name in robot.endeff_names):
-                color = endeff_color
-            elif np.any([s in joint_name.lower() for s in ["fl_", "lf_", "left", "_0"]]):
+            # if link_name in robot.endeff_names or (joint_name in robot.endeff_names):
+            #     color = endeff_color
+            if np.any([s in joint_name.lower() for s in ["fl_", "lf_", "left", "_0"]]):
                 color = FL_leg_color
             elif np.any([s in joint_name.lower() for s in ["fr_", "rf_", "right", "_120"]]):
                 color = FR_leg_color
@@ -304,7 +305,7 @@ def spawn_robot_instances(
 
 
 def display_robots_and_vectors(pb, robot, base_confs, Gq_js, Gdq_js, Ghg, forces, forces_points, surface_normals,
-                               GX_g_bar, tint=True):
+                               GX_g_bar, tint=True, draw_floor=True):
     """Plot side by side robots with different configurations, CoM momentums and expected CoM after an action g."""
     # pb.resetSimulation()
 
@@ -332,6 +333,8 @@ def display_robots_and_vectors(pb, robot, base_confs, Gq_js, Gdq_js, Ghg, forces
     com_pos = None
     for i in range(0, len(Gq_js)):
         q_js, dq_js, XB_w, ghg_B, rho_X_gbar = Gq_js[i], Gdq_js[i], base_confs[i], Ghg[i], GX_g_bar[i]
+        assert q_js.size == robot.nq - 7, f"Invalid joint-space position dim(Q_js)={robot.nq - 7}!={q_js.size}"
+        assert dq_js.size == robot.nv - 6, f"Invalid joint-space velocity dim(TqQ_js)={robot.nv - 6}!={dq_js.size}"
         RB_w = XB_w[:3, :3]
         tB_w = XB_w[:3, 3]
         grobot = robot
@@ -367,16 +370,17 @@ def display_robots_and_vectors(pb, robot, base_confs, Gq_js, Gdq_js, Ghg, forces
         force_color = (0.590, 0.153, 0.510, 1.0)
         for force_orbit, rf_orbit, GRf_w in zip(forces, forces_points, surface_normals):
             draw_vector(pb, origin=rf_orbit[i], vector=force_orbit[i], v_color=force_color)
-            body_id = pb.createVisualShape(shapeType=pb.GEOM_BOX, halfExtents=[.2 * robot.hip_height,
-                                                                               .2 * robot.hip_height,
-                                                                               0.01],
-                                           rgbaColor=np.array([115, 140, 148, 150]) / 255.)
-            pb.createMultiBody(baseMass=1,
-                               baseInertialFramePosition=[0, 0, 0],
-                               baseCollisionShapeIndex=body_id,
-                               baseVisualShapeIndex=body_id,
-                               basePosition=rf_orbit[i],
-                               baseOrientation=matrix_to_quat_xyzw(GRf_w[i]))
+            if draw_floor:
+                body_id = pb.createVisualShape(shapeType=pb.GEOM_BOX, halfExtents=[.2 * robot.hip_height,
+                                                                                   .2 * robot.hip_height,
+                                                                                   0.01],
+                                               rgbaColor=np.array([115, 140, 148, 150]) / 255.)
+                pb.createMultiBody(baseMass=1,
+                                   baseInertialFramePosition=[0, 0, 0],
+                                   baseCollisionShapeIndex=body_id,
+                                   baseVisualShapeIndex=body_id,
+                                   basePosition=rf_orbit[i],
+                                   baseOrientation=matrix_to_quat_xyzw(GRf_w[i]))
         # Draw Base orientation
         if robot.nq == 12:  # Only for Solo
             draw_vector(pb, origin=tB_w + RB_w @ np.array((0.06, 0, 0.03)), vector=RB_w[:, 0], v_color=[1, 1, 1, 1],
@@ -385,7 +389,8 @@ def display_robots_and_vectors(pb, robot, base_confs, Gq_js, Gdq_js, Ghg, forces
 
 def get_mock_ground_reaction_forces(pb, robot, robot_cfg):
     """Get mock ground reaction forces for visualization purposes. Simply to show transformation of vectors."""
-    end_effectors = np.random.choice(robot.bullet_ids_allowed_floor_contacts, 2, replace=False)
+    end_effectors = np.random.choice(robot.bullet_ids_allowed_floor_contacts,
+                                     len(robot.bullet_ids_allowed_floor_contacts), replace=False)
     # Get positions and orientations of end effector links of the robot, used to place the forces used in visualization
     rf1_w, quatf1_w = (np.array(x) for x in pb.getLinkState(robot.robot_id, end_effectors[0])[0:2])
     rf2_w, quatf2_w = (np.array(x) for x in pb.getLinkState(robot.robot_id, end_effectors[1])[0:2])

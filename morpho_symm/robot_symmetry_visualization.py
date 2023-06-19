@@ -9,10 +9,10 @@ from omegaconf import DictConfig
 from pytransform3d import transformations as tr
 from utils.algebra_utils import quat_xyzw_to_SO3
 from utils.pybullet_visual_utils import (
+    change_robot_appearance,
     display_robots_and_vectors,
     get_mock_ground_reaction_forces,
     render_orbiting_animation,
-    change_robot_appearance,
 )
 from utils.robot_utils import load_robot_and_symmetries
 
@@ -36,12 +36,15 @@ def main(cfg: DictConfig):
 
     G = symmetry_space.fibergroup
     assert isinstance(G, Group)
-    assert 'QJ' in G.representations and 'Ed' in G.representations, "We need these two reps to do visualizations"
-    rep_QJ = G.representations['QJ']
+    assert np.all(rep_name in G.representations for rep_name in ['Ed', 'Q_js', 'TqQ_js']), \
+        f"Group {G} should have representations for Ed, Q_js and TqQ_js, found: {list(G.representations.keys())}"
+    rep_QJ = G.representations['Q_js']
+    rep_TqJ = G.representations['TqQ_js']
     rep_Ed = G.representations['Ed']
+    rep_Od = G.representations['Od']
 
     # Configuration of the 3D visualization -------------------------------------------------------------------------
-    offset = 1.8 * robot.hip_height
+    offset = max(0.2, 1.8 * robot.hip_height)
 
     pb = configure_bullet_simulation(gui=cfg.gui, debug=cfg.debug)
 
@@ -51,12 +54,9 @@ def main(cfg: DictConfig):
 
     # Get initial random configuration of the system
     q, dq = robot.get_init_config(random=True, angle_sweep=cfg.robot.angle_sweep, fix_base=cfg.robot.fix_base)
-    q_offset = np.zeros_like(q) if cfg.robot.offset_q is None else np.array([eval(str(s)) for s in cfg.robot.offset_q])
-    q = q + q_offset
     rB0 = np.array([-offset if G.order() != 2 else 0, -offset] + [robot.hip_height * 1.5])
     q[:3] = rB0
-    robot.reset_state(q - q_offset, dq)
-    # robot.reset_state(q + q_offset, dq)
+    robot.reset_state(q, dq)
     # --------------------------------------------------------------------------------------------------------------
 
     # NOTATION:
@@ -79,15 +79,15 @@ def main(cfg: DictConfig):
     x = np.concatenate((q[7:], dq[6:]))
     x = x.astype(np.float64)
     # Get the representation of the symmetry group of the robot on the joint space (JS) state-space x=[q_js, dq_js]
-    rep_x = rep_QJ + rep_QJ  # Since rep_QJ acts linearly on q, the representation on dq is the same (Eq.2 of paper)
+    rep_x = rep_QJ + rep_TqJ
 
     # To visualize how the symmetries of the robotic system affect propioceptive and exteroceptive measurements we use:
-    # - Propioceptive: `hg_B` The center of mass linear and angular momentum of the robot, and `f1/2` contact forces
+    # - Propioceptive: `hg_B` The center of mass linerep_Edar and angular momentum of the robot, and `f1/2` contact forces
     # - Exteroceptive: We will assume to have measurements of the terrain elevation and orientation.
     # Consider the robot Center of Mass (CoM) momentum in base `B` coordinates. A vector and a pseudo-vector.
     hg_B = np.array([0.1, 0.1, 0.0, -0.0, -0.2, -0.2])
     # The representation for the linear `l` and angular `k` components  of Center of Mass (CoM) momentum `h=[l,k]` is:
-    rep_h = rep_Ed + rep_Ed  # Additions of representations amounts to block-diagonal matrix concatenation.
+    rep_h = rep_Od + rep_Od  # Additions of representations amounts to block-diagonal matrix concatenation.
 
     # Define mock surface orientations `Rf_w`, contact points `rf_w` and contact forces `f_w`
     Rf1_w, Rf2_w, f1_w, f2_w, rf1_w, rf2_w = get_mock_ground_reaction_forces(pb, robot, cfg.robot)
@@ -111,35 +111,34 @@ def main(cfg: DictConfig):
         Gx.append(gx_w), Ghg_B.append(gh_B)
 
         # Get the Euclidean rotation/reflection of the symmetry in Ed -------------------------------------------------
-        X_gbar = tr.transform_from(R=np.asarray(rep_Ed(g)), p=np.zeros(3))
+        X_gbar = tr.transform_from(R=np.asarray(rep_Od(g)), p=np.zeros(3))
         GX_g_bar.append(X_gbar)  # Homogeous matrix transformation of the Euclidean Isometry gbar
 
         # Compute new robot base configuration -----------------------------------------------------------------------
-        gRB_w = rep_Ed(g) @ RB_w @ np.linalg.inv(rep_Ed(g))
+        gRB_w = rep_Od(g) @ RB_w @ np.linalg.inv(rep_Od(g))
         gr_w = tr.transform(X_gbar, XB_w[:, 3], strict_check=False)[:3]  # Transform the base position
         # Add new robot base configuration (homogenous matrix) to the orbit of base configs.
         GXB_w.append(tr.transform_from(R=gRB_w, p=gr_w))
 
         # Use symmetry representations to get symmetric versions of Euclidean vectors, representing measurements of data
         # We could also add some pseudo-vectors e.g. torque, and augment them as we did with `k`
-        gf1_w, gf2_w = rep_Ed(g) @ f1_w, rep_Ed(g) @ f2_w
-        gr_f1_w, gr_f2_w = rep_Ed(g) @ rf1_w, rep_Ed(g) @ rf2_w
+        gf1_w, gf2_w = rep_Od(g) @ f1_w, rep_Od(g) @ f2_w
+        gr_f1_w, gr_f2_w = rep_Od(g) @ rf1_w, rep_Od(g) @ rf2_w
         Gf1_w.append(gf1_w[:3]), Gf2_w.append(gf2_w[:3]), Gr1_w.append(gr_f1_w), Gr2_w.append(gr_f2_w)
 
         # Apply transformations to the terrain elevation estimations/measurements
-        GRf1_w.append(rep_Ed(g) @ Rf1_w @ np.linalg.inv(rep_Ed(g)))
-        GRf2_w.append(rep_Ed(g) @ Rf2_w @ np.linalg.inv(rep_Ed(g)))
+        GRf1_w.append(rep_Od(g) @ Rf1_w @ np.linalg.inv(rep_Od(g)))
+        GRf2_w.append(rep_Od(g) @ Rf2_w @ np.linalg.inv(rep_Od(g)))
     # =============================================================================================================
 
     # Visualization of orbits of robot states and of data ==========================================================
     # Use Ctrl and mouse-click+drag to rotate the 3D environment.
     # Get the robot joint state (q_js, dq_js) from the state x for all system configurations.
-    splited_orbits = [np.split(x, 2) for x in Gx]
+    splited_orbits = [(x[:robot.nq - 7], x[robot.nq - 7:]) for x in Gx]
     Gq_js, Gdq_js = [x[0] for x in splited_orbits], [x[1] for x in splited_orbits]
-    Gq_js = [qj - q_offset[7:] for qj in Gq_js]  # Remove the offset from the joint angles
     display_robots_and_vectors(pb, robot, base_confs=GXB_w, Gq_js=Gq_js, Gdq_js=Gdq_js, Ghg=Ghg_B,
                                forces=[Gf1_w, Gf2_w], forces_points=[Gr1_w, Gr2_w], surface_normals=[GRf1_w, GRf2_w],
-                               GX_g_bar=GX_g_bar, tint=cfg.robot.tint_bodies)
+                               GX_g_bar=GX_g_bar, tint=cfg.robot.tint_bodies, draw_floor=cfg.robot.draw_floor)
 
     root_path = pathlib.Path(morpho_symm.__file__).parents[1].absolute()
     if cfg.make_gif:
@@ -159,7 +158,7 @@ def main(cfg: DictConfig):
     elif cfg.make_imgs:
         cam_distance = offset * 6
         cam_target_pose = [0, 0, 0]
-        save_path = root_path / "paper/images/{cfg.robot.name}"
+        save_path = root_path / f"paper/images/{cfg.robot.name}"
         save_path.mkdir(exist_ok=True)
         render_orbiting_animation(pb, cam_target_pose=cam_target_pose, cam_distance=cam_distance,
                                   anim_time=2, fps=2, periods=1, pitch_sin_amplitude=0,

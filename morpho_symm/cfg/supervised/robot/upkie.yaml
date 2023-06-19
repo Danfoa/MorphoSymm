@@ -1,10 +1,14 @@
 defaults:
   - base_robot
 
-name: bolt
+name: upkie
 group_label: C2
+angle_sweep: 0.3
+seed: 10
 
-hip_height: 0.35
+endeff_names : ['right_contact_fix', 'left_contact_fix']
+
+hip_height: 0.45
 # ______|___Base Pos___|___Base Ori__|______________________________QJ____________________________|
 init_q: [0.0, 0.0, 0.35, 0, 0, 0 , 1 , -0.2, 0.78539816, -1.57079633, 0.2, 0.78539816, -1.57079633]
 
@@ -13,4 +17,4 @@ init_q: [0.0, 0.0, 0.35, 0, 0, 0 , 1 , -0.2, 0.78539816, -1.57079633, 0.2, 0.785
 # q    = [ q0, q1, q2,  q3, q4, q5]
 permutation_Q_js: [[3, 4, 5, 0, 1, 2]]
 # Reflections are determined by joint frame predefined orientation.
-reflection_Q_js: [[-1, 1, 1, -1, 1, 1]]
+reflection_Q_js: [[-1, -1, 1, -1, -1, 1]]

@@ -1,5 +1,4 @@
-
 defaults:
-  - mini-cheetah
+  - anymal_c
 
 group_label: C2

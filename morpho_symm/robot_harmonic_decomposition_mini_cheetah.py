@@ -61,7 +61,7 @@ def generate_dof_motions(robot: PinBulletWrapper, angle_sweep=0.5):
             q_rec = np.concatenate([q0[:7], q_js])
             v_rec = np.zeros(robot.nv)
             # Just for Mit Cheetah.
-            q_t, _ = robot.sim2pin(q_rec - q0, v_rec)
+            q_t = q_rec - q0
             q.append(q_t)
         return np.asarray(q)
     else:
@@ -96,15 +96,15 @@ def main(cfg: DictConfig):
     assert isinstance(G, Group)
     assert np.all(rep_name in G.representations for rep_name in ['Ed', 'Q_js', 'TqQ_js']), \
         f"Group {G} should have representations for Ed, Q_js and TqQ_js, found: {list(G.representations.keys())}"
-    rep_Q_js = G.representations['Q_js']
-    rep_QJ_iso = Representation(G, name="Q_js_iso", irreps=rep_Q_js.irreps, change_of_basis=np.eye(rep_Q_js.size))
-    rep_TqJ = G.representations['TqQ_js']
-    rep_Ed = G.representations['Ed']
+    rep_Q_js = G.representations['TqQ_js']
+    rep_QJ_iso = Representation(G, name="TqQ_js_iso", irreps=rep_Q_js.irreps, change_of_basis=np.eye(rep_Q_js.size))
+    # rep_TqJ = G.representations['TqQ_js']
+    # rep_Ed = G.representations['Ed']
 
     # Load main robot in pybullet.
     pb = configure_bullet_simulation(gui=cfg.gui, debug=cfg.debug)
     robot.configure_bullet_simulation(pb)
-    n_dof = robot.nq - 7
+    n_dof = robot.nv - 6
     if cfg.robot.tint_bodies: change_robot_appearance(pb, robot)
     q0, dq0 = robot.get_init_config(random=True, angle_sweep=cfg.robot.angle_sweep, fix_base=cfg.robot.fix_base)
     base_pos = q0[:3]
@@ -152,63 +152,59 @@ def main(cfg: DictConfig):
 
     traj_q_iso = (Q_inv @ traj_q_js.T).T  # if mode == qj2iso else traj_q_js
 
-    t, dt = 0, 1
     while True:
+        for q_js, q_iso in tqdm(zip(traj_q_js, traj_q_iso), total=len(traj_q_js), desc="playback"):
+            g = G.elements[g_idx]
 
-
-        # for q_js, q_iso in tqdm(zip(traj_q_js, traj_q_iso), total=len(traj_q_js), desc="playback"):
-        q_js, q_iso = traj_q_js[t], traj_q_iso[t]
-        g = G.elements[g_idx]
-
-        # Apply selected symmetry action
-        q, dq = robot.get_state()
-        g_q_js = np.real(rep_Q_js(g) @ q_js)
-        g_q = np.concatenate((q[:7], g_q_js)).astype(float)
-        robot.reset_state(g_q, dq)
-
-        components_q_js = []
-        for iso_robot, (re_irrep, dims) in zip(iso_robots, iso_comp.items()):
-            q, dq = iso_robot.get_state()
-            # Get point in isotypic component and describe it in the basis of generalized coordinates.
-            q_iso_masked = q_iso * dims
-            # Transform back to generalized coordinates.
-            q_js_comp = np.real(Q @ q_iso_masked)
-            components_q_js.append(q_js_comp)
             # Apply selected symmetry action
-            g_q_js_comp = np.real(rep_Q_js(g) @ q_js_comp)
-            # Set the robot to desired state.
-            g_q = np.concatenate((q[:7], g_q_js_comp))
-            iso_robot.reset_state(g_q, dq)
+            q, dq = robot.get_state()
+            g_q_js = np.real(rep_Q_js(g) @ q_js)
+            g_q = np.concatenate((q[:7], g_q_js)).astype(float)
+            robot.reset_state(*robot.sim2pin(g_q, dq))
 
-        # Get real robot generalized positions.
-        q_iso_rec = sum(components_q_js)
-        if mode == qj2iso:
-            rec_error = q_js - q_iso_rec
-            assert np.allclose(np.abs(rec_error), 0), f"Reconstruction error {rec_error}"
-        elif mode == iso2qj:
-            q_js = q_iso_rec
-        else:
-            raise NotImplementedError()
+            components_q_js = []
+            for iso_robot, (re_irrep, dims) in zip(iso_robots, iso_comp.items()):
+                q, dq = iso_robot.get_state()
+                # Get point in isotypic component and describe it in the basis of generalized coordinates.
+                q_iso_masked = q_iso * dims
+                # Transform back to generalized coordinates.
+                q_js_comp = np.real(Q @ q_iso_masked)
+                a = np.linalg.norm(q_js_comp[2:4])
+                components_q_js.append(q_js_comp)
+                # Apply selected symmetry action
+                g_q_js_comp = np.real(rep_Q_js(g) @ q_js_comp)
+                # Set the robot to desired state.
+                g_q = np.concatenate((q[:7], g_q_js_comp))
+                iso_robot.reset_state(*iso_robot.sim2pin(g_q, dq))
 
-        t += dt
-        time.sleep(0.05)
-
-        # Process new keyboard commands.
-        if new_command:
-            keys = new_command.copy()
-            new_command.clear()
-            if keys == ['t']:
-                dt = 1 if dt == 0 else 0
-            if keys == ['m']:
-                mode = qj2iso if mode == iso2qj else iso2qj
-                print(f"Mode changed to {mode}")
-        if num_pressed:
-            if num_pressed[0] < G.order():
-                g_idx = num_pressed[0]
-                print(f"Group element selected {G.elements[g_idx]}")
+            # Get real robot generalized positions.
+            q_iso_rec = sum(components_q_js)
+            if mode == qj2iso:
+                rec_error = q_js - q_iso_rec
+                assert np.allclose(np.abs(rec_error), 0), f"Reconstruction error {rec_error}"
+            elif mode == iso2qj:
+                q_js = q_iso_rec
             else:
-                print(f"Group element {num_pressed[0]} is larger than group order...ignoring")
-            num_pressed.clear()
+                raise NotImplementedError()
+
+            # time.sleep(0.01)
+
+            # Process new keyboard commands.
+            if new_command:
+                keys = new_command.copy()
+                new_command.clear()
+                if keys == ['t']:
+                    dt = 1 if dt == 0 else 0
+                if keys == ['m']:
+                    mode = qj2iso if mode == iso2qj else iso2qj
+                    print(f"Mode changed to {mode}")
+            if num_pressed:
+                if num_pressed[0] < G.order():
+                    g_idx = num_pressed[0]
+                    print(f"Group element selected {G.elements[g_idx]}")
+                else:
+                    print(f"Group element {num_pressed[0]} is larger than group order...ignoring")
+                num_pressed.clear()
 
     pb.disconnect()
 

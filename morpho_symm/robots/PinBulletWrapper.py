@@ -9,37 +9,20 @@ Copyright (C) 2018-2019, New York University , Max Planck Gesellschaft
 Copyright note valid unless otherwise stated in individual files.
 All rights reserved.
 """
-import copy
 import logging
-from dataclasses import dataclass
-from typing import Collection, Iterable, Optional
+from typing import Callable, Iterable, Optional, Tuple
 
 import numpy as np
-import scipy
-from pinocchio import JointModelFreeFlyer, RobotWrapper
-from pinocchio import pinocchio_pywrap as pin
 from pinocchio.utils import zero
 from pybullet_utils.bullet_client import BulletClient
-from robot_descriptions.loaders.pinocchio import load_robot_description as pin_load_robot_description
 from robot_descriptions.loaders.pybullet import load_robot_description as pb_load_robot_description
-from scipy.linalg import inv
+
+from morpho_symm.robots.PinSimWrapper import JointWrapper, PinSimWrapper, SimPinJointWrapper, State
 
 log = logging.getLogger(__name__)
 
 
-@dataclass
-class JointInfo:
-    """Joint information."""
-    pin_id: -1
-    bullet_id: -1
-    idx_q: -1
-    idx_dq: -1
-    pos_lims: (0, 0)
-    vel_lim: np.Inf
-    acc_lim: np.Inf
-    tau_lim: np.Inf
-
-class PinBulletWrapper:
+class PinBulletWrapper(PinSimWrapper):
     """Bridge class between pybullet and pinocchio.
 
     Attributes:
@@ -52,7 +35,7 @@ class PinBulletWrapper:
         fixed_base (bool): Determines if the robot base if fixed.
     """
 
-    def __init__(self, robot_name:str, endeff_names: Optional[Iterable] = None, fixed_base=False,
+    def __init__(self, robot_name: str, endeff_names: Optional[Iterable] = None, fixed_base=False,
                  reference_robot: Optional['PinBulletWrapper'] = None, hip_height=1.0, init_q=None, q_zero=None):
         """Initializes the wrapper.
 
@@ -65,48 +48,7 @@ class PinBulletWrapper:
             init_q (List[float]): Initial configuration of the robot of length nq.
             q_zero (List[float]): Zero configuration. This can be different from the Zero config defined in the URDF.
         """
-        self.robot_name = str.lower(robot_name)
-        self.hip_height = hip_height
-        self._joint_names = None
-        self._endeff_names = endeff_names
-        # Default to URDF values
-        self._qj_high_limit, self._qj_low_limit, self._dqj_limit = None, None, None
-        # Initialize Pinocchio Robot.
-        self.pinocchio_robot = self.load_pinocchio_robot(reference_robot)
-        self.nq = self.pinocchio_robot.nq
-        self.nv = self.pinocchio_robot.nv
-        self.n_js = self.nq - 7
-        # assert self.nj == len(self.joint_names), f"{len(self.joint_names)} != {self.nj}"
-        self.nf = len(self.endeff_names) if self.endeff_names is not None else -1
-        self.fixed_base = fixed_base
-
-        self._init_q = np.concatenate((np.zeros(6), [1], np.zeros(self.n_js))) if init_q is None else np.array(init_q)
-        self._q_zero = np.zeros(self.nq) if q_zero is None else np.array(q_zero)
-        assert len(self._init_q) == self.nq, f"Expected |q_init|=3+4+nj={self.nq}, but received {self._init_q.size}"
-        assert self._q_zero.size == self.nq, f"Expected |q_0|=3+4+nj={self.nq}, but received {q_zero}"
-
-        self.base_linvel_prev = None
-        self.base_angvel_prev = None
-        self.base_linacc = np.zeros(3, dtype=np.float32)
-        self.base_angacc = np.zeros(3, dtype=np.float32)
-
-        # IMU pose offset in base frame
-        self.rot_base_to_imu = np.identity(3)
-        self.r_base_to_imu = np.array([0.10407, -0.00635, 0.01540])
-
-        # Mappings between joint names pin and bullet ids, and pinocchio generalized q and dq coordinates
-        self.joint_aux_vars = {}
-        for joint, joint_name in zip(self.pinocchio_robot.model.joints, self.pinocchio_robot.model.names):
-            if joint.idx_q == -1: continue  # Ignore universe
-            if joint.nq == 7: continue      # Ignore floating-base
-            log.debug(f"Joint[{joint_name}] - DoF(nq):{joint.nq}, idx_q:{joint.idx_q}, idx_v:{joint.idx_v}")
-            vel_limit = self.pinocchio_robot.model.velocityLimit[joint.idx_v:joint.idx_v + joint.nv]
-            upper_pos_limit = self.pinocchio_robot.model.upperPositionLimit[joint.idx_q:joint.idx_q + joint.nq]
-            lower_pos_limit = self.pinocchio_robot.model.lowerPositionLimit[joint.idx_q:joint.idx_q + joint.nq]
-            self.joint_aux_vars[joint_name] = JointInfo(pin_id=joint.id, bullet_id=np.NAN, idx_q=joint.idx_q,
-                                                        idx_dq=joint.idx_v, pos_lims=(lower_pos_limit, upper_pos_limit),
-                                                        vel_lim=vel_limit, acc_lim=np.Inf, tau_lim=np.Inf)
-        self.joint_names = list(self.joint_aux_vars.keys())
+        super().__init__(robot_name, endeff_names, fixed_base, reference_robot, hip_height, init_q, q_zero)
 
         self._pb = None
         self.world = None
@@ -122,12 +64,10 @@ class PinBulletWrapper:
         self.world = world
         self.robot_id = self.load_bullet_robot(base_pos, base_ori)
         assert self.robot_id is not None
+
         log.debug("Configuring Bullet Robot")
         bullet_joint_map = {}  # Key: joint name - Value: joint id
 
-        if self._qj_low_limit is None or self._qj_high_limit is None:
-            self._qj_low_limit, self._qj_high_limit, self._dqj_limit = (np.empty(self.n_js) for _ in
-                                                                        range(3))
         auto_end_eff = False
         if self.endeff_names is None:
             auto_end_eff = True
@@ -136,20 +76,39 @@ class PinBulletWrapper:
         for bullet_joint_id in range(self.bullet_client.getNumJoints(self.robot_id)):
             joint_info = self.bullet_client.getJointInfo(self.robot_id, bullet_joint_id)
             joint_name = joint_info[1].decode("UTF-8")
-            if joint_name in self.joint_aux_vars.keys():
-                self.joint_aux_vars[joint_name].bullet_id = bullet_joint_id
-                # Fill default joint pos vel limits
-                lower_limit, upper_limit = joint_info[8], joint_info[9]
-                tau_max, dq_max = joint_info[10], joint_info[11]
-                self.joint_aux_vars[joint_name].pos_lims = (lower_limit, upper_limit)
-                self.joint_aux_vars[joint_name].vel_lim = dq_max
-                self.joint_aux_vars[joint_name].tau_lim = tau_max
-            elif auto_end_eff and not np.any([s in joint_name for s in ["base", "imu", "hip", "camera", "accelero"]]):
-                log.debug(f"Adding end-effector {joint_name}")
-                self._endeff_names.append(joint_name)
+            bullet_joint_map[joint_name] = bullet_joint_id
+            if joint_name in self.pin_joint_space:
+                pin_joint = self.pin_joint_space[joint_name]
+                # Create Joint Wrapper with parameter convention from pybullet
+                bullet_joint_type = joint_info[2]
+                if bullet_joint_type in [self.bullet_client.JOINT_REVOLUTE, self.bullet_client.JOINT_PRISMATIC]:
+                    nq, nv = 1, 1
+                elif bullet_joint_type == self.bullet_client.JOINT_SPHERICAL:
+                    nq, nv = 4, 3
+                elif bullet_joint_type == self.bullet_client.JOINT_FIXED:
+                    nq, nv = 0, 0
+                elif bullet_joint_type == self.bullet_client.JOINT_PLANAR:
+                    nq, nv = 2, 2
+                else:
+                    raise NotImplementedError(f"Joint type {bullet_joint_type} not handled")
+                bullet_joint = JointWrapper(type=bullet_joint_type, idx_q=joint_info[3], idx_v=joint_info[4],
+                                            nq=nq, nv=nv, pos_limit_low=joint_info[8], pos_limit_high=joint_info[9])
+                # Integrate the two convention in a utility class handling the conversions accordingly
+                pb_pin_joint = BulletJointWrapper(pin_joint=pin_joint, bullet_joint=bullet_joint,
+                                                  bullet_idx=joint_info[0], bullet_client=self.bullet_client,
+                                                  damping=joint_info[6], friction=joint_info[7],
+                                                  max_force=joint_info[10], max_vel=joint_info[11], axis=joint_info[13],
+                                                  link_name=joint_info[12], parent_frame_pos=joint_info[14],
+                                                  parent_frame_ori=joint_info[15], parent_link_idx=joint_info[16])
+                # Store the SimPinJointWrapper for all joint-space joints.
+                self.joint_space[joint_name] = pb_pin_joint
+
+            elif auto_end_eff:
+                if not np.any([s in joint_name for s in ["base", "imu", "hip", "camera", "accelero"]]):
+                    log.debug(f"Adding end-effector {joint_name}")
+                    self._endeff_names.append(joint_name)
             else:
                 log.debug(f"unrecognized joint semantic type {joint_name}")
-            bullet_joint_map[joint_name] = bullet_joint_id  # End effector joints.
 
         # In pybullet, the contact wrench is measured at action joint. In our case
         # the joint is fixed joint. Pinocchio doesn't add fixed joints into the joint
@@ -158,12 +117,12 @@ class PinBulletWrapper:
         self.bullet_ids_allowed_floor_contacts = [bullet_joint_map[name] for name in self.endeff_names]
 
         # Configure end effectors
+        self.pb_nq = 7 + np.sum([self.joint_space[name].sim_joint.nq for name in self.joint_space_names])
+        self.pb_nv = 6 + np.sum([self.joint_space[name].sim_joint.nv for name in self.joint_space_names])
+
         self.nf = len(self.endeff_names)
         self.pinocchio_endeff_ids = {name: self.pinocchio_robot.model.getFrameId(name) for name in self.endeff_names}
-
-        self._qj_low_limit = np.array([joint.pos_lims[0] for joint in self.joint_aux_vars.values()])
-        self._qj_high_limit = np.array([joint.pos_lims[1] for joint in self.joint_aux_vars.values()])
-        self._dqj_limit = np.array([joint.vel_lim for joint in self.joint_aux_vars.values()])
+        self.bullet_joint_map = bullet_joint_map
 
     def get_force(self):
         """Returns the force readings as well as the set of active contacts.
@@ -217,17 +176,18 @@ class PinBulletWrapper:
 
         return active_contacts_frame_ids[::-1], contact_forces[::-1], undesired_contacts
 
-    def get_state(self):
-        """Returns action pinocchio-like representation of the q, dq matrices.
+    def get_state_sim(self) -> State:
+        """Fetch state from bullet (q, dq).
 
-        Note that the base velocities are expressed in the base frame.
+        Obtains the system state from the simulator [bullet] and returns the generalized positions and velocities in the
+        simulator convenction.
 
         Returns:
-            ndarray: Generalized positions.
-            ndarray: Generalized velocities.
+            q (ndarray): Generalized position coordinates of shape in bullet convention.
+            v (ndarray): Generalized velocity coordinates of shape in bullet convention.
         """
-        q = zero(self.nq)
-        dq = zero(self.nv)
+        q = zero(self.pb_nq)
+        dq = zero(self.pb_nv)
 
         if not self.fixed_base:
             base_inertia_pos, base_inertia_quat = self.bullet_client.getBasePositionAndOrientation(self.robot_id)
@@ -250,84 +210,82 @@ class PinBulletWrapper:
             dq[0:3] = rot_base2world.T.dot(dq[0:3])
             dq[3:6] = rot_base2world.T.dot(dq[3:6])
 
-        # Query the joint readings.
+        # Fetch joint state from bullet
         joint_states = self.bullet_client.getJointStates(self.robot_id,
-                                                         [self.joint_aux_vars[m].bullet_id for m in self.joint_names])
+                                                         [self.joint_space[m].bullet_idx for m in
+                                                          self.joint_space_names])
+        pb_q_js = np.array([joint_states[i][0] for i in range(len(joint_states))])
+        pb_dq_js = np.array([joint_states[i][1] for i in range(len(joint_states))])
+        # Convert bullet joint-state configuration to pinocchio convention.
+        q[7:] = pb_q_js
+        dq[6:] = pb_dq_js
 
-        for i, joint_name in enumerate(self.joint_names):
-            q[self.joint_aux_vars[joint_name].idx_q] = joint_states[i][0]
-            dq[self.joint_aux_vars[joint_name].idx_dq] = joint_states[i][1]
-
-        # Center the Joint-Space around defined 0 vector.
-        q += self._q_zero
-        self.last_q = q
-        self.last_dq = dq
         return q, dq
 
-    def update_pinocchio(self, q, dq):
-        """Updates the pinocchio robot.
+    def pin2sim(self, q, v) -> State:
 
-        This includes updating:
-        - kinematics
-        - joint and frame jacobian
-        - centroidal momentum
+        pb_q = np.zeros(self.pb_nq)
+        pb_v = np.zeros(self.pb_nv)
+
+        for joint_name, joint in self.joint_space.items():
+            q_joint = q[joint.pin_joint.idx_q: joint.pin_joint.idx_q + joint.pin_joint.nq]
+            dq_joint = v[joint.pin_joint.idx_v: joint.pin_joint.idx_v + joint.pin_joint.nv]
+            pb_q_joint, pb_v_joint = joint.pin2sim(q_joint, dq_joint)
+            # Place value in simulator joint index
+            pb_q[joint.sim_joint.idx_q: joint.sim_joint.idx_q + joint.sim_joint.nq] = pb_q_joint
+            pb_v[joint.sim_joint.idx_v: joint.sim_joint.idx_v + joint.sim_joint.nv] = pb_v_joint
+
+        # Base configuration
+        pb_q[:7] = q[:7]
+        pb_v[:6] = v[:6]
+
+        return pb_q, pb_v
+
+    def sim2pin(self, pb_q, pb_v) -> State:
+
+        q = np.zeros(self.nq)
+        v = np.zeros(self.nv)
+
+        for joint_name, joint in self.joint_space.items():
+            # Extract position and velocity coordinates from simulator
+            pb_q_joint = pb_q[joint.sim_joint.idx_q: joint.sim_joint.idx_q + joint.sim_joint.nq]
+            pb_v_joint = pb_v[joint.sim_joint.idx_v: joint.sim_joint.idx_v + joint.sim_joint.nv]
+            # Convert position and velocity coordinates to pinocchio convention
+            q_joint, v_joint = joint.sim2pin(pb_q_joint, pb_v_joint)
+            # Place values in Pinocchio joint index ordering
+            q[joint.pin_joint.idx_q: joint.pin_joint.idx_q + joint.pin_joint.nq] = q_joint
+            v[joint.pin_joint.idx_v: joint.pin_joint.idx_v + joint.pin_joint.nv] = v_joint
+
+        # Base configuration
+        q[:7] = pb_q[:7]
+        v[:6] = pb_v[:6]
+
+        return q, v
+
+    def reset_state_sim(self, q, v) -> None:
+        """Reset robot state in bullet to the described (q, dq) configuration in pinocchio convention.
 
         Args:
-          q: Pinocchio generalized position vector.
-          dq: Pinocchio generalize velocity vector.
+            q (ndarray): Generalized position coordinates of shape in bullet convention.
+            v (ndarray): Generalized velocity coordinates of shape in bullet convention.
         """
-        # pin.forwardKinematics(self.pinocchio_robot.model, self.pinocchio_robot.data, q, dq)
+        assert not np.iscomplexobj(q), "q must be real valued"
+        assert not np.iscomplexobj(v), "v must be real valued"
 
-        # Must go first !!!!!
-        # self.pinocchio_robot.forwardKinematics(q, dq)
-        # self.pinocchio_robot.framesForwardKinematics(q)
-
-        pin.ccrba(self.pinocchio_robot.model, self.pinocchio_robot.data, q, dq)
-        pin.computeKineticEnergy(self.pinocchio_robot.model, self.pinocchio_robot.data)
-        pin.computePotentialEnergy(self.pinocchio_robot.model, self.pinocchio_robot.data)
-        vg = inv(self.pinocchio_robot.data.Ig) @ self.pinocchio_robot.data.hg
-        # h = [Ij * hj for hj, Ij in zip(self.pinocchio_robot.data.h, self.pinocchio_robot.data.Ycrb)]
-        self.rel_kinetic_energy = self.pinocchio_robot.data.kinetic_energy - (
-                    0.5 * vg.T @ self.pinocchio_robot.data.Ig @ vg)
-
-    def get_state_update_pinocchio(self):
-        """Get state from pybullet and update pinocchio robot internals.
-
-        This gets the state from the pybullet simulator and forwards
-        the kinematics, jacobians, centroidal moments on the pinocchio robot
-        (see forward_pinocchio for details on computed quantities).
-        """
-        q, dq = self.get_state()
-        self.update_pinocchio(q, dq)
-        return q, dq
-
-    def reset_state(self, q_new, dq_new):
-        """Reset the robot to the desired states.
-
-        Args:
-            q_new (ndarray): Desired generalized positions.
-            dq_new (ndarray): Desired generalized velocities.
-        """
-        assert not np.iscomplexobj(q_new), "q must be real valued"
-        assert not np.iscomplexobj(dq_new), "q must be real valued"
-
-        q, dq = np.array(q_new), np.array(dq_new)
-        # If Joint-Space has a different 0 vector, enforce it here. # TODO: This should be forced in the URDF file.
-        q -= self._q_zero
+        q, v = np.array(q), np.array(v)
 
         def vec2list(m):
             return np.asarray(m.T).reshape(-1).tolist()
 
-        if not self.fixed_base:
-            for joint_name in self.joint_names:
-                joint_info = self.joint_aux_vars[joint_name]
-                self.bullet_client.resetJointState(
-                    self.robot_id,
-                    joint_info.bullet_id,
-                    q[joint_info.idx_q],
-                    dq[joint_info.idx_dq],
+        for joint_name, joint in self.joint_space.items():
+            self.bullet_client.resetJointState(
+                self.robot_id,
+                joint.bullet_idx,
+                q[joint.sim_joint.idx_q: joint.sim_joint.idx_q + joint.sim_joint.nq],
+                v[joint.sim_joint.idx_v: joint.sim_joint.idx_v + joint.sim_joint.nv],
                 )
 
+        if not self.fixed_base:
             # Get transform between inertial frame and link frame in base
             base_stat = self.bullet_client.getDynamicsInfo(self.robot_id, -1)
             base_pos, base_quat = self.bullet_client.multiplyTransforms(vec2list(q[:3]), vec2list(q[3:7]),
@@ -336,33 +294,8 @@ class PinBulletWrapper:
 
             # Pybullet assumes the base velocity to be aligned with the world frame.
             rot = np.array(self.bullet_client.getMatrixFromQuaternion(q[3:7])).reshape((3, 3))
-            self.bullet_client.resetBaseVelocity(self.robot_id, vec2list(rot.dot(dq[:3])), vec2list(rot.dot(dq[3:6])))
-
-        else:
-            for joint_name in self.joint_names:
-                joint_info = self.joint_aux_vars[joint_name]
-                self.bullet_client.resetJointState(
-                    self.robot_id,
-                    joint_info.bullet_id,
-                    q[joint_info.idx_q],
-                    dq[joint_info.idx_dq],
-                )
-
-    def load_pinocchio_robot(self, reference_robot: Optional['PinBulletWrapper'] = None) -> RobotWrapper:
-        """Function to load and configure the pinocchio instance of your robot.
-
-        Returns:
-            RobotWrapper: Instance of your pinocchio robot.
-        """
-        if reference_robot is not None:
-            import sys
-            pin_robot = copy.copy(reference_robot.pinocchio_robot)
-            pin_robot.data = copy.copy(reference_robot.pinocchio_robot.data)
-            assert sys.getrefcount(pin_robot.data) <= 2
-        else:
-            pin_robot = pin_load_robot_description(f"{self.robot_name}_description", root_joint=JointModelFreeFlyer())
-        self._mass = float(np.sum([i.mass for i in pin_robot.model.inertias]))  # [kg]
-        return pin_robot
+            self.bullet_client.resetBaseVelocity(self.robot_id, vec2list(rot.dot(v[:3])),
+                                                 vec2list(rot.dot(v[3:6])))
 
     def load_bullet_robot(self, base_pos=None, base_ori=None) -> int:
         """Function to load and configure the pinocchio instance of your robot.
@@ -376,106 +309,6 @@ class PinBulletWrapper:
                                                         self.bullet_client.URDF_USE_SELF_COLLISION,
                                                   useFixedBase=self.fixed_base)
         return self.robot_id
-
-    def get_init_config(self, random=False, angle_sweep=None, fix_base=False):
-        """Get initial configuration of the robot.
-
-        Args:
-            random (bool): if True, randomize the initial configuration.
-            angle_sweep (float): if not None, randomize the initial configuration within the given angle sweep.
-            fix_base (bool): if True, do not randomize base orientation.
-
-        Returns:
-            q (ndarray): generalized positions.
-            dq (ndarray): generalized velocities.
-        """
-        q = self._init_q
-        q_js = self._init_q[7:]
-        dqj = np.zeros_like(q_js)
-        base_pos, base_ori = q[:3], q[3:7]
-
-        if random:
-            pitch = np.random.uniform(low=-np.deg2rad(25), high=np.deg2rad(25)) if not fix_base else 0
-            roll = np.random.uniform(low=-np.deg2rad(25), high=np.deg2rad(25)) if not fix_base else 0
-            yaw = np.random.uniform(low=-np.deg2rad(25), high=np.deg2rad(25)) if not fix_base else 0
-            base_ori = scipy.spatial.transform.Rotation.from_euler("xyz", [roll, pitch, yaw]).as_quat()
-
-            if angle_sweep is not None:
-                low_lim, high_lim = -angle_sweep, angle_sweep
-            else:
-                low_lim, high_lim = self._qj_low_limit, self._qj_high_limit
-            q_js_offset = np.random.uniform(low=low_lim, high=high_lim, size=(self.n_js,))
-            q_js += q_js_offset  # [rad]
-            dqj_lim = np.minimum(2 * np.pi, self._dqj_limit)
-            dqj_offset = np.random.uniform(low=-dqj_lim, high=dqj_lim, size=(self.n_js,))
-            dqj += dqj_offset  # [rad/s]
-
-        q = np.concatenate([base_pos, base_ori, q_js])
-        q += self._q_zero
-        dq = np.concatenate([np.zeros(6), dqj])
-        return q, dq
-
-    @property
-    def mass(self) -> float:
-        """Get the total mass of the robot.
-
-        Returns:
-            mass (float): Total mass of the robot in [kg] computed from the robot's URDF file.
-        """
-        return float(np.sum([i.mass for i in self.pinocchio_robot.model.inertias]))  # [kg]
-
-    @property
-    def velocity_limits(self, q=None, dq=None) -> np.ndarray:
-        """Get the velocity limits of the robot.
-
-        Args:
-            q: Generalized positions (nq,).
-            dq: Generalized velocities (nv,).
-
-        Returns:
-            vel_lims (ndarray): Velocity limits of shape (self.nv,).
-        """
-        if self.pinocchio_robot is None:
-            raise AttributeError("Pinocchio robot has not been loaded")
-        elif self._dqj_limit is None:
-            self._dqj_limit = []
-            for joint_name in self.joint_names:
-                vel_limit = self.joint_aux_vars[joint_name].vel_lim
-                self._dqj_limit.append(vel_limit)
-            self._dqj_limit = np.asarray(self._dqj_limit).flatten()
-        return self._dqj_limit
-
-    @property
-    def joint_pos_limits(self, q=None, dq=None):
-        """Get the joint position limits of the robot.
-
-        Args:
-            q: generalized positions (nq,).
-            dq: generalized velocities (nv,).
-
-        Returns:
-            qj_low_limit (ndarray): Lower joint position limits of shape (self.nj,).
-        """
-        if self.pinocchio_robot is None:
-            raise AttributeError("Pinocchio robot has not been loaded")
-        elif self._qj_low_limit is None or self._qj_high_limit is None:
-            self._qj_high_limit, self._qj_low_limit = [], []
-            for joint_name in self.joint_names:
-                low, high = self.joint_aux_vars[joint_name].pos_lims
-                self._qj_low_limit.append(low)
-                self._qj_high_limit.append(high)
-            self._qj_high_limit = np.asarray(self._qj_high_limit).flatten()
-            self._qj_low_limit = np.asarray(self._qj_low_limit).flatten()
-        return self._qj_low_limit, self._qj_high_limit
-
-    @property
-    def endeff_names(self) -> Collection:
-        """Returns the names of the end-effectors of the robot.
-
-        Returns:
-            Collection: List of end-effector names.
-        """
-        return self._endeff_names
 
     @property
     def bullet_client(self):
@@ -517,7 +350,7 @@ class PinBulletWrapper:
 
     def __repr__(self):
         """."""
-        bullet_id = f"({self.robot_id})" if self.robot_id is not None else ""
+        bullet_id = f"({self.robot_id})" if hasattr(self, 'robot_id') else ""
         return f"{self.robot_name}{bullet_id}-nq:{self.nq}-nv:{self.nv}"
 
     @staticmethod
@@ -541,3 +374,42 @@ class PinBulletWrapper:
             init_q=other._init_q,
             hip_height=other.hip_height,
             )
+
+
+class BulletJointWrapper(SimPinJointWrapper):
+    """Auxiliary class to integrate Bullet and Pinocchio Joint models."""
+
+    def __init__(self, pin_joint: JointWrapper, bullet_joint: JointWrapper, bullet_client: BulletClient,
+                 bullet_idx: int,
+                 damping: float, friction: float, max_force: float, max_vel: float, link_name: str, axis: np.ndarray,
+                 parent_frame_pos: np.ndarray, parent_frame_ori: np.ndarray, parent_link_idx: int):
+        self.pin_joint = pin_joint
+        self.sim_joint = bullet_joint
+        self.bullet_client = bullet_client
+        self.bullet_idx = bullet_idx
+        self.damping = damping
+        self.friction = friction
+        self.max_force = max_force
+        self.max_vel = max_vel
+        self.link_name = link_name
+        self.axis = axis
+        self.parent_frame_pos = parent_frame_pos
+        self.parent_frame_ori = parent_frame_ori
+        self.parent_link_idx = parent_link_idx
+
+    def sim2pin(self, q, v):
+        if self.pin_joint.nq == 1:
+            return q, v
+        if self.pin_joint.nq == 2 and self.pin_joint.nv == 1:  # Unit circle
+            return np.array([np.cos(q), np.sin(q)]), v
+        else:
+            raise NotImplementedError()
+
+    def pin2sim(self, q, v):
+        if self.pin_joint.nq == 1:
+            return q, v
+        if self.pin_joint.nq == 2 and self.pin_joint.nv == 1:  # Unit circle
+            theta = np.arctan2(q[1], q[0])
+            return np.array([theta]), v
+        else:
+            raise NotImplementedError()
