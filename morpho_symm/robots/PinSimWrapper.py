@@ -10,6 +10,8 @@ from pinocchio import pinocchio_pywrap as pin
 from robot_descriptions.loaders.pinocchio import load_robot_description as pin_load_robot_description
 from scipy.linalg import inv
 
+from morpho_symm.utils.algebra_utils import quat_xyzw_to_SO3
+
 log = logging.getLogger(__name__)
 
 NameList = Collection[str]
@@ -99,6 +101,17 @@ class PinSimWrapper(ABC):
             dq (ndarray): Generalized velocity coordinates of shape in simulator convention.
         """
 
+    def get_base_configuration(self) -> np.ndarray:
+        """Return an SE(3) homogenous transformation matrix describing the orientation and position of the robot base.
+
+        Returns:
+            base_config (np.ndarray): (4x4) homogenous transformation matrix.
+        """
+        q, dq = self.get_state()
+        XB_w = np.eye(4)
+        XB_w[:3, :3] = quat_xyzw_to_SO3(q[3:7])  # Base Rotation in SO3
+        return XB_w
+
     def reset_state(self, q, v, update_pin=False) -> None:
         """Sets the state of the system in the simulator and Pinocchio if requested.
 
@@ -107,7 +120,7 @@ class PinSimWrapper(ABC):
             v (ndarray): Generalized velocity coordinates of shape (self.nv,) in pinocchio convention.
             update_pin (bool): If True, update the pinocchio model with the new state.
         """
-        q_centered = self.center_state(q) # - self._q_zero
+        q_centered = self.center_state(q)  # - self._q_zero
 
         assert np.isclose(np.linalg.norm(q_centered[3:7]), 1), f"Invalid base orientation quaterion with norm " \
                                                                f":{np.linalg.norm(q_centered[3:7]):.2f}"
@@ -464,6 +477,11 @@ class JointWrapper:
         idx_v = list(range(self.idx_v, self.idx_v + self.nv))
         return idx_q, idx_v
 
+    def __repr__(self):
+        return f"[{self.type}]-nq:{self.nq}-nv:{self.nv}-idx_q:{self.idx_q}-idx_v:{self.idx_v}"
+
+
+
 class SimPinJointWrapper(ABC):
 
     def __init__(self) -> object:
@@ -475,3 +493,6 @@ class SimPinJointWrapper(ABC):
 
     def pin2sim(self, q, dq) -> State:
         return q, dq
+
+    def __repr__(self):
+        return f"Pin:{self._pin_joint.__repr__()}-Sim:{self._sim_joint.__repr__()}"

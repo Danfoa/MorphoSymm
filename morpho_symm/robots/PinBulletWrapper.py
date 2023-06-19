@@ -10,9 +10,10 @@ Copyright note valid unless otherwise stated in individual files.
 All rights reserved.
 """
 import logging
-from typing import Callable, Iterable, Optional, Tuple
+from typing import Iterable, Optional
 
 import numpy as np
+import pinocchio
 from pinocchio.utils import zero
 from pybullet_utils.bullet_client import BulletClient
 from robot_descriptions.loaders.pybullet import load_robot_description as pb_load_robot_description
@@ -245,7 +246,6 @@ class PinBulletWrapper(PinSimWrapper):
 
         q = np.zeros(self.nq)
         v = np.zeros(self.nv)
-
         for joint_name, joint in self.joint_space.items():
             # Extract position and velocity coordinates from simulator
             pb_q_joint = pb_q[joint.sim_joint.idx_q: joint.sim_joint.idx_q + joint.sim_joint.nq]
@@ -401,7 +401,7 @@ class BulletJointWrapper(SimPinJointWrapper):
         if self.pin_joint.nq == 1:
             return q, v
         if self.pin_joint.nq == 2 and self.pin_joint.nv == 1:  # Unit circle
-            return np.array([np.cos(q), np.sin(q)]), v
+            return np.asarray([np.cos(q), np.sin(q)]).flatten(), v
         else:
             raise NotImplementedError()
 
@@ -410,6 +410,10 @@ class BulletJointWrapper(SimPinJointWrapper):
             return q, v
         if self.pin_joint.nq == 2 and self.pin_joint.nv == 1:  # Unit circle
             theta = np.arctan2(q[1], q[0])
-            return np.array([theta]), v
+            return np.asarray([theta]).flatten(), v
         else:
             raise NotImplementedError()
+
+    def __repr__(self):
+        return f"Pin[{self._pin_joint.type}]-nq:{self._pin_joint.nq}-nv:{self._pin_joint.nv}-" \
+               f"Sim[{self._sim_joint.type}]-nq:{self._sim_joint.nq}-nv:{self._sim_joint.nv}"

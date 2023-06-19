@@ -117,7 +117,7 @@ def slugify(value, allow_unicode=False):
 
 def matrix_to_quat_xyzw(R):
     """SO(3) rotation to xyzw quaternion representation."""
-    assert R.shape == (3, 3)
+    assert R.shape == (3, 3), R.shape
     return rt.quaternion_xyzw_from_wxyz(rt.quaternion_from_matrix(R))
 
 

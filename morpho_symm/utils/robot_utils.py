@@ -135,18 +135,18 @@ def load_robot_and_symmetries(robot_cfg: DictConfig, debug=False) -> [PinBulletW
         # Generate the entire group
         rep_TqQ_js = group_rep_from_gens(G, rep_TqQ_js)
 
-    # Add `Ed` and `QJ` representations to the group.
-    rep_Ed = generate_E3_rep(G)
     rep_Q_js.name = 'Q_js'
     rep_TqQ_js.name = 'TqQ_js'
-    rep_Ed.name = 'Ed'
+
+    # Create the representation of isometries on the Euclidean Space in d dimensions.
+    generate_O3_and_E3_rep(G)  # This adds `O3` and `E3` representations to the group.
 
     # Add representations to the group.
-    G.representations.update(Ed=rep_Ed, Q_js=rep_Q_js, TqQ_js=rep_TqQ_js)
+    G.representations.update(Q_js=rep_Q_js, TqQ_js=rep_TqQ_js)
     return robot, symmetry_space
 
 
-def generate_E3_rep(G: Group) -> Representation:
+def generate_O3_and_E3_rep(G: Group) -> Representation:
     """Generate the E3 representation of the group G.
 
     This representation is used to transform all members of the Euclidean Space in 3D.
@@ -161,24 +161,29 @@ def generate_E3_rep(G: Group) -> Representation:
     # Configure E3 representations and group
     if isinstance(G, CyclicGroup):
         if G.order() == 2:  # Reflection symmetry
-            rep_E3 = G.irrep(0) + G.irrep(1) + G.trivial_representation
+            rep_O3 = G.irrep(0) + G.irrep(1) + G.trivial_representation
         else:
-            rep_E3 = G.irrep(1) + G.trivial_representation
+            rep_O3 = G.irrep(1) + G.trivial_representation
     elif isinstance(G, DihedralGroup):
-        rep_E3 = G.irrep(0, 1) + G.irrep(1, 1) + G.trivial_representation
+        rep_O3 = G.irrep(0, 1) + G.irrep(1, 1) + G.trivial_representation
     elif isinstance(G, DirectProductGroup):
         if G.name == "Klein4":
-            rep_E3 = G.representations['rectangle'] + G.trivial_representation
-            rep_E3 = escnn.group.change_basis(rep_E3, np.array([[0, 1, 0], [1, 0, 0], [0, 0, 1]]), name="E3")
+            rep_O3 = G.representations['rectangle'] + G.trivial_representation
+            rep_O3 = escnn.group.change_basis(rep_O3, np.array([[0, 1, 0], [1, 0, 0], [0, 0, 1]]), name="E3")
         elif G.name == "FullCylindricalDiscrete":
             rep_hx = np.array(np.array([[-1, 0, 0], [0, 1, 0], [0, 0, 1]]))
             rep_hy = np.array(np.array([[1, 0, 0], [0, -1, 0], [0, 0, 1]]))
             rep_hz = np.array(np.array([[1, 0, 0], [0, 1, 0], [0, 0, -1]]))
             rep_E3_gens = {h: rep_h for h, rep_h in zip(G.generators, [rep_hy, rep_hx, rep_hz])}
-            rep_E3 = group_rep_from_gens(G, rep_E3_gens)
+            rep_E3_gens[G.identity] = np.eye(3)
+            rep_O3 = group_rep_from_gens(G, rep_E3_gens)
         else:
             raise NotImplementedError(f"Direct product {G} not implemented yet.")
     else:
         raise NotImplementedError(f"Group {G} not implemented yet.")
+    # We define a Ed as a (d+1)x(d+1) matrix representing a homogenous transformation matrix in d dimensions.
+    rep_E3 = rep_O3 + G.trivial_representation
+    rep_O3.name = "O3"
     rep_E3.name = "E3"
-    return rep_E3
+    G.representations.update(Od=rep_O3, Ed=rep_E3)
+

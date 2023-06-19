@@ -19,7 +19,7 @@ import torch.nn.functional as F
 from omegaconf import DictConfig
 from sklearn.metrics import jaccard_score, precision_score
 
-from ..utils.robot_utils import class_from_name, load_robot_and_symmetries
+from morpho_symm.utils.robot_utils import load_robot_and_symmetries
 
 try:
     deep_contact_estimator_path = pathlib.Path(__file__).parent.absolute()
@@ -31,7 +31,6 @@ except ImportError as e:
     raise ImportError("Deep Contact Estimator submodule not initialized, run `git submodule update "
                       "--init --recursive --progress") from e
 
-from groups.SymmetryGroups import C2
 from pytorch_lightning import Trainer
 from sklearn.metrics import confusion_matrix
 from torch.utils.data._utils.collate import default_collate
@@ -45,14 +44,15 @@ class UmichContactDataset(contact_dataset):
                     'RF-LF', 'RF-LF-LH', 'RF-LF-RH', 'RF-LF-RH-LH']
 
     def __init__(self, data_name, label_name, window_size, robot_cfg,
-                 train_ratio=0.7, test_ratio=0.15, val_ratio=0.15, loss_class_weights=None,
+                 train_ratio=0.7, val_ratio=0.15, loss_class_weights=None,
                  use_class_imbalance_w=False, device='cuda', augment=False, debug=False, partition='training'):
         # Sub folder in dataset folder containing the mat/*.mat and numpy/*.npy
         self.partition = partition
-        self.data_path, self.label_path = self.get_full_paths(data_name, label_name, train_ratio=train_ratio,
+        self.data_path, self.label_path = self.get_full_paths(data_name, label_name,
+                                                              train_ratio=train_ratio,
                                                               val_ratio=val_ratio)
         self.robot_cfg = robot_cfg
-        # super().__init__(str(self.data_path), str(self.label_path), window_size, device=device)
+
         trials = 5
         data, label = None, None
         while data is None and trials > 0:
@@ -63,8 +63,7 @@ class UmichContactDataset(contact_dataset):
                 trials -= 1
                 time.sleep(np.random.random())
 
-
-        self.num_data = (data.shape[0]-window_size+1)
+        self.num_data = (data.shape[0] - window_size + 1)
         self.window_size = window_size
         self.data = torch.from_numpy(data).type('torch.FloatTensor').to(device)
         self.label = torch.from_numpy(label).type('torch.LongTensor').to(device)
@@ -76,9 +75,7 @@ class UmichContactDataset(contact_dataset):
         self.rep_in, self.rep_out = self.get_in_out_symmetry_groups_reps(robot_cfg)
         self.augment = augment
         self.n_contact_states = 16
-        # if self.augment:
-            # self._hin = coo2torch_coo(self.Gin.discrete_generators[0])
-            # self._hout = coo2torch_coo(self.Gout.discrete_generators[0])
+
         self.hin = torch.tensor(self.rep_in.G.discrete_generators[0].todense(), device=device)
         self.hout = torch.tensor(self.rep_out.G.discrete_generators[0].todense(), device=device)
 
@@ -152,12 +149,12 @@ class UmichContactDataset(contact_dataset):
         FNR = [1 - tpr for tpr in TPR]
         FPR = [1 - tpr for tpr in TNR]
 
-        balanced_acc_of_legs = [(tpr + tnr)/2 for tpr, tnr in zip(TPR, TNR)]
-        recall_of_legs = [rates[f'{k}/TP']/(rates[f'{k}/TP'] + rates[f'{k}/FP']) for k in self.leg_names]
-        f1score_of_legs = [2*(p * r)/(r + p) for p, r in zip(precision_of_legs, recall_of_legs)]
+        balanced_acc_of_legs = [(tpr + tnr) / 2 for tpr, tnr in zip(TPR, TNR)]
+        recall_of_legs = [rates[f'{k}/TP'] / (rates[f'{k}/TP'] + rates[f'{k}/FP']) for k in self.leg_names]
+        f1score_of_legs = [2 * (p * r) / (r + p) for p, r in zip(precision_of_legs, recall_of_legs)]
         pred_pos_cond_rate_of_legs = [(rates[f'{k}/TP'] + rates[f'{k}/FP']) /
-                                       (rates[f'{k}/TP'] + rates[f'{k}/FP'] + rates[f'{k}/TN'] + rates[f'{k}/FN']) for k in self.leg_names]
-
+                                      (rates[f'{k}/TP'] + rates[f'{k}/FP'] + rates[f'{k}/TN'] + rates[f'{k}/FN']) for k
+                                      in self.leg_names]
 
         individual_state_metrics = {}
         if prefix == "test_":
@@ -203,17 +200,17 @@ class UmichContactDataset(contact_dataset):
         f1_score_dir = {f"{leg}/f1": v for leg, v in zip(self.leg_names, f1score_of_legs)}
         balanced_acc_dir = {f"{leg}/balanced_acc": a for leg, a in zip(self.leg_names, balanced_acc_of_legs)}
 
-        metrics = {'contact_state/f1': f1score_of_class,
-                   'contact_state/precision': precision_of_class,
-                   'contact_state/jaccard': jaccard_of_class,
-                   'legs_avg/precision': precision_of_all_legs,
-                   'legs_avg/jaccard': jaccard_of_all_legs,
-                   'legs_avg/f1': np.sum(f1score_of_legs) / 4.0,
-                   'legs_avg/recall': np.sum(recall_of_legs) / 4.0,
-                   'legs_avg/balanced_acc': np.sum(balanced_acc_of_legs) / 4.0,
-                   'legs_avg/specificity': np.sum(TNR) / 4.0,
-                   'legs_avg/FPR': np.sum(FPR) / 4.0,
-                   'legs_avg/FNR': np.sum(FNR) / 4.0,
+        metrics = {'contact_state/f1':            f1score_of_class,
+                   'contact_state/precision':     precision_of_class,
+                   'contact_state/jaccard':       jaccard_of_class,
+                   'legs_avg/precision':          precision_of_all_legs,
+                   'legs_avg/jaccard':            jaccard_of_all_legs,
+                   'legs_avg/f1':                 np.sum(f1score_of_legs) / 4.0,
+                   'legs_avg/recall':             np.sum(recall_of_legs) / 4.0,
+                   'legs_avg/balanced_acc':       np.sum(balanced_acc_of_legs) / 4.0,
+                   'legs_avg/specificity':        np.sum(TNR) / 4.0,
+                   'legs_avg/FPR':                np.sum(FPR) / 4.0,
+                   'legs_avg/FNR':                np.sum(FNR) / 4.0,
                    'legs_avg/pred_pos_cond_rate': np.sum(pred_pos_cond_rate_of_legs) / 4.0,
                    }
 
@@ -245,7 +242,8 @@ class UmichContactDataset(contact_dataset):
 
         # Configure pf, vf ∈ R^12  representations composed of reflections and permutations
         n_legs = 4
-        rep_legs_reflected = n_legs * rep_E3.set_pseudovector(False)    # Same representation as the hips ref frames are collinear with base.
+        rep_legs_reflected = n_legs * rep_E3.set_pseudovector(
+            False)  # Same representation as the hips ref frames are collinear with base.
         G_legs_reflected = rep_legs_reflected.G
         g_q_perm = abs(rep_QJ.G.discrete_generators[0])  # Permutation swapping legs.
         G_pf = G_class(generators=g_q_perm @ G_legs_reflected.discrete_generators[0])
@@ -262,7 +260,8 @@ class UmichContactDataset(contact_dataset):
         rep_data_in, rep_data_out = rep_x, rep_y
         return rep_data_in, rep_data_out
 
-    def get_full_paths(self, data_name, label_name, train_ratio: float = 0.7, val_ratio: float = 0.7) -> (pathlib.Path, pathlib.Path):
+    def get_full_paths(self, data_name, label_name, train_ratio: float = 0.7, val_ratio: float = 0.7) -> (
+            pathlib.Path, pathlib.Path):
 
         folder_path = pathlib.Path(self.dataset_path / f'{self.partition}/numpy_train_ratio={train_ratio:.3f}')
         training_mat_path = pathlib.Path(self.dataset_path / f'{self.partition}/mat')
@@ -294,7 +293,6 @@ class UmichContactDataset(contact_dataset):
         gt_arr = np.zeros((0))
         with torch.no_grad():
             for input_data, gt_label in tqdm(dataloader):
-
                 output = model(input_data)
 
                 _, prediction = torch.max(output, 1)
@@ -361,9 +359,10 @@ class UmichContactDataset(contact_dataset):
         save_path.mkdir(exist_ok=True)
 
         print(f"\nCreating dataset partition: train:{train_ratio}, val:{val_ratio} from {data_path}")
-        (train_data, val_data), (train_label, val_label) = UmichContactDataset.load_and_split_mat_files(data_path=train_val_data_path,
-                                                                                                        partitions_ratio=(train_ratio, val_ratio),
-                                                                                                        partitions_name=("train", "val"))
+        (train_data, val_data), (train_label, val_label) = UmichContactDataset.load_and_split_mat_files(
+            data_path=train_val_data_path,
+            partitions_ratio=(train_ratio, val_ratio),
+            partitions_name=("train", "val"))
         print(f"\nCreating dataset test from {test_data_path}")
         (test_data,), (test_label,) = UmichContactDataset.load_and_split_mat_files(data_path=test_data_path,
                                                                                    partitions_ratio=(1.0,),
@@ -405,9 +404,11 @@ class UmichContactDataset(contact_dataset):
 
             # concatenate current data. First we try without GRF
             cur_data = np.concatenate((q, qd, acc, omega, p, v), axis=1)
+
             # convert labels from binary to decimal
             def binary2decimal(a, axis=-1):
                 return np.right_shift(np.packbits(a, axis=axis), 8 - a.shape[axis]).squeeze()
+
             cur_label = binary2decimal(contacts).reshape((-1, 1))
 
             # separate data into given paritions
@@ -429,16 +430,22 @@ class UmichContactDataset(contact_dataset):
 
         for name, ratio, data in zip(partitions_name, partitions_ratio, partitions_data):
             # assert ratio * all_samples == data.shape[0]
-            print(f"\t - {name} ({ratio*100:.1f}%) = {data.shape[0]:d} samples --> {data.shape[0]/all_samples*100:.1f}%")
+            print(
+                f"\t - {name} ({ratio * 100:.1f}%) = {data.shape[0]:d} samples --> "
+                f"{data.shape[0] / all_samples * 100:.1f}%")
         return partitions_data, partitions_labels
 
     def compute_confusion_mat(self, bin_contact_pred_arr, bin_contact_gt_arr, pred_state, gt_state):
 
         confusion_mat = {}
 
-        confusion_mat['cm/contact_state'] = confusion_matrix(pred_state, gt_state, labels=list(range(self.n_contact_states)), normalize='true')
+        confusion_mat['cm/contact_state'] = confusion_matrix(pred_state, gt_state,
+                                                             labels=list(range(self.n_contact_states)),
+                                                             normalize='true')
         for leg_id, leg_name in enumerate(self.leg_names):
-            confusion_mat[f'cm/leg_{leg_name}'] = confusion_matrix(bin_contact_gt_arr[:, leg_id], bin_contact_pred_arr[:, leg_id], labels=[0, 1], normalize='true')
+            confusion_mat[f'cm/leg_{leg_name}'] = confusion_matrix(bin_contact_gt_arr[:, leg_id],
+                                                                   bin_contact_pred_arr[:, leg_id], labels=[0, 1],
+                                                                   normalize='true')
 
         # false negative and false postivie rate
         # false negative = FN/P; false positive = FP/N
@@ -509,5 +516,3 @@ class UmichContactDataset(contact_dataset):
         # fig.suptitle(f'{self.data_path.stem} {len(self)} samples')
         # plt.show()
         # pass
-
-

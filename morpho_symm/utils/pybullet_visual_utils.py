@@ -21,8 +21,8 @@ def draw_vector(pb, origin, vector, v_color, scale=1.0):
     linewidth = 4
     if np.linalg.norm(vector) == 0:
         return None
-    pb.addUserDebugLine(lineFromXYZ=origin, lineToXYZ=origin + vector * scale,
-                        lineColorRGB=v_color[:3], lineWidth=linewidth, lifeTime=0)
+    # pb.addUserDebugLine(lineFromXYZ=origin, lineToXYZ=origin + vector * scale,
+    #                     lineColorRGB=v_color[:3], lineWidth=linewidth, lifeTime=0)
 
     v_norm = np.linalg.norm(vector) * scale
 
@@ -63,7 +63,7 @@ def draw_vector(pb, origin, vector, v_color, scale=1.0):
     return vector_id
 
 
-def plot_reflection_plane(pb, R, p, color, size=(0.01, 0.25, 0.25), cylinder=False):
+def draw_plane(pb, R, p, color, size=(0.01, 0.25, 0.25), cylinder=False):
     """Plots a plane with a given rotation and position."""
     if not cylinder:
         body_id = pb.createVisualShape(shapeType=pb.GEOM_BOX, halfExtents=size, rgbaColor=color)
@@ -162,14 +162,14 @@ def render_orbiting_animation(
 
 def render_camera_trajectory(pb, pitch, roll, yaw, n_frames, cam_distance, cam_target_pose, upAxisIndex=2,
                              render_width=812, render_height=812, nearPlane=0.01, farPlane=100, fov=60,
-                             light_direction=(0, 0, 0.5), light_distance=1.0, shadow=True,
+                             light_direction=(0, 0, 0.5), light_distance=1.0, shadow=True, progress=False,
                              ):
     """Renders a camera trajectory given a set of yaw, pitch, roll angle trajectories."""
     # Set rendering constants
     aspect = render_width / render_height
     # Capture frames
     frames = []  # frames to create animated png
-    for s in tqdm(range(n_frames), desc="Capturing frames"):
+    for s in tqdm(range(n_frames), desc="Capturing frames", disable=not progress):
         yaw_t, pitch_t, roll_t = yaw[s], pitch[s], roll[s]
         # Compute view and projection matrices from yaw, pitch, roll
         viewMatrix = pb.computeViewMatrixFromYawPitchRoll(
@@ -318,16 +318,16 @@ def display_robots_and_vectors(pb, robot, base_confs, Gq_js, Gdq_js, Ghg, forces
     plane_size = (0.01, robot.hip_height / 2, robot.hip_height / 2)
 
     # Sagittal plane
-    plot_reflection_plane(pb, R=rt.matrix_from_two_vectors(a=[0, 1, 0], b=[1, 0, 0]),
-                          p=[0.0, 0.0, plane_height],
-                          color=np.array([230, 230, 256, 40]) / 256., size=plane_size)
-    plot_reflection_plane(pb, R=rt.matrix_from_two_vectors(a=[1, 0, 0], b=[0, 1, 0]),
-                          p=[0.0, 0.0, plane_height],
-                          color=np.array([256, 230, 230, 40]) / 256., size=plane_size)
-    plot_reflection_plane(pb, R=rt.matrix_from_two_vectors(a=[0, 0, 1], b=[0, 1, 0]),
-                          p=[0.0, 0.0, 0.0],
-                          color=np.array([250, 250, 250, 80]) / 256.,
-                          size=(0.01, robot.hip_height * 6, robot.hip_height * 6))
+    draw_plane(pb, R=rt.matrix_from_two_vectors(a=[0, 1, 0], b=[1, 0, 0]),
+               p=[0.0, 0.0, plane_height],
+               color=np.array([230, 230, 256, 40]) / 256., size=plane_size)
+    draw_plane(pb, R=rt.matrix_from_two_vectors(a=[1, 0, 0], b=[0, 1, 0]),
+               p=[0.0, 0.0, plane_height],
+               color=np.array([256, 230, 230, 40]) / 256., size=plane_size)
+    draw_plane(pb, R=rt.matrix_from_two_vectors(a=[0, 0, 1], b=[0, 1, 0]),
+               p=[0.0, 0.0, 0.0],
+               color=np.array([250, 250, 250, 80]) / 256.,
+               size=(0.01, robot.hip_height * 6, robot.hip_height * 6))
 
     robots = [robot]
     com_pos = None
