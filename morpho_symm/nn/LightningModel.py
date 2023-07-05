@@ -7,7 +7,7 @@ import numpy as np
 import pytorch_lightning as pl
 import torch
 
-from .EMLP import EMLP, MLP, EquivariantBlock, LinearBlock
+from morpho_symm.nn.EMLP import EMLP, MLP, LinearBlock
 from .EquivariantModules import BasisLinear
 
 log = logging.getLogger(__name__)

@@ -77,7 +77,7 @@ class PinSimWrapper(ABC):
         self.joint_space = {}
         log.debug(f"Robot loaded {self}")
 
-    def get_state(self):
+    def get_state(self) -> State:
         """Fetch state of the system from a physics simulator and return pinocchio convention (q, dq).
 
         Obtains the system state from the simulator and returns the generalized positions and velocities,
@@ -91,6 +91,30 @@ class PinSimWrapper(ABC):
         q_pin, dq_pin = self.sim2pin(q_sim, dq_sim)
         q_pin_centered = self.center_state(q_pin)
         return q_pin_centered, dq_pin
+
+    def get_joint_space_state(self, q: Optional[np.ndarray] = None, v: Optional[np.ndarray] = None) -> State:
+        """Fetch joint-space state of the system from a physics simulator and return pinocchio convention (q, dq).
+
+        Obtains the system joint-space state from the simulator and returns the generalized positions and velocities.
+
+        TODO: This function should handle cases where the Euclidean space `Ed` in which the system evolvs in is not
+          3-dimensional. Such as fixed based-robots or planar robots.
+
+        Args:
+            q (ndarray): Generalized position coordinates of shape (self.nq,) in pinocchio convention.
+            v (ndarray): Generalized velocity coordinates of shape (self.nv,) in pinocchio convention.
+
+        Returns:
+            q_js (ndarray): Joint-Space generalized position coordinates of shape (|Q_J|) in pinocchio convention.
+            v_js (ndarray): Joint-Space generalized velocity coordinates of shape (|TqQ_J) in pinocchio convention.
+        """
+        if q is None or v is None:
+            q_sim, v_sim = self.get_state_sim()
+            q_pin, v_pin = self.sim2pin(q_sim, v_sim)
+            q_pin_centered = self.center_state(q_pin)
+        else:
+            q_pin_centered, v_pin = q, v
+        return q_pin_centered[7:], v_pin[6:]  # TODO: handle non-3D cases
 
     @abstractmethod
     def get_state_sim(self) -> State:
@@ -108,8 +132,11 @@ class PinSimWrapper(ABC):
             base_config (np.ndarray): (4x4) homogenous transformation matrix.
         """
         q, dq = self.get_state()
+        rB_w = q[:3]  # Base Position in World Frame
+        RB_w = quat_xyzw_to_SO3(q[3:7])  # Base Rotation in World Frame
         XB_w = np.eye(4)
-        XB_w[:3, :3] = quat_xyzw_to_SO3(q[3:7])  # Base Rotation in SO3
+        XB_w[:3, :3] = RB_w
+        XB_w[:3, 3] = rB_w
         return XB_w
 
     def reset_state(self, q, v, update_pin=False) -> None:
@@ -291,13 +318,7 @@ class PinSimWrapper(ABC):
         """
         if self.pinocchio_robot is None:
             raise AttributeError("Pinocchio robot has not been loaded")
-        elif self._dqj_limit is None:
-            self._dqj_limit = []
-            for joint_name in self.joint_names:
-                vel_limit = self.pin_joint_space[joint_name].vel_lim
-                self._dqj_limit.append(vel_limit)
-            self._dqj_limit = np.asarray(self._dqj_limit).flatten()
-        return self._dqj_limit
+        return self.pinocchio_robot.model.velocityLimit[6:]
 
     @property
     def joint_pos_limits(self, q=None, dq=None):
@@ -312,15 +333,7 @@ class PinSimWrapper(ABC):
         """
         if self.pinocchio_robot is None:
             raise AttributeError("Pinocchio robot has not been loaded")
-        elif self._qj_low_limit is None or self._qj_high_limit is None:
-            self._qj_high_limit, self._qj_low_limit = [], []
-            for joint_name in self.joint_names:
-                low, high = self.pin_joint_space[joint_name].pos_lims
-                self._qj_low_limit.append(low)
-                self._qj_high_limit.append(high)
-            self._qj_high_limit = np.asarray(self._qj_high_limit).flatten()
-            self._qj_low_limit = np.asarray(self._qj_low_limit).flatten()
-        return self._qj_low_limit, self._qj_high_limit
+        return self.pinocchio_robot.model.lowerPositionLimit[7:], self.pinocchio_robot.model.upperPositionLimit[7:]
 
     @property
     def endeff_names(self) -> Collection[str]:
@@ -355,7 +368,7 @@ class PinSimWrapper(ABC):
 
             for joint_name, joint in self.pin_joint_space.items():
                 idx_q, idx_v = joint.state_idx
-                q_j, v_j = joint.random_configuration(max_range=angle_sweep)
+                q_j, v_j = joint.random_configuration(max_range=angle_sweep if angle_sweep is not None else np.pi)
                 q[idx_q] = joint.add_configuration(q[idx_q], q_j)
                 v[idx_v] += v_j
             q[3:7] = base_ori
@@ -479,7 +492,6 @@ class JointWrapper:
 
     def __repr__(self):
         return f"[{self.type}]-nq:{self.nq}-nv:{self.nv}-idx_q:{self.idx_q}-idx_v:{self.idx_v}"
-
 
 
 class SimPinJointWrapper(ABC):

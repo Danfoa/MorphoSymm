@@ -19,7 +19,7 @@ import torch.nn.functional as F
 from omegaconf import DictConfig
 from sklearn.metrics import jaccard_score, precision_score
 
-from morpho_symm.utils.robot_utils import load_robot_and_symmetries
+from morpho_symm.utils.robot_utils import load_symmetric_system
 
 try:
     deep_contact_estimator_path = pathlib.Path(__file__).parent.absolute()
@@ -231,7 +231,7 @@ class UmichContactDataset(contact_dataset):
     @staticmethod
     def get_in_out_symmetry_groups_reps(robot_cfg: DictConfig):
         from morpho_symm.groups.SparseRepresentation import SparseRep
-        robot, rep_E3, rep_QJ = load_robot_and_symmetries(robot_cfg)
+        robot, rep_E3, rep_QJ = load_symmetric_system(robot_cfg)
         G_class = class_from_name('groups.SymmetryGroups',
                                   robot_cfg.G if robot_cfg.gens_ids is None else robot_cfg.G_sub)
 

@@ -3,19 +3,23 @@ import logging
 import pathlib
 import random
 import time
-from typing import Union
+from typing import Optional, Union
 
 import numpy as np
 import torch
 import torch.nn.functional as F
+from escnn import gspaces
+from escnn.group import Representation
+from escnn.nn import FieldType
 from omegaconf import DictConfig
 from scipy.sparse import issparse
 from torch.utils.data import Dataset
 from torch.utils.data._utils.collate import default_collate
-from utils.algebra_utils import dense
-from utils.robot_utils import load_robot_and_symmetries
 
 import morpho_symm.utils.pybullet_visual_utils
+
+# from morpho_symm.utils.algebra_utils import dense
+from morpho_symm.utils.robot_utils import load_symmetric_system
 
 log = logging.getLogger(__name__)
 
@@ -64,21 +68,18 @@ class COMMomentum(Dataset):
     def __init__(self, robot_cfg, type='train',
                  angular_momentum=True, standarizer: Union[bool, Standarizer] = True, augment=False,
                  train_ratio=0.7, test_ratio=0.15, val_ratio=0.15, samples=100000,
-                 dtype=torch.float32, data_path="data/com_momentum", device='cpu', debug=False):
+                 dtype=torch.float32, data_path="dataset/com_momentum", device='cpu', debug=False):
 
         self.dataset_type = type
         self.dtype = dtype
         self.angular_momentum = angular_momentum
         self.normalize = True if isinstance(standarizer, Standarizer) else standarizer
 
-        self.robot, self.rep_in, self.rep_out = self.get_in_out_symmetry_groups_reps(robot_cfg)
-        self.group_actions = [(np.asarray(gin.todense()), np.asarray(gout.todense())) for gin, gout in zip(self.rep_in.G.discrete_actions,
-                                                                                   self.rep_out.G.discrete_actions)]
-        augmentation_actions = []
-        for gin, gout in zip(self.rep_in.G.discrete_actions, self.rep_out.G.discrete_actions):
-            augmentation_actions.append((torch.tensor(np.asarray(dense(gin))).to(device),
-                                         torch.tensor(np.asarray(dense(gout))).to(device)))
-        self.t_group_actions = augmentation_actions
+        robot, gspace, in_feature_type, out_feature_type = self.define_input_output_field_types(robot_cfg)
+        self.robot, self.gspace = robot, gspace
+        self.in_feature_type, self.out_feature_type = in_feature_type, out_feature_type
+        self.G = self.gspace.fibergroup
+
         self._pb = None  # GUI debug
         self.augment = augment if isinstance(augment, bool) else False
 
@@ -111,7 +112,8 @@ class COMMomentum(Dataset):
         if isinstance(standarizer, Standarizer):
             self.standarizer = standarizer
         elif isinstance(standarizer, bool):
-            X_mean, X_std, Y_mean, Y_std = self.compute_normalization(X, Y)
+            X_mean, X_std = self.compute_normalization(X)
+            Y_mean, Y_std = self.compute_normalization(Y)
             self.standarizer = Standarizer(X_mean, X_std, Y_mean, Y_std, device=device)
 
         self.X = torch.from_numpy(X).type('torch.FloatTensor').to(device)
@@ -123,9 +125,11 @@ class COMMomentum(Dataset):
         self.X, self.Y = self.standarizer.transform(self.X, self.Y)
 
         if isinstance(augment, str) and augment.lower() == "hard":
-            for g_in, g_out in self.t_group_actions[1:]:
-                gX = torch.matmul(self.X.unsqueeze(1), g_in.unsqueeze(0).to(self.X.dtype)).squeeze()
-                gY = torch.matmul(self.Y.unsqueeze(1), g_out.unsqueeze(0).to(self.Y.dtype)).squeeze()
+            for g in self.G.elements[1:]:
+                rep_X = self.in_feature_type.fiber_representation(g).to(self.X.device)
+                rep_Y = self.out_feature_type.fiber_representation(g).to(self.Y.device)
+                gX = (rep_X @ self.X.T).T
+                gY = (rep_Y @ self.Y.T).T
                 self.X = torch.vstack([self.X, gX])
                 self.Y = torch.vstack([self.Y, gY])
 
@@ -135,19 +139,36 @@ class COMMomentum(Dataset):
         # TODO: Remove
         # self.test_equivariance()
 
-    def compute_normalization(self, X, Y):
-        idx = 6 if self.angular_momentum else 3
-        X_mean, Y_mean, X_std, Y_std = 0., 0., 1., 1.
-        if self.normalize:
-            # TODO: Obtain analytic formula for mean and std along orbit of discrete and continuous groups.
-            X_aug = np.vstack([X] + [np.asarray(g @ X.T).T for g in self.rep_in.G.discrete_actions])
-            Y_aug = np.vstack([Y[:, :idx]] + [np.asarray(g @ Y[:, :idx].T).T for g in self.rep_out.G.discrete_actions])
-            X_mean = np.mean(X_aug, axis=0)
-            Y_mean = np.mean(Y_aug[:, :idx], axis=0)
-            X_std = np.std(X_aug, axis=0)
-            Y_std = np.std(Y_aug, axis=0)
+    def compute_normalization(self, data_matrix, rep_data: Optional[Representation] = None):
+        """Compute normalization of potential symmetric data distribution.
 
-        return X_mean, X_std, Y_mean, Y_std
+        This function takes a data matrix of shape X = (samples, dim(x)) where dim(x) represents the dimensions of a
+        data sample. The average of the distribution is computed only over the trivial irrep dimensions, since the
+        expectation value of a symmetric distribution is restricted to the space invariant to all group actions.
+
+        The covariance is computed for each of irreducible representation sub-space separatedly, considering that
+        vectors in an irrep subspace is orthogonal to all other irreps subspaces.
+
+        Args:
+            data_matrix: (samples, dim(x))
+            rep_data (Representation): symmetry representation of the data. None if data has no known symmetry group.
+
+        Returns:
+            mean: Empirical expected value over the data matrix (dim(x),)
+            std: Empirical variance over the data matrix (dim(x),)
+        """
+        X = data_matrix
+
+        if rep_data is None:
+            X_mean = np.mean(data_matrix, axis=0)
+            X_std = np.std(data_matrix, axis=0)
+        else:
+            raise NotImplementedError()
+            # Q_inv = rep_data.change_of_basis_inv
+            # X_iso = Q_inv @ X[..., None]
+            # X_mean =
+
+        return X_mean, X_std, #Y_mean, Y_std
 
     def test_equivariance(self):
         trials = 10
@@ -164,7 +185,8 @@ class COMMomentum(Dataset):
 
             non_equivariance_detected = False
             # Get all possible group actions
-            for g_in, g_out in zip(self.rep_in.G.discrete_actions[1:], self.rep_out.G.discrete_actions[1:]):
+            for g_in, g_out in zip(self.in_feature_type.G.discrete_actions[1:],
+                                   self.out_feature_type.G.discrete_actions[1:]):
                 g_in, g_out = (g_in.todense(), g_out.todense()) if issparse(g_in) else (g_in, g_out)
                 gx, gy = np.asarray(g_in) @ x, np.asarray(g_out) @ y
                 x_orbit.append(gx)
@@ -264,6 +286,7 @@ class COMMomentum(Dataset):
             for i in range(num_joints):
                 self._pb.changeVisualShape(objectUniqueId=robot.robot_id, linkIndex=i, rgbaColor=color + (alpha,))
             self._pb.changeVisualShape(objectUniqueId=robot.robot_id, linkIndex=-1, rgbaColor=color + (alpha,))
+
         def draw_momentum_vector(p1, p2, v_color, scale=1.0, show_axes=False, text=None, offset=0.0):
             linewidth = 4
             x_color, y_color, z_color = (0, 1, 0), (1, 0, 0), (0, 0, 1)
@@ -292,7 +315,7 @@ class COMMomentum(Dataset):
         robot = self.robot
         for i in range(len(qs)):
             q, dq, hg, ghg = qs[i], dqs[i], hgs[i], ghgs[i]
-            robot = self.robot if i==0 else copy.copy(self.robot)
+            robot = self.robot if i == 0 else copy.copy(self.robot)
             offset = 1.5 * self.robot.hip_height
             morpho_symm.utils.pybullet_visual_utils.configure_bullet_simulation(self._pb, world=None)
             # tint_robot(robot2, alpha=0.9)
@@ -346,15 +369,15 @@ class COMMomentum(Dataset):
             # Pinnochio introduces small but considerable equivariance numerical error, even when the robot kinematics
             # and dynamics are completely equivariant. So we make the gt the avg of the augmented predictions.
             ys_pin = [y]
-            for g_in, g_out in self.group_actions[1:]:
-                gx = np.squeeze(x @ g_in)
+            for g in self.G.elements[1:]:
+                gx = np.squeeze(self.in_feature_type.representation(g) @ x.T).T
                 # gy = np.squeeze(y @ g_out)
                 gy_pin = np.zeros((self._samples, 6))
                 # Generate random configuration samples.
                 for i, x_sample in enumerate(gx):
-                    gy_pin[i, :] = self.get_hg(*np.split(x_sample, 2))
-                ys_pin.append(
-                    gy_pin @ np.linalg.inv(g_out))  # inverse is not needed for the groups we use (C2, V4).
+                    gy_pin[i, :] = self.get_hg(x_sample[:self.robot.nq - 7], x_sample[self.robot.nq - 7:])
+                ys_pin.append((self.out_feature_type.representation(
+                    ~g) @ gy_pin.T).T)  # inverse is not needed for the groups we use (C2, V4).
 
             y_pin_avg = np.mean(ys_pin, axis=0)
             y = y_pin_avg  # To mitigate numerical error
@@ -372,7 +395,7 @@ class COMMomentum(Dataset):
         partition_path.mkdir(exist_ok=True)
 
         train_path, test_path, val_path = partition_path.joinpath("train.npz"), partition_path.joinpath("test.npz"), \
-                                          partition_path.joinpath("val.npz")
+            partition_path.joinpath("val.npz")
 
         if not train_path.exists() or not val_path.exists() or not test_path.exists():
             data = np.load(str(self.dataset_path))
@@ -402,31 +425,56 @@ class COMMomentum(Dataset):
         self.X.to(device)
         self.Y.to(device)
 
-    def get_in_out_symmetry_groups_reps(self, robot_cfg: DictConfig):
-        robot, rep_Ed, rep_QJ = load_robot_and_symmetries(robot_cfg)
-        # Rep for x = [q, dq] ∈ QJ x TQJ     =>    ρ_QJ(g) ⊕ ρ_QJ(g)  | g ∈ G
-        def get_rep_data_in(rep_QJ):
-            return rep_QJ + rep_QJ
-        # Rep for y := h = [l, k] ∈ E3 x E3  =>    ρ_E3(g) ⊕ ρ_E3(g)  | g ∈ G
-        def get_rep_data_out(rep_Ed):
-            return rep_Ed + rep_Ed.set_pseudovector(True)
+    def define_input_output_field_types(self, robot_cfg: DictConfig):
+        """Define the input-output symmetry representations for the CoM function g·y = f(g·x) | g ∈ G.
 
-        rep_data_in = get_rep_data_in(rep_QJ)
-        rep_data_out = get_rep_data_out(rep_Ed)
+        Define the symmetry representations for the Center of Mass momentum y := (l, k) ∈ R^3 x R^3, where l is the
+        linear momentum and k is the angular momentum. The CoM momentum is a function of the system joint state
+        x := (q_js, v_js) ∈ Q_js x TqQ_js, where Q_js is the joint space and TqQ_js is the tangent space of the
+        joint space.
 
-        if robot_cfg.gens_ids is not None and self.dataset_type in ["test", "val"]:
-            # Loaded symmetry group is not the full symmetry group of the robot
-            # Generate the true underlying data representations
-            robot_cfg = copy.copy(robot_cfg)
-            robot_cfg['gens_ids'] = None
-            _, rep_Ed_full, rep_QJ_full = load_robot_and_symmetries(robot_cfg)
-            rep_data_in = get_rep_data_in(rep_QJ_full)
-            rep_data_out = get_rep_data_out(rep_Ed_full)
-            log.info(f"[{self.dataset_type}] Dataset using the system's full symmetry group {type(rep_QJ_full.G)}")
-            return robot, rep_data_in, rep_data_out
+        Args:
+            robot_cfg: The robot configuration (see cfg/robots).
 
-        log.info(f"[{self.dataset_type}] Dataset using the symmetry group {type(rep_QJ.G)}")
-        return robot, rep_data_in, rep_data_out
+        Returns:
+            robot (PinBulletWrapper): The robot wrapper.
+            gspace (GSpace): The total symmetry space of the system.
+            input_type (FieldType): The input feature field type, describing the system state (q_js, v_js) and its
+            symmetry transformations.
+            output_type (FieldType): The output feature field type, describing the system CoM (hg) and its symmetry
+            transformations.
+        """
+        robot, symmetry_space = load_symmetric_system(robot_cfg=robot_cfg, debug=False)
+        G = symmetry_space.fibergroup
+        # For this application we compute the CoM w.r.t base frame, meaning that we ignore the fiber group Ed in which
+        # the system evolves in:
+        gspace = gspaces.no_base_space(G)
+        # Get the relevant representations.
+        rep_Q_js = G.representations["Q_js"]
+        rep_TqQ_js = G.representations["TqQ_js"]
+        rep_O3 = G.representations["Od"]
+        rep_O3_pseudo = G.representations["Od_pseudo"]
+
+        # Rep for x := [q, dq] ∈ Q_js x TqQ_js     =>    ρ_Q_js(g) ⊕ ρ_TqQ_js(g)  | g ∈ G
+        in_type = FieldType(gspace, [rep_Q_js, rep_TqQ_js])
+
+        # Rep for center of mass momentum y := [l, k] ∈ R3 x R3  =>    ρ_R3(g) ⊕ ρ_R3pseudo(g)  | g ∈ G
+        out_type = FieldType(gspace, [rep_O3, rep_O3_pseudo])
+
+        # TODO: handle subgroup cases.
+        # if robot_cfg.gens_ids is not None and self.dataset_type in ["test", "val"]:
+        #     Loaded symmetry group is not the full symmetry group of the robot
+        #     Generate the true underlying data representations
+        # robot_cfg = copy.copy(robot_cfg)
+        # robot_cfg['gens_ids'] = None
+        # _, rep_Ed_full, rep_QJ_full = load_robot_and_symmetries(robot_cfg)
+        # rep_data_in = get_rep_data_in(rep_QJ_full)
+        # rep_data_out = get_rep_data_out(rep_Ed_full)
+        # log.info(f"[{self.dataset_type}] Dataset using the system's full symmetry group {type(rep_QJ_full.G)}")
+        # return robot, rep_data_in, rep_data_out
+
+        log.info(f"[{self.dataset_type}] Dataset using the symmetry group {type(G)}")
+        return robot, gspace, in_type, out_type
 
     def __repr__(self):
         msg = f"CoM Dataset: [{self.robot.robot_name}]-{self.dataset_type}-Aug:{self.augment}" \
@@ -476,4 +524,3 @@ class COMMomentum(Dataset):
             ax_ang.set_title(f'Ang error g:{orbit_id}')
         plt.tight_layout()
         plt.show()
-

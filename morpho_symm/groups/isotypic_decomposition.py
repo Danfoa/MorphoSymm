@@ -333,7 +333,9 @@ def escnn_representation_form_mapping(
     # (Q_iso_cplx2iso_re @ P @ Q) @ rep(g) @ (Q^-1 @ P^-1 @ Q_iso_cplx2iso_re^-1) = Q_re @ rep(g) @ Q_re^-1 = iso_re(g)
     Q_re = Q_iso_cplx2iso_re @ P @ Q
     assert np.allclose(Q_re @ Q_re.conj().T, np.eye(Q_re.shape[0])), "Q_re is not an orthogonal transformation"
+    assert np.allclose(np.imag(Q_re), 0), "Q_re is not a real matrix"
 
+    Q_re = np.real(Q_re)  # Remove numerical noise
     # Then we have that `Q_re^-1 @ iso_re(g) @ Q_re = rep(g)`
     reconstructed_rep = Representation(G, name="reconstructed", irreps=[irrep.id for irrep in escnn_real_irreps],
                                        change_of_basis=Q_re.conj().T)

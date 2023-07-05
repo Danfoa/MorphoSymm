@@ -4,7 +4,7 @@ import numpy as np
 import scipy
 from emlp.reps.linear_operators import LazyKron
 from emlp.reps.representation import Vector
-from utils.algebra_utils import dense
+# from utils.algebra_utils import dense
 
 from .SparseRepresentation import SparseRep
 from .SymmetryGroups import C2, Sym
