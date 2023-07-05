@@ -76,8 +76,8 @@ robot_cfg = compose(config_name=f"{robot_name}.yaml")
 robot, G = load_symmetric_system(robot_cfg=robot_cfg)
 ```
 
-The function returns a:
-- `robot` an instance of the class `PinSimWrapper`.
+The function returns:
+- `robot` an instance of the class [`PinBulletWrapper`](https://github.com/Danfoa/MorphoSymm/blob/devel/morpho_symm/robots/PinBulletWrapper.py) (utility class bridging [`pybullet`](https://pybullet.org/wordpress/) and [`pinocchio`](https://github.com/stack-of-tasks/pinocchio)).
 -  `G`: the symmetry group of the system of instance [`escnn.group.Group`](https://quva-lab.github.io/escnn/api/escnn.group.html#group)
 #### Getting and resetting the state of the system
 
@@ -103,17 +103,25 @@ q_js, v_js = robot.get_joint_space_state()
 
  > _This section shows how to get the group representations required for doing *data augmentation* and for the construction of *equivariant neural networks*_. 
   
-The system's symmetry group instance `G` is returned with the group representations required to transform most proprioceptive and exteroceptive measurements (e.g., joint positions/velocities/accelerations/forces/torques, contact locations & forces, linear and angular velocities, terrain heightmaps, depthmaps, etc). We provide representations to transform elements of:
+The system's symmetry group instance `G` contains the group representations required to transform most proprioceptive and exteroceptive measurements (e.g., joint positions/velocities/accelerations, joint forces/torques, contact locations & forces, linear and angular velocities, terrain heightmaps, depthmaps, etc). These are:
+
+
+ -  $`\rho_{\mathbb{E}_d}: \mathcal{G} \rightarrow \mathbb{E}(d)`$: Representation mapping symmetry actions to elements of the Euclidean group $\mathbb{E}(d)$. Essentially homogenous transformation matrices describing a rotation/reflection and translation of space (Euclidean isometry) in $d$ dimensions.
+ -  $`\rho_{\mathrm{Q}_J}: \mathcal{G} \rightarrow \mathcal{GL}(\mathrm{Q}_J)`$ and $`\rho_{T_q\mathrm{Q}_J}: \mathcal{G} \rightarrow \mathcal{GL}(T_q\mathrm{Q}_J)`$: Representations mapping symmetry actions to transformation matrices of joint-space position $`\mathrm{Q}_J`$ and velocity $`T_{q}\mathrm{Q}_J`$ coordinates. 
+ -  $`\rho_{\mathrm{O}_d}: \mathcal{G} \rightarrow \mathcal{\mathrm{O}_d}`$: Representation mapping symmetry actions to elements of the Orthogonal group $\mathrm{O}(d)$. Essentially rotation and reflection matrices in $d$ dimensions.
+ -  $`\rho_{reg}: \mathcal{G} \rightarrow \mathbb{R}^{|\mathcal{G}|}`$: The group regular representation.
+ -  $`\hat{\rho}_{i}: \mathcal{G} \rightarrow \mathcal{GL}(|\hat{\rho}_{i}|)`$: Each of the group irreducible representations.
+
+In practice, products and additions of these representations are enough to obtain the representations of any proprioceptive and exteroceptive measurement. For instance, we can use these representations to transform elements of:
 
 - $\mathrm{E}\_d$: The Euclidean space (of $d$ dimensions) in which the system evolves.
-
-  The representation $\rho_{\mathbb{E}_d}: \mathcal{G} \rightarrow \mathbb{E}(d)$ maps symmetry actions to elements of the Euclidean group $\mathbb{E}(d)$. Each element of $\mathbb{E}(d)$ is a homogenous transformation matrix describing a rotation/reflection and translation of space (Euclidean isometry). This representation can be used to handle different measurements such as:
-
+  
+  The representation $`\rho_{\mathbb{E}_d}`$ can be used to transform:
     - The system base configuration $\mathbf{X}\_B$. If you want to obtain the set of symmetric base configurations $`
-      \{{g \cdot \mathbb{X}_B:= \rho_{\mathbb{E}_d}(g) \; \mathbb{X}_B  \;  \rho_{\mathbb{E}_d}(g)^{-1} \;|\; \forall\; g \in \mathcal{G}}\}`$ [(1)](https://arxiv.org/abs/2302.1043), you can do it with:
+      \{{g \cdot \mathbf{X}_B:= \rho_{\mathbb{E}_d}(g) \; \mathbf{X}_B  \;  \rho_{\mathbb{E}_d}(g)^{-1} \;|\; \forall\; g \in \mathcal{G}}\}`$ [(1)](https://arxiv.org/abs/2302.1043), you can do it with:
 
 ```python 
-        rep_Ed = G.representations['Ed']  # rep_Ed(g) is an homogenous transformation matrix ∈ R^(d+1)x(d+1) 
+        rep_Ed = G.representations['Ed']  # rep_Ed(g) is a homogenous transformation matrix ∈ R^(d+1)x(d+1) 
         # The orbit of the base configuration XB is a map from group elements g ∈ G to base configurations g·XB ∈ Ed
         orbit_X_B = {g: rep_Ed(g) @ XB @ rep_Ed(g).T for g in G.elements()} 
 ```
@@ -126,13 +134,13 @@ The system's symmetry group instance `G` is returned with the group representati
         orbit_r = {g: (rep_Ed(g) @ r_hom)[:3] for g in G.elements}
 ```
 
-- $`\mathrm{Q}_J`$ and $`T_{q}\mathrm{Q}_J`$: The spaces of joint-space position $\mathrm{Q}_J$ and velocity $T_{q}\mathrm{Q}_J$ generalized coordinates.
+- $`\mathrm{Q}_J`$ and $`T_{q}\mathrm{Q}_J`$: The spaces of joint-space position $`\mathrm{Q}_J`$ and velocity $`T_{q}\mathrm{Q}_J`$ generalized coordinates.
 
-  To handle joint-space states $`
+  To transform joint-space states $`
   (\mathbf{q}_{js}, \mathbf{v}_{js}) \;|\; \mathbf{q}_{js} \in \mathrm{Q}_J, \;\mathbf{v}_{js} \in T_{q}\mathrm{Q}_J
-  `$ we use the representations $`\rho_{\mathrm{Q}_J}: \mathcal{G} \rightarrow \mathcal{GL}(\mathrm{Q}_J)`$ and $`\rho_{T_q\mathrm{Q}_J}: \mathcal{G} \rightarrow \mathcal{GL}(T_q\mathrm{Q}_J)`$, which map symmetry actions to transformation matrices of position and velocity coordinates, respectively. For instance, for a given joint-space configuration $` (\mathbf{q}_{js}, \mathbf{v}_{js})`$, the set of symmetric joint-space configurations (orbit) is given by $`
+  `$ we use the representations $`\rho_{\mathrm{Q}_J}`$ and $`\rho_{T_q\mathrm{Q}_J}`$. For instance, for a given joint-space configuration $` (\mathbf{q}_{js}, \mathbf{v}_{js})`$, the set of symmetric joint-space configurations (orbit) is given by $`
   \{
-  (\rho_{\mathrm{Q}_J}(g) \mathbf{q}_{js}, \rho_{T_q\mathrm{Q}_J}(g) \mathbf{v}_{js}) \ | \; \forall \; g \in \mathcal{G}
+  (\rho_{\mathrm{Q}_J}(g) \; \mathbf{q}_{js}, \;\rho_{T_q\mathrm{Q}_J}(g) \;\mathbf{v}_{js}) \; | \; \forall \; g \in \mathcal{G}
   \}
   `$. Equivalently, in code we can do:
 ```python
@@ -145,9 +153,8 @@ The system's symmetry group instance `G` is returned with the group representati
 ```
 - Vectors, Pseudo-vectors in $\mathrm{E}\_d$.
 
-   Vector measurements can represent linear velocities, forces, linear accelerations, etc. While [pseudo-vectors](https://en.wikipedia.org/wiki/Pseudovector#:~:text=In%20physics%20and%20mathematics%2C%20a,of%20the%20space%20is%20changed) (or axial-vectors) can represent angular velocities, angular accelerations, etc. The representations for transforming vectors is $`
-  \rho_{\mathrm{O}_d}: \mathcal{G} \rightarrow \mathcal{\mathrm{O}_d}
-  `$. Being $`\mathrm{O}_d`$ the orthogonal group in $d$-dimensions. The representation for pseudo-vectors is defined as $`\rho_{\mathrm{O}_{d,pseudo}}(g) = |\rho_{\mathrm{O}_d}(g)| \rho_{\mathrm{O}_d}(g) \; | \; g \in \mathcal{G}`$. To obtain the orbit of vectors and pseudo-vectors we can do:
+   Vector measurements can represent linear velocities, forces, linear accelerations, etc. While [pseudo-vectors](https://en.wikipedia.org/wiki/Pseudovector#:~:text=In%20physics%20and%20mathematics%2C%20a,of%20the%20space%20is%20changed) (or axial-vectors) can represent angular velocities, angular accelerations, etc. To obtain symmetric measurements we transform vectors with $`
+  \rho_{\mathrm{O}_d}`$. Likewise, to obtain symmetric pseudo-vectors we use $`\rho_{\mathrm{O}_{d,pseudo}}(g) := |\rho_{\mathrm{O}_d}(g)| \rho_{\mathrm{O}_d}(g) \; | \; g \in \mathcal{G}`$. Equivalently, in code we can do:
 ```python
     rep_Od = G.representations['Od'] # rep_Od(g) is an orthogonal matrix ∈ R^dxd
     rep_Od_pseudo = G.representations['Od_pseudo'] 
@@ -160,6 +167,8 @@ The system's symmetry group instance `G` is returned with the group representati
     orbit_w = {g: rep_Od_pseudo(g) @ w for g in G.elements}
 ```
 
+> As an example you can check the script [robot_symmetry_visualization.py](https://github.com/Danfoa/MorphoSymm/blob/devel/morpho_symm/robot_symmetry_visualization.py), where we use the symmetry representations to generate the animations of all robot in the library (with the same script).
+
 ### Equivariant Neural Networks
 
  > _In this section we briefly show how to construct G-equivariant multi-layer perceptron E-MLP architectures. Future tutorials will cover G-equivariant CNNs and GNNs._
@@ -170,6 +179,7 @@ Let's consider the example from [(1)](https://arxiv.org/abs/2302.1043) of approx
 \mathbf{x} = (\mathbf{q}_{js}, \mathbf{v}_{js}) \;|\; \mathbf{q}_{js} \in \mathrm{Q}_J, \;\mathbf{v}_{js} \in T_{q}\mathrm{Q}_J
 `$ as the joint-space position and velocity generalized coordinates.
 
+For this example, you can build an equivariant MLP as follows: 
 ```python
 import escnn
 from escnn.nn import FieldType
@@ -230,7 +240,7 @@ If you find this repository or the [paper](https://scholar.google.it/scholar?q=o
 
 If you have any doubts or ideas, create an issue or contact us. We are happy to help and collaborate.
 
-In case you want to contribute, thanks for being that awesome, and please contact us to see what can we assist you.
+In case you want to contribute, thanks for being that awesome, and please contact us to see how can we assist you.
 
 #### Robotics
 The repository focuses on robotics and uses the URDF (Unified Robot Description Format) to integrate new systems.

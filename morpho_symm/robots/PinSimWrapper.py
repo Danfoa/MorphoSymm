@@ -67,7 +67,7 @@ class PinSimWrapper(ABC):
 
             q_j_zero, _ = self.pin_joint_space[joint_name].zero()
             # self._q_zero[joint.idx_q:joint.idx_q + joint.nq] = q_j_zero
-
+        self.joint_space_names = sorted(self.joint_space_names, key=lambda x: self.pin_joint_space[x].idx_q)
         self._q_zero = self._q_zero if q_zero is None else np.array(q_zero)
         assert self._q_zero.size == self.nq, f"Expected |q_0|=3+4+nj={self.nq}, but received {q_zero}"
         self._init_q = np.concatenate((np.zeros(6), [1], np.zeros(self.n_js))) if init_q is None else np.array(init_q)
@@ -497,8 +497,8 @@ class JointWrapper:
 class SimPinJointWrapper(ABC):
 
     def __init__(self) -> object:
-        self._pin_joint = None
-        self._sim_joint = None
+        self.pin_joint = None
+        self.sim_joint = None
 
     def sim2pin(self, q, dq) -> State:
         return q, dq
@@ -507,4 +507,9 @@ class SimPinJointWrapper(ABC):
         return q, dq
 
     def __repr__(self):
-        return f"Pin:{self._pin_joint.__repr__()}-Sim:{self._sim_joint.__repr__()}"
+        return f"Pin[{self.pin_joint.type}]_" \
+               f"idxq:{list(range(self.pin_joint.idx_q, self.pin_joint.idx_q + self.pin_joint.nq))}_" \
+               f"idxv:{list(range(self.pin_joint.idx_v, self.pin_joint.idx_v + self.pin_joint.nv))}-" \
+               f"Sim[{self.sim_joint.type}]_" \
+               f"idxq:{list(range(self.sim_joint.idx_q, self.sim_joint.idx_q + self.sim_joint.nq))}_" \
+               f"idxv:{list(range(self.sim_joint.idx_v, self.sim_joint.idx_v + self.sim_joint.nv))}"

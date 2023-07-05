@@ -4,16 +4,13 @@ import time
 
 import hydra
 import numpy as np
-from escnn.group import Group
 from omegaconf import DictConfig
-from pytransform3d import transformations as tr
-from utils.algebra_utils import quat_xyzw_to_SO3
 from utils.pybullet_visual_utils import (
     change_robot_appearance,
     display_robots_and_vectors,
     get_mock_ground_reaction_forces,
     render_orbiting_animation,
-)
+    )
 from utils.robot_utils import load_symmetric_system
 
 import morpho_symm
@@ -34,116 +31,94 @@ def main(cfg: DictConfig):
     # base B evolves in) and Joint Space (in which the internal configuration of the robot evolves in).
     robot, G = load_symmetric_system(robot_cfg=cfg.robot, debug=cfg.debug)
 
-    assert isinstance(G, Group)
-    assert np.all(rep_name in G.representations for rep_name in ['Ed', 'Q_js', 'TqQ_js']), \
-        f"Group {G} should have representations for Ed, Q_js and TqQ_js, found: {list(G.representations.keys())}"
-    rep_QJ = G.representations['Q_js']
-    rep_TqJ = G.representations['TqQ_js']
-    rep_Ed = G.representations['Ed']
+    # Get the group representations of joint-state space, and Euclidean space.
+    rep_QJ = G.representations['Q_js']  # rep_QJ(g) is a permutation matrix ∈ R^nqj
+    rep_TqQJ = G.representations['TqQ_js']  # rep_TqQJ(g) is a permutation matrix ∈ R^nvj
+    rep_Ed = G.representations['Ed']  # rep_Ed(g) is a homogenous transformation matrix ∈ R^(d+1)x(d+1)
+    rep_Od = G.representations['Od']  # rep_Od(g) is an orthogonal matrix ∈ R^dxd
+    rep_Od_pseudo = G.representations['Od_pseudo']  # rep_Od_pseudo(g) is an orthogonal matrix ∈ R^dxd
 
     # Configuration of the 3D visualization -------------------------------------------------------------------------
-    offset = max(0.2, 1.8 * robot.hip_height)
-
-    pb = configure_bullet_simulation(gui=cfg.gui, debug=cfg.debug)
-
-    robot.configure_bullet_simulation(pb, world=None)
-
-    change_robot_appearance(pb, robot, change_color=cfg.robot.tint_bodies)
+    # Not really relevant to understand.
+    offset = max(0.2, 1.8 * robot.hip_height)  # Offset between robot base and reflection planes.
+    pb = configure_bullet_simulation(gui=cfg.gui, debug=cfg.debug)  # Load pybullet environment
+    robot.configure_bullet_simulation(pb, world=None)  # Load robot in pybullet environment
+    change_robot_appearance(pb, robot, change_color=cfg.robot.tint_bodies)  # Add color and style to boring grey robots
 
     # Get initial random configuration of the system
     q, v = robot.get_init_config(random=True, angle_sweep=cfg.robot.angle_sweep, fix_base=cfg.robot.fix_base)
     rB0 = np.array([-offset if G.order() != 2 else 0, -offset] + [robot.hip_height * 1.5])
-    q[:3] = rB0
-    robot.reset_state(q, v)
-
+    q[:3] = rB0  # Place base of the robot with some `offset` from origin.
+    robot.reset_state(q, v)  # Reset robot state in pybullet and pinocchio.
     # --------------------------------------------------------------------------------------------------------------
 
     # NOTATION:
     # We use the following code notation which tries to replicate as much as possible the notation of the paper:
     # [Variable][Frame]_[reference frame of variable] e.g, RB_w : Rotation (R) of Base (B) in World (w) coordinates.
+    # For compactness the reference frame is omitted if variables are measured w.r.t (w) world frame.
     # - `Ed`: Euclidean space of d dimensions
     # - `QJ`: Joint Space of the robot
     # - `TQJ`: Tangent space to the joint space.
     # - `r`: Vector in `Ed` describing the position of a frame of the robot bodies. e.g. rB: Robot base position
     # - `R`: SO3 matrix describing a rotation in E3. e.g. RB: Robot base orientation
-    # - `T`: Homogenous Matrix 4x4 transformation holding a rotation matrix and a translation T = [[R , r], [0, 1]]
+    # - `X`: Homogenous Matrix 4x4 transformation holding a rotation matrix and a translation X = [[R , r], [0, 1]]
 
     # Get the robot's base configuration XB ∈ Ed as a homogenous transformation matrix.
     XB = robot.get_base_configuration()
     # Get joint space position and velocity coordinates  (q_js, v_js) | q_js ∈ QJ, dq_js ∈ TqQJ
     q_js, v_js = robot.get_joint_space_state()
 
-    orbit_js_state = {g: (rep_QJ(g) @ q_js, rep_TqJ(g) @ v_js) for g in G.elements}
-
-
-    # x: is the concatenation of q_js and dq_js. That is the joint-space state-space vector.
-    x = np.concatenate((q[7:], v[6:]))
-    x = x.astype(np.float64)
-    # Get the representation of the symmetry group of the robot on the joint space (JS) state-space x=[q_js, dq_js]
-    rep_x = rep_QJ + rep_TqJ
-
-    r = np.random.rand(3)
-    r_hom = np.concatenate((r, np.ones(1)))  # Use homogenous coordinates to represent a point in Ed
-    orbit_r = {g: (rep_Ed(g) @ r_hom)[:3] for g in G.elements}
-
-    # To visualize how the symmetries of the robotic system affect propioceptive and exteroceptive measurements we use:
-    # - Propioceptive: `hg_B` The center of mass linear and angular momentum of the robot, and `f1/2` contact forces
+    # To visualize how the symmetries of the robotic system affect proprioceptive and exteroceptive measurements we use:
+    # - Proprioceptive: `hg_B` The center of mass linear and angular momentum of the robot, and `f1/2` contact forces
     # - Exteroceptive: We will assume to have measurements of the terrain elevation and orientation.
     # Consider the robot Center of Mass (CoM) momentum in base `B` coordinates. A vector and a pseudo-vector.
-    hg_B = np.array([0.1, 0.1, 0.0, -0.0, -0.2, -0.2])
+    hg_B = np.array([0.1, 0.1, 0.0, -0.0, -0.2, -0.2])  # Set to fix value for visualization.
     # The representation for the linear `l` and angular `k` components  of Center of Mass (CoM) momentum `h=[l,k]` is:
-    rep_h = rep_Ed + rep_Ed  # Additions of representations amounts to block-diagonal matrix concatenation.
+    rep_h = rep_Od + rep_Od_pseudo  # Additions of representations amounts to block-diagonal matrix concatenation.
 
-    # Define mock surface orientations `Rf_w`, contact points `rf_w` and contact forces `f_w`
-    Rf1_w, Rf2_w, f1_w, f2_w, rf1_w, rf2_w = get_mock_ground_reaction_forces(pb, robot, cfg.robot)
+    # Define mock surface orientations `Rf_w`, force contact points `rf_w` and contact forces `f_w`
+    Rf1, Rf2, f1, f2, rf1, rf2 = get_mock_ground_reaction_forces(pb, robot, cfg.robot)
 
     # Main part of the script. =======================================================================================
-    # Start by defining lists holding the orbits of all the proprioceptive and exteroceptive measurements
-    # An orbit is all unique symmetric states of a variable G·x = {g·x | g in G}
-    Gx, Ghg_B, GXB_w, GX_g_bar = [x], [hg_B], [XB], [tr.transform_from(R=np.eye(3), p=np.zeros(3))]
-    Gf1_w, Gf2_w, Gr1_w, Gr2_w, GRf1_w, GRf2_w = [f1_w], [f2_w], [rf1_w], [rf2_w], [Rf1_w], [Rf2_w]
+    # Start by defining the dict representing the orbits of all the proprioceptive and exteroceptive measurements
+    # An orbit is all unique symmetric states of a variable G·z = {g·z | g in G}
+    e = G.identity  # Identity element of the group
+    orbit_q_js, orbit_v_js = {e: q_js}, {e: v_js}
+    orbit_hg_B, orbit_XB_w = {e: hg_B}, {e: XB}
+    orbit_f1, orbit_f2, orbit_rf1, orbit_rf2 = {e: f1}, {e: f2}, {e: rf1}, {e: rf2},
+    orbit_Rf1, orbit_Rf2 = {e: Rf1}, {e: Rf2}
 
-    # For each symmetry `g` of the system, get the representations of the action in the relevant vector spaces to
-    # compute the symmetric states of robot configuration and data
+    # For each symmetry action g ∈ G, we get the representations of the action in the relevant vector spaces to
+    # compute the symmetric states of robot configuration and measurements.
     for g in G.elements[1:]:
-        # Let x = [q, dq], and h = [l, k]
-        # g_e3 = rep_Ed(g)
-        # g_qj = rep_QJ(g)
-        # Get symmetric g.x=[g.q, g.dq], g·h=[g·l, g·k] -------------------------------------------------------
-        gx_w, gh_B = (rep_x(g) @ x).astype(x.dtype), (rep_h(g) @ hg_B).astype(hg_B.dtype)
-        if np.linalg.det(rep_Ed(g)) < 0:  # If g is a reflection, we need to flip the sign of the angular momentum
-            gh_B[3:] = -gh_B[3:]
-        Gx.append(gx_w), Ghg_B.append(gh_B)
-
-        # Get the Euclidean rotation/reflection of the symmetry in Ed -------------------------------------------------
-        X_gbar = tr.transform_from(R=np.asarray(rep_Ed(g)), p=np.zeros(3))
-        GX_g_bar.append(X_gbar)  # Homogeous matrix transformation of the Euclidean Isometry gbar
+        # Get symmetric joint-space state (g.q_js, g.v_js), and CoM momentum g·h=[g·l, g·k] ---------------------------
+        # gx_w, gh_B = (rep_x(g) @ x).astype(x.dtype), (rep_h(g) @ hg_B).astype(hg_B.dtype)
+        orbit_q_js[g], orbit_v_js[g] = rep_QJ(g) @ q_js, rep_TqQJ(g) @ v_js
+        orbit_hg_B[g] = rep_h(g) @ hg_B
 
         # Compute new robot base configuration -----------------------------------------------------------------------
-        gRB_w = rep_Ed(g) @ RB_w @ np.linalg.inv(rep_Ed(g))
-        gr_w = tr.transform(X_gbar, XB[:, 3], strict_check=False)[:3]  # Transform the base position
-        # Add new robot base configuration (homogenous matrix) to the orbit of base configs.
-        GXB_w.append(tr.transform_from(R=gRB_w, p=gr_w))
+        # gXB_w = rep_Ed(g) @ RB_w @ np.linalg.inv(rep_Ed(g))
+        gXB = rep_Ed(g) @ XB @ rep_Ed(g).T
+        orbit_XB_w[g] = gXB  # Add new robot base configuration (homogenous matrix) to the orbit of base configs.
 
         # Use symmetry representations to get symmetric versions of Euclidean vectors, representing measurements of data
         # We could also add some pseudo-vectors e.g. torque, and augment them as we did with `k`
-        gf1_w, gf2_w = rep_Ed(g) @ f1_w, rep_Ed(g) @ f2_w
-        gr_f1_w, gr_f2_w = rep_Ed(g) @ rf1_w, rep_Ed(g) @ rf2_w
-        Gf1_w.append(gf1_w[:3]), Gf2_w.append(gf2_w[:3]), Gr1_w.append(gr_f1_w), Gr2_w.append(gr_f2_w)
+        orbit_f1[g], orbit_f2[g] = rep_Od(g) @ f1, rep_Od(g) @ f2
+        orbit_rf1[g] = (rep_Ed(g) @ np.concatenate((rf1, np.ones(1))))[:3]  # using homogenous coordinates
+        orbit_rf2[g] = (rep_Ed(g) @ np.concatenate((rf2, np.ones(1))))[:3]
 
         # Apply transformations to the terrain elevation estimations/measurements
-        GRf1_w.append(rep_Ed(g) @ Rf1_w @ np.linalg.inv(rep_Ed(g)))
-        GRf2_w.append(rep_Ed(g) @ Rf2_w @ np.linalg.inv(rep_Ed(g)))
+        orbit_Rf1[g] = rep_Od(g) @ Rf1 @ rep_Od(g).T
+        orbit_Rf2[g] = rep_Od(g) @ Rf2 @ rep_Od(g).T
     # =============================================================================================================
 
     # Visualization of orbits of robot states and of data ==========================================================
     # Use Ctrl and mouse-click+drag to rotate the 3D environment.
-    # Get the robot joint state (q_js, dq_js) from the state x for all system configurations.
-    splited_orbits = [(x[:robot.nq - 7], x[robot.nq - 7:]) for x in Gx]
-    Gq_js, Gdq_js = [x[0] for x in splited_orbits], [x[1] for x in splited_orbits]
-    display_robots_and_vectors(pb, robot, base_confs=GXB_w, Gq_js=Gq_js, Gdq_js=Gdq_js, Ghg=Ghg_B,
-                               forces=[Gf1_w, Gf2_w], forces_points=[Gr1_w, Gr2_w], surface_normals=[GRf1_w, GRf2_w],
-                               GX_g_bar=GX_g_bar, tint=cfg.robot.tint_bodies, draw_floor=cfg.robot.draw_floor)
+    display_robots_and_vectors(pb, robot, group=G, base_confs=orbit_XB_w, orbit_q_js=orbit_q_js,
+                               orbit_v_js=orbit_v_js,
+                               orbit_com_momentum=orbit_hg_B, forces=[orbit_f1, orbit_f2],
+                               forces_points=[orbit_rf1, orbit_rf2], surface_normals=[orbit_Rf1, orbit_Rf2],
+                               tint=cfg.robot.tint_bodies, draw_floor=cfg.robot.draw_floor)
 
     root_path = pathlib.Path(morpho_symm.__file__).parents[1].absolute()
     if cfg.make_gif:
