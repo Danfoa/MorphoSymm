@@ -33,28 +33,28 @@ This script functions as an introductory tutorial showing how we define the repr
 ### $\mathcal{G}=\mathcal{C}_2$: Reflection Symmetry
 |                                    Cassie                                    |                                                    Atlas   	                                                     |                           Bolt   	                           |                                   Baxter 	                                   |   
 |:----------------------------------------------------------------------------:|:----------------------------------------------------------------------------------------------------------------:|:------------------------------------------------------------:|:----------------------------------------------------------------------------:|
-|       ![cassie](paper/animations/cassie-C2-symmetries_anim_static.gif)       | 	 ![atlas](https://user-images.githubusercontent.com/8356912/200183197-94242c57-bd9d-41cb-8a0b-509dceef5cb9.gif) | ![bolt](paper/animations/bolt-C2-symmetries_anim_static.gif) |       ![baxter](paper/animations/baxter-C2-symmetries_anim_static.gif)       | 	        
+|       ![cassie](docs/static/animations/cassie-C2-symmetries_anim_static.gif)       | 	 ![atlas](https://user-images.githubusercontent.com/8356912/200183197-94242c57-bd9d-41cb-8a0b-509dceef5cb9.gif) | ![bolt](docs/static/animations/bolt-C2-symmetries_anim_static.gif) |       ![baxter](docs/static/animations/baxter-C2-symmetries_anim_static.gif)       | 	        
 | [Solo](https://open-dynamic-robot-initiative.github.io/)  	                	 |                                                    **A1**   	                                                    |                          **HyQ**  	                          |                                Mini-Cheetah	                                 |   
-|         ![solo](paper/animations/solo-C2-symmetries_anim_static.gif)         |                             ![a1](paper/animations/a1-C2-symmetries_anim_static.gif)                             |  ![hyq](paper/animations/hyq-C2-symmetries_anim_static.gif)  | ![mini-cheetah](paper/animations/mini_cheetah-C2-symmetries_anim_static.gif) |
+|         ![solo](docs/static/animations/solo-C2-symmetries_anim_static.gif)         |                             ![a1](docs/static/animations/a1-C2-symmetries_anim_static.gif)                             |  ![hyq](docs/static/animations/hyq-C2-symmetries_anim_static.gif)  | ![mini-cheetah](docs/static/animations/mini_cheetah-C2-symmetries_anim_static.gif) |
 |                       **Anymal-C** 	                	                        |                                                 **Anymal-B**   	                                                 |                          **B1**  	                           |                                     Go1	                                     |   
-|     ![anymal_c](paper/animations/anymal_c-C2-symmetries_anim_static.gif)     |                       ![anymal_b](paper/animations/anymal_b-C2-symmetries_anim_static.gif)                       |   ![b1](paper/animations/b1-C2-symmetries_anim_static.gif)   |          ![go1](paper/animations/go1-C2-symmetries_anim_static.gif)          |
+|     ![anymal_c](docs/static/animations/anymal_c-C2-symmetries_anim_static.gif)     |                       ![anymal_b](docs/static/animations/anymal_b-C2-symmetries_anim_static.gif)                       |   ![b1](docs/static/animations/b1-C2-symmetries_anim_static.gif)   |          ![go1](docs/static/animations/go1-C2-symmetries_anim_static.gif)          |
 |                         **UR-3**  	                	                         |                                                   **UR5**   	                                                    |                         **UR10**  	                          |                                  KUKA-iiwa	                                  |   
-|          ![ur3](paper/animations/ur3-C2-symmetries_anim_static.gif)          |                            ![ur5](paper/animations/ur5-C2-symmetries_anim_static.gif)                            | ![ur10](paper/animations/ur10-C2-symmetries_anim_static.gif) |         ![iiwa](paper/animations/iiwa-C2-symmetries_anim_static.gif)         |
+|          ![ur3](docs/static/animations/ur3-C2-symmetries_anim_static.gif)          |                            ![ur5](docs/static/animations/ur5-C2-symmetries_anim_static.gif)                            | ![ur10](docs/static/animations/ur10-C2-symmetries_anim_static.gif) |         ![iiwa](docs/static/animations/iiwa-C2-symmetries_anim_static.gif)         |
 
 ### $\mathcal{G}=\mathcal{C}_n$: Symmetric Systems with Cyclic Group Symmetries
 |       [Trifinger](https://sites.google.com/view/trifinger/home-page)-C3 	       |   
 |:-------------------------------------------------------------------------------:|
-| 	![trifinger-edu](paper/animations/trifinger_edu-C3-symmetries_anim_static.gif) | 	        
+| 	![trifinger-edu](docs/static/animations/trifinger_edu-C3-symmetries_anim_static.gif) | 	        
 
 ### $\mathcal{G}=\mathcal{K}_4$: Klein-Four Symmetry
 | [Solo](https://open-dynamic-robot-initiative.github.io/)|                                          HyQ 	                                          |                                        Mini-Cheetah                                        |                                 Anymal-C                                 |                                 Anymal-B                                 |
 |:---------------------------------------------------------------------------------------------------------------:|:---------------------------------------------------------------------------------------:|:------------------------------------------------------------------------------------------:|:------------------------------------------------------------------------:|:------------------------------------------------------------------------:|
-|                      	![Solo-K4](paper/animations/solo-Klein4-symmetries_anim_static.gif)                       | 	 ![hyq](paper/animations/hyq-Klein4-symmetries_anim_static.gif) | 	      ![Mini-Cheetah-K4](paper/animations/mini_cheetah-Klein4-symmetries_anim_static.gif) | ![anymal_c](paper/animations/anymal_c-Klein4-symmetries_anim_static.gif) | ![anymal_c](paper/animations/anymal_b-Klein4-symmetries_anim_static.gif) |
+|                      	![Solo-K4](docs/static/animations/solo-Klein4-symmetries_anim_static.gif)                       | 	 ![hyq](docs/static/animations/hyq-Klein4-symmetries_anim_static.gif) | 	      ![Mini-Cheetah-K4](docs/static/animations/mini_cheetah-Klein4-symmetries_anim_static.gif) | ![anymal_c](docs/static/animations/anymal_c-Klein4-symmetries_anim_static.gif) | ![anymal_c](docs/static/animations/anymal_b-Klein4-symmetries_anim_static.gif) |
 
 ### $\mathcal{G}=\mathcal{C}_2\times\mathcal{C}_2\times\mathcal{C}_2$: Regular cube symmetry
 |                              [Solo](https://open-dynamic-robot-initiative.github.io/) 	                              |                                         Mini-Cheetah                                          |
 |:--------------------------------------------------------------------------------------------------------------------:|:---------------------------------------------------------------------------------------------:|
-|                     	![solo-c2xc2xc2](paper/animations/solo-C2xC2xC2-symmetries_anim_static.gif)                     | 	   ![bolt](paper/animations/mini_cheetah-C2xC2xC2-symmetries_anim_static.gif) |      
+|                     	![solo-c2xc2xc2](docs/static/animations/solo-C2xC2xC2-symmetries_anim_static.gif)                     | 	   ![bolt](docs/static/animations/mini_cheetah-C2xC2xC2-symmetries_anim_static.gif) |      
 
 ### Addition of new dynamical systems to the library.
 
@@ -205,7 +205,7 @@ rep_O3_pseudo = G.representations["Od_pseudo"]  # Used to transform the angular 
 # Define the input and output FieldTypes using the representations of each geometric object.
 # Representation of x := [q, v] ∈ Q_js x TqQ_js      =>    ρ_X_js(g) := ρ_Q_js(g) ⊕ ρ_TqQ_js(g)  | g ∈ G
 in_field_type = FieldType(gspace, [rep_QJ, rep_TqQJ])
-# Representation of y := [l, k] ∈ R3 x R3            =>    ρ_X_js(g) := ρ_O3(g) ⊕ ρ_O3pseudo(g)  | g ∈ G
+# Representation of y := [l, k] ∈ R3 x R3            =>    ρ_Y_js(g) := ρ_O3(g) ⊕ ρ_O3pseudo(g)  | g ∈ G
 out_field_type = FieldType(gspace, [rep_O3, rep_O3_pseudo])
 
 # Construct the equivariant MLP
