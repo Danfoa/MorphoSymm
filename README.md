@@ -81,7 +81,7 @@ The function returns:
 -  `G`: the symmetry group of the system of instance [`escnn.group.Group`](https://quva-lab.github.io/escnn/api/escnn.group.html#group)
 #### Getting and resetting the state of the system
 
-The system state is defined as $`(\mathbf{q}, \mathbf{v}) \;|\; \mathbf{q} \in \mathrm{Q}, \;\mathbf{q} \in $T_{q}\mathrm{Q}`$, being $\mathrm{Q}$ the space of generalized position coordinates, and $T_{q}\mathrm{Q}$ the space of generalized velocity coordinates. Recall from the [paper convention](https://arxiv.org/abs/2302.10433) that the state configuration can be separated into base configuration and joint-space configuration $`\mathrm{Q} := \mathrm{E}_d \times \mathrm{Q}_J`$, such that $`
+The system state is defined as $`(\mathbf{q}, \mathbf{v}) \;|\; \mathbf{q} \in \mathrm{Q}, \; \mathbf{v} \in T_{q}\mathrm{Q}`$, being $\mathrm{Q}$ the space of generalized position coordinates, and $T_{q}\mathrm{Q}$ the space of generalized velocity coordinates. Recall from the [paper convention](https://arxiv.org/abs/2302.10433) that the state configuration can be separated into base configuration and joint-space configuration $`\mathrm{Q} := \mathrm{E}_d \times \mathrm{Q}_J`$, such that $`
 \mathbf{q} :=
 \begin{bsmallmatrix}
 \mathbf{X}_B \\ \mathbf{q}_{js}     
