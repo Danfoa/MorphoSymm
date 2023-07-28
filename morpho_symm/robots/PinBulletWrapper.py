@@ -253,7 +253,7 @@ class PinBulletWrapper(PinSimWrapper):
             # Convert position and velocity coordinates to pinocchio convention
             q_joint, v_joint = joint.sim2pin(pb_q_joint, pb_v_joint)
             # Place values in Pinocchio joint index ordering
-            q[joint.pin_joint.idx_q: joint.pin_joint.idx_q + joint.pin_joint.nq] = q_joint
+            q[joint.pin_joint.idx_q: joint.pin_joint.idx_q + joint.pin_joint.nq] = np.squeeze(q_joint)
             v[joint.pin_joint.idx_v: joint.pin_joint.idx_v + joint.pin_joint.nv] = v_joint
 
         # Base configuration

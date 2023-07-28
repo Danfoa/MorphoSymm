@@ -11,14 +11,13 @@ from pynput import keyboard
 from scipy.spatial.transform import Rotation
 from tqdm import tqdm
 
+import morpho_symm
+from morpho_symm.utils.algebra_utils import matrix_to_quat_xyzw, permutation_matrix
 from morpho_symm.utils.group_utils import group_rep_from_gens
-from utils.pybullet_visual_utils import (change_robot_appearance, draw_plane, draw_vector, render_camera_trajectory,
+from morpho_symm.utils.pybullet_visual_utils import configure_bullet_simulation
+from utils.pybullet_visual_utils import (draw_vector, plot_reflection_plane, render_camera_trajectory,
                                          spawn_robot_instances)
 from utils.robot_utils import load_robot_and_symmetries
-
-import morpho_symm
-from morpho_symm.utils.algebra_utils import matrix_to_quat_xyzw, permutation_matrix, quat_xyzw_to_SO3
-from morpho_symm.utils.pybullet_visual_utils import configure_bullet_simulation
 
 log = logging.getLogger(__name__)
 
@@ -103,7 +102,7 @@ def update_contacts(pb, feet_pos, prev_contact_state, contact_state, planes=None
         planes = []
         for r in feet_pos:
             # Draw a dark purple plane (R, r) in the world frame.
-            planes.append(draw_plane(pb, np.eye(3), out_of_view_pos,
+            planes.append(plot_reflection_plane(pb, np.eye(3), out_of_view_pos,
                                      color=(0.9, 0, 0.9, 0.5), cylinder=True, size=(0.05, 0.005)))
 
     state_change = contact_state != prev_contact_state
@@ -124,7 +123,7 @@ def update_contacts(pb, feet_pos, prev_contact_state, contact_state, planes=None
 def update_heading(pb, X_B, heading_arrow=None):
     pos = (X_B @ np.array([-0.09, 0, 0.045, 1]))[:3]
     if heading_arrow is None:
-        heading_arrow = draw_plane(pb, X_B[:3, :3], pos, color=(0.504, 0.931, 0.970, 1.0),
+        heading_arrow = plot_reflection_plane(pb, X_B[:3, :3], pos, color=(0.504, 0.931, 0.970, 1.0),
                                    size=(0.01, 0.04, 0.01))
     else:
         pb.resetBasePositionAndOrientation(heading_arrow, pos, matrix_to_quat_xyzw(X_B[:3, :3]))
