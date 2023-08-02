@@ -1,7 +1,7 @@
 import copy
 import logging
 from abc import ABC, abstractmethod
-from typing import Collection, Optional, Tuple, Union
+from typing import Collection, List, Optional, Tuple, Union
 
 import numpy as np
 import scipy
@@ -408,8 +408,8 @@ class PinSimWrapper(ABC):
 class JointWrapper:
 
     def __init__(self, type: Union[str, int], idx_q: int, idx_v: int, nq: int, nv: int,
-                 pos_limit_low: Union[list[float], float] = -np.inf,
-                 pos_limit_high: Union[list[float], float] = np.inf):
+                 pos_limit_low: Union[List[float], float] = -np.inf,
+                 pos_limit_high: Union[List[float], float] = np.inf):
         self.type = type
         self.idx_q = idx_q
         self.idx_v = idx_v
@@ -485,7 +485,7 @@ class JointWrapper:
             raise NotImplementedError()
 
     @property
-    def state_idx(self) -> Tuple[list[int], list[int]]:
+    def state_idx(self) -> Tuple[List[int], List[int]]:
         idx_q = list(range(self.idx_q, self.idx_q + self.nq))
         idx_v = list(range(self.idx_v, self.idx_v + self.nv))
         return idx_q, idx_v
