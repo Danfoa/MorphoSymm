@@ -149,7 +149,7 @@ def decompose_representation(
 
 
 def cplx_isotypic_decomposition(
-        G: Group, representation: Union[Dict[GroupElement, np.ndarray], Callable[[GroupElement], np.ndarray]]
+        G: Group, representation: Callable[[GroupElement], np.ndarray]
         ):
     """Perform the isotypic decomposition of unitary representation, decomposing the rep into complex irreps.
 
@@ -178,7 +178,7 @@ def cplx_isotypic_decomposition(
 
     # Check if each subrepresentation can be further decomposed.
     for subrep in subreps:
-        n_sub = subrep[G.sample()].shape[0] if isinstance(subrep, dict) else subrep.size
+        n_sub = subrep(G.sample()).shape[0]   # Dimension of sub representation
         is_irred, _ = is_complex_irreducible(G, subrep)
         if is_irred:
             found_irreps.append(subrep)
@@ -207,7 +207,7 @@ def cplx_isotypic_decomposition(
     return sorted_irreps, Q
 
 
-def sorted_jordan_cann_form(G: Group, reps: List[Union[Dict[GroupElement, np.ndarray], Representation]]):
+def sorted_jordan_cann_form(G: Group, reps: List[Callable[[GroupElement], np.ndarray]]):
     """Sorts a list of representations in ascending order of dimension, and returns a permutation matrix P such that.
 
     Args:
@@ -219,7 +219,7 @@ def sorted_jordan_cann_form(G: Group, reps: List[Union[Dict[GroupElement, np.nda
         reps (List[Union[Dict[GroupElement, np.ndarray], Representation]]): Sorted list of representations.
     """
     reps_idx = range(len(reps))
-    reps_size = [rep[G.sample()].shape[0] if isinstance(rep, dict) else rep.size for rep in reps]
+    reps_size = [rep(G.sample()).shape[0] for rep in reps]
     sort_order = sorted(reps_idx, key=lambda idx: reps_size[idx])
     if sort_order == list(reps_idx):
         return np.eye(sum(reps_size)), reps
@@ -239,7 +239,7 @@ def compute_character_table(G: Group, reps: List[Union[Dict[GroupElement, np.nda
     table = np.zeros((n_reps, G.order()), dtype=complex)
     for i, rep in enumerate(reps):
         for j, g in enumerate(G.elements):
-            table[i, j] = rep.character(g) if isinstance(rep, Representation) else np.trace(rep[g])
+            table[i, j] = rep.character(g) if isinstance(rep, Representation) else np.trace(rep(g))
     return table
 
 
@@ -277,7 +277,7 @@ def escnn_representation_form_mapping(
     # Find Q such that `iso_cplx(g) = Q @ rep(g) @ Q^-1` is block diagonal with blocks being complex irreps.
     cplx_irreps, Q = cplx_isotypic_decomposition(G, rep)
     # Get the size and location of each cplx irrep in `iso_cplx(g)`
-    cplx_irreps_size = [irrep[G.sample()].shape[0] for irrep in cplx_irreps]
+    cplx_irreps_size = [irrep(G.sample()).shape[0] for irrep in cplx_irreps]
     irrep_dim_start = np.cumsum([0] + cplx_irreps_size[:-1])
     # Compute the character table of the found complex irreps and of all complex irreps of G
     irreps_char_table = compute_character_table(G, cplx_irreps)
@@ -321,7 +321,7 @@ def escnn_representation_form_mapping(
     # `iso_re(g) = (Q_iso_cplx2iso_re @ P) @ iso_cplx(g) @ (Q_iso_cplx2iso_re @ P)^-1`,
     for g in G.elements:
         iso_re_g = block_diag(*[irrep(g) for irrep in escnn_real_irreps])
-        iso_cplx_g = block_diag(*[cplx_irrep[g] for cplx_irrep in cplx_irreps])
+        iso_cplx_g = block_diag(*[cplx_irrep(g) for cplx_irrep in cplx_irreps])
         rec_iso_re_g = (Q_iso_cplx2iso_re @ P) @ iso_cplx_g @ (Q_iso_cplx2iso_re @ P).conj().T
         error = np.abs(iso_re_g - rec_iso_re_g)
         assert np.isclose(error, 0).all(), "Error in the conversion of Real irreps to Complex irreps"
