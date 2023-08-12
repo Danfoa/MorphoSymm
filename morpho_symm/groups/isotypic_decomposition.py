@@ -4,13 +4,13 @@ from typing import Callable, Dict, List, Union
 import escnn
 import networkx as nx
 import numpy as np
-import scipy
 from escnn.group.group import Group, GroupElement
 from escnn.group.representation import Representation
 from networkx import Graph
 from scipy.linalg import block_diag
 
 from morpho_symm.utils.algebra_utils import permutation_matrix
+from morpho_symm.utils.mysc import CallableDict
 
 
 def is_complex_irreducible(
@@ -103,7 +103,7 @@ def decompose_representation(
     graph = Graph()
     graph.add_edges_from(set(edges))
     connected_components = [sorted(list(comp)) for comp in nx.connected_components(graph)]
-    connected_components = sorted(connected_components, key=lambda x: (len(x), min(x)))   # Impose a canonical order
+    connected_components = sorted(connected_components, key=lambda x: (len(x), min(x)))  # Impose a canonical order
     # If connected components are not adjacent dimensions, say subrep_1_dims = [0,2] and subrep_2_dims = [1,3] then
     # We permute them to get a jordan block canonical form. I.e. subrep_1_dims = [0,1] and subrep_2_dims = [2,3].
     oneline_notation = list(itertools.chain.from_iterable([list(comp) for comp in connected_components]))
@@ -117,7 +117,7 @@ def decompose_representation(
     connected_components = ordered_connected_components
 
     # The output of connected components is the set of nodes/row-indices of the rep.
-    subreps = [{} for _ in connected_components]
+    subreps = [CallableDict() for _ in connected_components]
     for g in G.elements:
         for comp_id, comp in enumerate(connected_components):
             block_start, block_end = comp[0], comp[-1] + 1
@@ -178,7 +178,7 @@ def cplx_isotypic_decomposition(
 
     # Check if each subrepresentation can be further decomposed.
     for subrep in subreps:
-        n_sub = subrep(G.sample()).shape[0]   # Dimension of sub representation
+        n_sub = subrep(G.sample()).shape[0]  # Dimension of sub representation
         is_irred, _ = is_complex_irreducible(G, subrep)
         if is_irred:
             found_irreps.append(subrep)
@@ -259,7 +259,7 @@ def map_character_tables(in_table: np.ndarray, reference_table: np.ndarray):
 def escnn_representation_form_mapping(
         G: Group, representation: Union[Dict[GroupElement, np.ndarray], Callable[[GroupElement], np.ndarray]]
         ):
-    """Get a ESCNN representation isntance from a mapping from group elements to unitary matrices.
+    """Get a ESCNN representation instance from a mapping from group elements to unitary matrices.
 
     Args:
         G (Group): Symmetry group of the representation.
@@ -269,9 +269,10 @@ def escnn_representation_form_mapping(
     Returns:
         representation (Representation): ESCNN representation instance.
     """
-
-    def rep(g):
-        return representation[g] if isinstance(representation, dict) else representation(g)
+    if isinstance(representation, dict):
+        rep = CallableDict(representation)
+    else:
+        rep = representation
 
     rep(G.sample()).shape[0]  # Size of the representation
     # Find Q such that `iso_cplx(g) = Q @ rep(g) @ Q^-1` is block diagonal with blocks being complex irreps.
