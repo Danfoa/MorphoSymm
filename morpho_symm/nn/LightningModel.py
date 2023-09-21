@@ -8,6 +8,7 @@ import pytorch_lightning as pl
 import torch
 
 from morpho_symm.nn.EMLP import EMLP, MLP, LinearBlock
+
 from .EquivariantModules import BasisLinear
 
 log = logging.getLogger(__name__)
@@ -118,7 +119,7 @@ class LightningModel(pl.LightningModule):
         # TODO: Add number of layers and hidden channels dimensions.
         hparams = {'lr': self.lr, 'model': self.model_type}
         if hasattr(self.model, "get_hparams"):
-            hparams.update(self.model.get_hparams())
+            hparams.update(self.model.get_hparams)
         if self.logger:
             self.logger.log_hyperparams(hparams, {"val_loss": np.NaN, "train_loss_epoch": np.NaN, "test_loss": np.NaN})
 
