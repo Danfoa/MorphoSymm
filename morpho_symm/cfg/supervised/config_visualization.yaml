@@ -10,7 +10,9 @@ make_gif: False
 make_imgs: False
 gui: True
 
+recording_name: 'concrete_galloping'
 hydra:
+#  hydra_logging: null
   output_subdir: null  # disable hydra output directory
   verbose: ${debug}
   run:

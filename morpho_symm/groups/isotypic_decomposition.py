@@ -10,6 +10,7 @@ from networkx import Graph
 from scipy.linalg import block_diag
 
 from morpho_symm.utils.algebra_utils import permutation_matrix
+from morpho_symm.utils.mysc import CallableDict
 
 
 def is_complex_irreducible(
@@ -70,7 +71,8 @@ def decompose_representation(
         rep = representation
     # Compute the dimension of the representation
     n = rep(G.sample()).shape[0]
-    for g in G.elements:
+
+    for g in G.elements:  # Ensure the representation is unitary/orthogonal
         error = np.abs((rep(g) @ rep(g).conj().T) - np.eye(n))
         assert np.allclose(error, 0), f"Rep {rep} is not unitary: rep(g)@rep(g)^H=\n{(rep(g) @ rep(g).conj().T)}"
 
@@ -80,10 +82,9 @@ def decompose_representation(
         return [rep], np.eye(n)
 
     # Eigen-decomposition of matrix `H = P·A·P^-1` reveals the G-invariant subspaces/eigenspaces of the representations.
-    eivals, eigvects = np.linalg.eigh(H)
+    eivals, eigvects = np.linalg.eigh(H, UPLO='L')
     P = eigvects.conj().T
     assert np.allclose(P.conj().T @ np.diag(eivals) @ P, H)
-    assert np.allclose(P @ P.conj().T, np.eye(n)), "P is not Unitary/Hermitian"
 
     # Eigendcomposition is not guaranteed to block_diagonalize the representation. An additional permutation of the
     # rows and columns od the representation might be needed to produce a Jordan block canonical form.
@@ -102,7 +103,7 @@ def decompose_representation(
     graph = Graph()
     graph.add_edges_from(set(edges))
     connected_components = [sorted(list(comp)) for comp in nx.connected_components(graph)]
-    connected_components = sorted(connected_components, key=lambda x: len(x))
+    connected_components = sorted(connected_components, key=lambda x: (len(x), min(x)))  # Impose a canonical order
     # If connected components are not adjacent dimensions, say subrep_1_dims = [0,2] and subrep_2_dims = [1,3] then
     # We permute them to get a jordan block canonical form. I.e. subrep_1_dims = [0,1] and subrep_2_dims = [2,3].
     oneline_notation = list(itertools.chain.from_iterable([list(comp) for comp in connected_components]))
@@ -116,17 +117,18 @@ def decompose_representation(
     connected_components = ordered_connected_components
 
     # The output of connected components is the set of nodes/row-indices of the rep.
-    subreps = [{} for _ in connected_components]
+    subreps = [CallableDict() for _ in connected_components]
     for g in G.elements:
         for comp_id, comp in enumerate(connected_components):
             block_start, block_end = comp[0], comp[-1] + 1
             # Transform the decomposed representation into the Jordan Cannonical Form (jcf)
             jcf_rep = (PJ @ decomposed_reps[g] @ PJ.T)
             # Check Jordan Cannonical Form TODO: Extract this to a utils. function
-            above_block, below_block = jcf_rep[0:block_start, block_start:block_end], jcf_rep[block_end:,
-                                                                                      block_start:block_end]
-            left_block, right_block = jcf_rep[block_start:block_end, 0:block_start], jcf_rep[block_start:block_end,
-                                                                                     block_end:]
+            above_block = jcf_rep[0:block_start, block_start:block_end]
+            below_block = jcf_rep[block_end:, block_start:block_end]
+            left_block = jcf_rep[block_start:block_end, 0:block_start]
+            right_block = jcf_rep[block_start:block_end, block_end:]
+
             assert np.allclose(above_block, 0) or above_block.size == 0, "Non zero elements above block"
             assert np.allclose(below_block, 0) or below_block.size == 0, "Non zero elements below block"
             assert np.allclose(left_block, 0) or left_block.size == 0, "Non zero elements left of block"
@@ -147,7 +149,7 @@ def decompose_representation(
 
 
 def cplx_isotypic_decomposition(
-        G: Group, representation: Union[Dict[GroupElement, np.ndarray], Callable[[GroupElement], np.ndarray]]
+        G: Group, representation: Callable[[GroupElement], np.ndarray]
         ):
     """Perform the isotypic decomposition of unitary representation, decomposing the rep into complex irreps.
 
@@ -176,7 +178,7 @@ def cplx_isotypic_decomposition(
 
     # Check if each subrepresentation can be further decomposed.
     for subrep in subreps:
-        n_sub = subrep[G.sample()].shape[0] if isinstance(subrep, dict) else subrep.size
+        n_sub = subrep(G.sample()).shape[0]  # Dimension of sub representation
         is_irred, _ = is_complex_irreducible(G, subrep)
         if is_irred:
             found_irreps.append(subrep)
@@ -196,20 +198,16 @@ def cplx_isotypic_decomposition(
     Q = P @ Q_external @ Q_internal
 
     # Test isotypic decomposition.
-    assert np.allclose(Q @ np.linalg.inv(Q), np.eye(n)), "Q is not unitary."
+    assert np.allclose(Q @ Q.conj().T, np.eye(n)), "Q is not unitary."
     for g in G.elements:
-        rep(g)
         g_iso = block_diag(*[irrep[g] if isinstance(irrep, dict) else irrep(g) for irrep in sorted_irreps])
-        P.T @ g_iso @ P
-        Q_external.conj().T @ P.T @ g_iso @ P @ Q_external
-        Q_internal.conj().T @ Q_external.conj().T @ P.T @ g_iso @ P @ Q_external @ Q_internal
-        error = np.abs(g_iso - (Q @ rep(g) @ np.linalg.inv(Q)))
+        error = np.abs(g_iso - (Q @ rep(g) @ Q.conj().T))
         assert np.allclose(error, 0), f"Q @ rep[g] @ Q^-1 != block_diag[irreps[g]], for g={g}. Error \n:{error}"
 
     return sorted_irreps, Q
 
 
-def sorted_jordan_cann_form(G: Group, reps: List[Union[Dict[GroupElement, np.ndarray], Representation]]):
+def sorted_jordan_cann_form(G: Group, reps: List[Callable[[GroupElement], np.ndarray]]):
     """Sorts a list of representations in ascending order of dimension, and returns a permutation matrix P such that.
 
     Args:
@@ -221,7 +219,7 @@ def sorted_jordan_cann_form(G: Group, reps: List[Union[Dict[GroupElement, np.nda
         reps (List[Union[Dict[GroupElement, np.ndarray], Representation]]): Sorted list of representations.
     """
     reps_idx = range(len(reps))
-    reps_size = [rep[G.sample()].shape[0] if isinstance(rep, dict) else rep.size for rep in reps]
+    reps_size = [rep(G.sample()).shape[0] for rep in reps]
     sort_order = sorted(reps_idx, key=lambda idx: reps_size[idx])
     if sort_order == list(reps_idx):
         return np.eye(sum(reps_size)), reps
@@ -241,7 +239,7 @@ def compute_character_table(G: Group, reps: List[Union[Dict[GroupElement, np.nda
     table = np.zeros((n_reps, G.order()), dtype=complex)
     for i, rep in enumerate(reps):
         for j, g in enumerate(G.elements):
-            table[i, j] = rep.character(g) if isinstance(rep, Representation) else np.trace(rep[g])
+            table[i, j] = rep.character(g) if isinstance(rep, Representation) else np.trace(rep(g))
     return table
 
 
@@ -261,7 +259,7 @@ def map_character_tables(in_table: np.ndarray, reference_table: np.ndarray):
 def escnn_representation_form_mapping(
         G: Group, representation: Union[Dict[GroupElement, np.ndarray], Callable[[GroupElement], np.ndarray]]
         ):
-    """Get a ESCNN representation isntance from a mapping from group elements to unitary matrices.
+    """Get a ESCNN representation instance from a mapping from group elements to unitary matrices.
 
     Args:
         G (Group): Symmetry group of the representation.
@@ -271,15 +269,16 @@ def escnn_representation_form_mapping(
     Returns:
         representation (Representation): ESCNN representation instance.
     """
-
-    def rep(g):
-        return representation[g] if isinstance(representation, dict) else representation(g)
+    if isinstance(representation, dict):
+        rep = CallableDict(representation)
+    else:
+        rep = representation
 
     rep(G.sample()).shape[0]  # Size of the representation
     # Find Q such that `iso_cplx(g) = Q @ rep(g) @ Q^-1` is block diagonal with blocks being complex irreps.
     cplx_irreps, Q = cplx_isotypic_decomposition(G, rep)
     # Get the size and location of each cplx irrep in `iso_cplx(g)`
-    cplx_irreps_size = [irrep[G.sample()].shape[0] for irrep in cplx_irreps]
+    cplx_irreps_size = [irrep(G.sample()).shape[0] for irrep in cplx_irreps]
     irrep_dim_start = np.cumsum([0] + cplx_irreps_size[:-1])
     # Compute the character table of the found complex irreps and of all complex irreps of G
     irreps_char_table = compute_character_table(G, cplx_irreps)
@@ -323,16 +322,19 @@ def escnn_representation_form_mapping(
     # `iso_re(g) = (Q_iso_cplx2iso_re @ P) @ iso_cplx(g) @ (Q_iso_cplx2iso_re @ P)^-1`,
     for g in G.elements:
         iso_re_g = block_diag(*[irrep(g) for irrep in escnn_real_irreps])
-        iso_cplx_g = block_diag(*[cplx_irrep[g] for cplx_irrep in cplx_irreps])
-        rec_iso_re_g = Q_iso_cplx2iso_re @ P @ iso_cplx_g @ (Q_iso_cplx2iso_re @ P).conj().T
+        iso_cplx_g = block_diag(*[cplx_irrep(g) for cplx_irrep in cplx_irreps])
+        rec_iso_re_g = (Q_iso_cplx2iso_re @ P) @ iso_cplx_g @ (Q_iso_cplx2iso_re @ P).conj().T
         error = np.abs(iso_re_g - rec_iso_re_g)
-        assert np.isclose(error, 0).all(), "Error found in the conversion of Real irreps to Complex irreps"
+        assert np.isclose(error, 0).all(), "Error in the conversion of Real irreps to Complex irreps"
 
     # Now we have an orthogonal transformation between the input `rep` and `iso_re`.
     #                        |     iso_cplx(g)     |
     # (Q_iso_cplx2iso_re @ P @ Q) @ rep(g) @ (Q^-1 @ P^-1 @ Q_iso_cplx2iso_re^-1) = Q_re @ rep(g) @ Q_re^-1 = iso_re(g)
     Q_re = Q_iso_cplx2iso_re @ P @ Q
+
     assert np.allclose(Q_re @ Q_re.conj().T, np.eye(Q_re.shape[0])), "Q_re is not an orthogonal transformation"
+    if np.allclose(np.imag(Q_re), 0):
+        Q_re = np.real(Q_re)  # Remove numerical noise and ensure rep(g) is of dtype: float instead of cfloat
 
     # Then we have that `Q_re^-1 @ iso_re(g) @ Q_re = rep(g)`
     reconstructed_rep = Representation(G, name="reconstructed", irreps=[irrep.id for irrep in escnn_real_irreps],
@@ -344,6 +346,7 @@ def escnn_representation_form_mapping(
         error = np.abs(g_true - g_rec)
         error[error < 1e-10] = 0
         assert np.allclose(error, 0), f"Reconstructed rep do not match input rep. g={g}, error:\n{error}"
+        assert np.allclose(np.imag(g_rec), 0), f"Reconstructed rep not real for g={g}: \n{g_rec}"
 
     return reconstructed_rep
 

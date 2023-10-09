@@ -11,6 +11,7 @@ import escnn.group
 import numpy as np
 from escnn.group import CyclicGroup, DihedralGroup, DirectProductGroup, Group, Representation
 from omegaconf import DictConfig
+from scipy.spatial.transform import Rotation
 
 from morpho_symm.robots.PinBulletWrapper import PinBulletWrapper
 from morpho_symm.utils.algebra_utils import gen_permutation_matrix
@@ -56,7 +57,7 @@ def get_escnn_group(cfg: DictConfig):
     return symmetry_space
 
 
-def load_robot_and_symmetries(robot_cfg: DictConfig, debug=False) -> [PinBulletWrapper, escnn.gspaces.GSpace3D]:
+def load_symmetric_system(robot_cfg: DictConfig, debug=False) -> [PinBulletWrapper, escnn.group.Group]:
     """Utility function to get the symmetry group and representations of a robotic system defined in config.
 
     This function loads the robot into pinocchio, and generate the symmetry group representations for the following
@@ -71,8 +72,8 @@ def load_robot_and_symmetries(robot_cfg: DictConfig, debug=False) -> [PinBulletW
 
     Returns:
         robot (PinBulletWrapper): instance with the robot loaded in pinocchio and ready to be loaded in pyBullet
-        gspace (GSpace3D): Instance of the symmetry space of the robot. The representations for Q_js, TqQ_js and Ed are
-        added to the list of representations of the group (`gspace.G.representations`).
+        G (escnn.group.Group): Instance of the symmetry Group of the robot. The representations for Q_js, TqQ_js and Ed are
+        added to the list of representations of the group.
     """
     robot_name = str.lower(robot_cfg.name)
     # We allow symbolic expressions (e.g. `np.pi/2`) in the `q_zero` and `init_q`.
@@ -134,23 +135,24 @@ def load_robot_and_symmetries(robot_cfg: DictConfig, debug=False) -> [PinBulletW
             rep_TqQ_js[g_gen] = gen_permutation_matrix(oneline_notation=perm, reflections=refx)
         # Generate the entire group
         rep_TqQ_js = group_rep_from_gens(G, rep_TqQ_js)
+        rep_TqQ_js.name = 'TqQ_js'
 
-    # Add `Ed` and `QJ` representations to the group.
-    rep_Ed = generate_E3_rep(G)
     rep_Q_js.name = 'Q_js'
-    rep_TqQ_js.name = 'TqQ_js'
-    rep_Ed.name = 'Ed'
+
+    # Create the representation of isometries on the Euclidean Space in d dimensions.
+    generate_euclidean_space_representations(G)  # This adds `O3` and `E3` representations to the group.
 
     # Add representations to the group.
-    G.representations.update(Ed=rep_Ed, Q_js=rep_Q_js, TqQ_js=rep_TqQ_js)
-    return robot, symmetry_space
+    G.representations.update(Q_js=rep_Q_js, TqQ_js=rep_TqQ_js)
+    return robot, G
 
 
-def generate_E3_rep(G: Group) -> Representation:
+def generate_euclidean_space_representations(G: Group) -> Representation:
     """Generate the E3 representation of the group G.
 
     This representation is used to transform all members of the Euclidean Space in 3D.
     I.e., points, vectors, pseudo-vectors, etc.
+    TODO: List representations generated.
 
     Args:
         G (Group): Symmetry group of the robot.
@@ -161,24 +163,48 @@ def generate_E3_rep(G: Group) -> Representation:
     # Configure E3 representations and group
     if isinstance(G, CyclicGroup):
         if G.order() == 2:  # Reflection symmetry
-            rep_E3 = G.irrep(0) + G.irrep(1) + G.trivial_representation
+            rep_O3 = G.irrep(0) + G.irrep(1) + G.trivial_representation
         else:
-            rep_E3 = G.irrep(1) + G.trivial_representation
+            rep_O3 = G.irrep(1) + G.trivial_representation
     elif isinstance(G, DihedralGroup):
-        rep_E3 = G.irrep(0, 1) + G.irrep(1, 1) + G.trivial_representation
+        rep_O3 = G.irrep(0, 1) + G.irrep(1, 1) + G.trivial_representation
     elif isinstance(G, DirectProductGroup):
         if G.name == "Klein4":
-            rep_E3 = G.representations['rectangle'] + G.trivial_representation
-            rep_E3 = escnn.group.change_basis(rep_E3, np.array([[0, 1, 0], [1, 0, 0], [0, 0, 1]]), name="E3")
+            rep_O3 = G.representations['rectangle'] + G.trivial_representation
+            rep_O3 = escnn.group.change_basis(rep_O3, np.array([[0, 1, 0], [1, 0, 0], [0, 0, 1]]), name="E3")
         elif G.name == "FullCylindricalDiscrete":
             rep_hx = np.array(np.array([[-1, 0, 0], [0, 1, 0], [0, 0, 1]]))
             rep_hy = np.array(np.array([[1, 0, 0], [0, -1, 0], [0, 0, 1]]))
             rep_hz = np.array(np.array([[1, 0, 0], [0, 1, 0], [0, 0, -1]]))
             rep_E3_gens = {h: rep_h for h, rep_h in zip(G.generators, [rep_hy, rep_hx, rep_hz])}
-            rep_E3 = group_rep_from_gens(G, rep_E3_gens)
+            rep_E3_gens[G.identity] = np.eye(3)
+            rep_O3 = group_rep_from_gens(G, rep_E3_gens)
         else:
             raise NotImplementedError(f"Direct product {G} not implemented yet.")
     else:
         raise NotImplementedError(f"Group {G} not implemented yet.")
+
+    # We include some utility symmetry representations for different geometric objects.
+    # We define a Ed as a (d+1)x(d+1) matrix representing a homogenous transformation matrix in d dimensions.
+    rep_E3 = rep_O3 + G.trivial_representation
     rep_E3.name = "E3"
-    return rep_E3
+
+    # Representation of unitary/orthogonal transformations in d dimensions.
+    rep_O3.name = "O3"
+    # Build a representation of orthogonal transformations of pseudo-vectors.
+    # That is if det(rep_O3(h)) == -1 [improper rotation] then we have to change the sign of the pseudo-vector.
+    # See: https://en.wikipedia.org/wiki/Pseudovector
+    psuedo_gens = {h: -1 * rep_O3(h) if np.linalg.det(rep_O3(h)) < 0 else rep_O3(h) for h in G.generators}
+    psuedo_gens[G.identity] = np.eye(3)
+    rep_O3pseudo = group_rep_from_gens(G, psuedo_gens)
+    rep_O3pseudo.name = "O3_pseudo"
+
+    # Representation of quaternionic transformations in d dimensions.
+    # TODO: Add quaternion representation
+    # quat_gens = {h: Rotation.from_matrix(rep_O3(h)).as_quat() for h in G.generators}
+    # quat_gens[G.identity] = np.eye(4)
+    # TODO: Add quaternion pseudo representation
+    # rep_O3pseudo = group_rep_from_gens(G, psuedo_gens)
+
+    G.representations.update(Od=rep_O3, Ed=rep_E3, Od_pseudo=rep_O3pseudo)
+

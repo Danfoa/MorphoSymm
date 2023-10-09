@@ -10,9 +10,10 @@ Copyright note valid unless otherwise stated in individual files.
 All rights reserved.
 """
 import logging
-from typing import Callable, Iterable, Optional, Tuple
+from typing import Iterable, Optional
 
 import numpy as np
+import pinocchio
 from pinocchio.utils import zero
 from pybullet_utils.bullet_client import BulletClient
 from robot_descriptions.loaders.pybullet import load_robot_description as pb_load_robot_description
@@ -186,8 +187,8 @@ class PinBulletWrapper(PinSimWrapper):
             q (ndarray): Generalized position coordinates of shape in bullet convention.
             v (ndarray): Generalized velocity coordinates of shape in bullet convention.
         """
-        q = zero(self.pb_nq)
-        dq = zero(self.pb_nv)
+        q_sim = zero(self.pb_nq)
+        v_sim = zero(self.pb_nv)
 
         if not self.fixed_base:
             base_inertia_pos, base_inertia_quat = self.bullet_client.getBasePositionAndOrientation(self.robot_id)
@@ -198,29 +199,28 @@ class PinBulletWrapper(PinSimWrapper):
             pos, orn = self.bullet_client.multiplyTransforms(base_inertia_pos, base_inertia_quat,
                                                              base_inertia_link_pos, base_inertia_link_quat)
 
-            q[:3] = pos
-            q[3:7] = orn
+            q_sim[:3] = pos
+            q_sim[3:7] = orn
 
             vel, orn = self.bullet_client.getBaseVelocity(self.robot_id)  # Return in "world" inertial reference frame
-            dq[:3] = vel
-            dq[3:6] = orn
+            v_sim[:3] = vel
+            v_sim[3:6] = orn
 
             # Pinocchio assumes the base velocity to be in the body frame -> rotate.
-            rot_base2world = np.array(self.bullet_client.getMatrixFromQuaternion(q[3:7])).reshape((3, 3))
-            dq[0:3] = rot_base2world.T.dot(dq[0:3])
-            dq[3:6] = rot_base2world.T.dot(dq[3:6])
+            rot_base2world = np.array(self.bullet_client.getMatrixFromQuaternion(q_sim[3:7])).reshape((3, 3))
+            v_sim[0:3] = rot_base2world.T.dot(v_sim[0:3])
+            v_sim[3:6] = rot_base2world.T.dot(v_sim[3:6])
 
         # Fetch joint state from bullet
         joint_states = self.bullet_client.getJointStates(self.robot_id,
                                                          [self.joint_space[m].bullet_idx for m in
                                                           self.joint_space_names])
-        pb_q_js = np.array([joint_states[i][0] for i in range(len(joint_states))])
-        pb_dq_js = np.array([joint_states[i][1] for i in range(len(joint_states))])
-        # Convert bullet joint-state configuration to pinocchio convention.
-        q[7:] = pb_q_js
-        dq[6:] = pb_dq_js
+        for joint_name, joint_state in zip(self.joint_space_names, joint_states):
+            joint = self.joint_space[joint_name]
+            q_sim[joint.sim_joint.idx_q: joint.sim_joint.idx_q + joint.sim_joint.nq] = joint_state[0]
+            v_sim[joint.sim_joint.idx_q: joint.sim_joint.idx_q + joint.sim_joint.nq] = joint_state[1]
 
-        return q, dq
+        return q_sim, v_sim
 
     def pin2sim(self, q, v) -> State:
 
@@ -245,7 +245,6 @@ class PinBulletWrapper(PinSimWrapper):
 
         q = np.zeros(self.nq)
         v = np.zeros(self.nv)
-
         for joint_name, joint in self.joint_space.items():
             # Extract position and velocity coordinates from simulator
             pb_q_joint = pb_q[joint.sim_joint.idx_q: joint.sim_joint.idx_q + joint.sim_joint.nq]
@@ -253,7 +252,7 @@ class PinBulletWrapper(PinSimWrapper):
             # Convert position and velocity coordinates to pinocchio convention
             q_joint, v_joint = joint.sim2pin(pb_q_joint, pb_v_joint)
             # Place values in Pinocchio joint index ordering
-            q[joint.pin_joint.idx_q: joint.pin_joint.idx_q + joint.pin_joint.nq] = np.squeeze(q_joint)
+            q[joint.pin_joint.idx_q: joint.pin_joint.idx_q + joint.pin_joint.nq] = q_joint
             v[joint.pin_joint.idx_v: joint.pin_joint.idx_v + joint.pin_joint.nv] = v_joint
 
         # Base configuration
@@ -401,7 +400,7 @@ class BulletJointWrapper(SimPinJointWrapper):
         if self.pin_joint.nq == 1:
             return q, v
         if self.pin_joint.nq == 2 and self.pin_joint.nv == 1:  # Unit circle
-            return np.array([np.cos(q), np.sin(q)]), v
+            return np.asarray([np.cos(q), np.sin(q)]).flatten(), v
         else:
             raise NotImplementedError()
 
@@ -410,6 +409,6 @@ class BulletJointWrapper(SimPinJointWrapper):
             return q, v
         if self.pin_joint.nq == 2 and self.pin_joint.nv == 1:  # Unit circle
             theta = np.arctan2(q[1], q[0])
-            return np.array([theta]), v
+            return np.asarray([theta]).flatten(), v
         else:
             raise NotImplementedError()

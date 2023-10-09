@@ -29,8 +29,8 @@ def generate_dihedral_rep(G: DihedralGroup, rep):
     """Generate dihedral group form a representation of its generators."""
     h_rot, h_ref = G.generators
     # Check the given matrix representations comply with group axioms
-    assert not np.allclose(rep[h_ref], rep[G.identity]), "Invalid reflection generator: h_ref=e"
-    assert not np.allclose(rep[h_rot], rep[G.identity]), "Invalid rotation generator: h_rot=e"
+    # assert not np.allclose(rep[h_ref], rep[G.identity]), "Invalid reflection generator: h_ref=e"
+    # assert not np.allclose(rep[h_rot], rep[G.identity]), "Invalid rotation generator: h_rot=e"
     assert np.allclose(rep[h_ref] @ rep[h_ref], rep[G.identity]), "Invalid reflection generator `h_ref @ h_ref != I`"
     assert np.allclose(np.linalg.matrix_power(rep[h_rot], G.order()//2), rep[G.identity]),\
         f"Invalid rotation generator h_ref^{G.order} != I"

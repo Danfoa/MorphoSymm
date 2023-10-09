@@ -18,7 +18,7 @@ q_zero: [0,    0,   0, 0, 0, 0, 0,    0,-np.pi/2,    0,   0, -np.pi/2,   0,    0
 #        ____FL___|___FR____|___HL______|____HR____|
 # q    = [ 0, 1, 2,  3, 4, 5,  6,  7,  8, 9, 10, 11]
 # Configure qj (joint-space) group actions
-#                  Sagittal Symmetry                          Transversal symmetry                            Frontal Symmetry
+#                             Sagittal Symmetry                          Transversal symmetry                            Frontal Symmetry
 permutation_Q_js: [[3, 4, 5, 0, 1, 2, 9, 10, 11, 6, 7, 8],   [6, 7, 8, 9, 10, 11, 0, 1, 2, 3, 4, 5],       [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]]
 # Reflections are determined by joint frame predefined orientation.
 reflection_Q_js: [[-1, 1, 1, -1, 1, 1, -1, 1, 1, -1, 1, 1], [1, -1, -1, 1, -1, -1, 1, -1, -1, 1, -1, -1], [-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1]]

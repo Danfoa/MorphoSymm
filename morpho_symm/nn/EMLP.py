@@ -1,130 +1,187 @@
 import logging
-import math
+from typing import List, Union
 
+import escnn
 import numpy as np
 import torch
-from emlp.reps.representation import Base as BaseRep
-
-from morpho_symm.groups.SparseRepresentation import SparseRep
-
-from .EquivariantModules import BasisLinear, EquivariantModel
+from escnn.nn import EquivariantModule, FieldType
 
 log = logging.getLogger(__name__)
 
-class EMLP(EquivariantModel):
-    """Equivariant MultiLayer Perceptron.
-    If the input channels argument is an int, uses the hands off uniform_rep heuristic.
-    If the channels argument is a representation, uses this representation for the hidden layers.
-    Individual layer representations can be set explicitly by using a list of ints or a list of
-    representations, rather than use the same for each hidden layer.
 
-    Args:
-    rep_in (Rep): input representation
-    rep_out (Rep): output representation
-    hidden_group (Group): symmetry group
-    ch (int or list[int] or Rep or list[Rep]): number of channels in the hidden layers
-    num_layers (int): number of hidden layers
+class EMLP(EquivariantModule):
+    """Equivariant Multi-Layer Perceptron (EMLP) model."""
 
-    Returns:
-    Module: the EMLP objax module.
-    """
+    def __init__(self,
+                 in_type: FieldType,
+                 out_type: FieldType,
+                 num_hidden_units: int = 64,
+                 num_layers: int = 3,
+                 bias: bool = True,
+                 activation: Union[str, EquivariantModule] = "ELU",
+                 head_with_activation: bool = False,
+                 batch_norm: bool = True):
+        """Constructor of an Equivariant Multi-Layer Perceptron (EMLP) model.
 
-    def __init__(self, rep_in, rep_out, ch=64, num_layers=3, with_bias=True, activation=torch.nn.ReLU,
-                 cache_dir=None, init_mode="fan_in", inv_dims_scale=0.0):
-        super().__init__(rep_in, rep_out, cache_dir)
-        logging.info("Initing EMLP (PyTorch)")
-        self.activations = activation
-        self.hidden_channels = ch
-        self.hidden_group = rep_in.G
-        self.n_layers = num_layers
-        self.init_mode = init_mode
-        self.inv_dims_scale = inv_dims_scale
-        # Parse channels as a single int, a sequence of ints, a single Rep, a sequence of Reps
-        rep_inter_in = rep_in
-        rep_inter_out = rep_out
-        inv_in, inv_out = rep_in.G.n_inv_dims/rep_in.G.d, rep_out.G.n_inv_dims/rep_out.G.d
-        inv_ratios = np.linspace(inv_in, inv_out, num_layers + 3, endpoint=True) * self.inv_dims_scale
+        This utility class allows to easily instanciate a G-equivariant MLP architecture. As a convention, we assume
+        every internal layer is a map between the input space: X and an output space: Y, denoted as
+        z = σ(y) = σ(W x + b). Where x ∈ X, W: X -> Y, b ∈ Y. The group representation used for intermediate layer
+        embeddings ρ_Y: G -> GL(Y) is defined as a sum of multiple regular representations:
+        ρ_Y := ρ_reg ⊕ ρ_reg ⊕ ... ⊕ ρ_reg. Therefore, the number of `hidden layer's neurons` will be a multiple of |G|.
+        Being the multiplicities of the regular representation: ceil(num_hidden_units/|G|)
 
-        layers = []
-        for n, inv_ratio in zip(range(num_layers + 1), inv_ratios[1:-1]):
-            rep_inter_out = SparseRep(self.hidden_group.canonical_group(ch, inv_dims=math.ceil(ch * inv_ratio)))
-            layer = EquivariantBlock(rep_in=rep_inter_in, rep_out=rep_inter_out, with_bias=with_bias,
-                                     activation=self.activations)
-            layers.append(layer)
-            rep_inter_in = rep_inter_out
-        # Add last layer
-        linear_out = BasisLinear(rep_in=rep_inter_in, rep_out=rep_out, bias=False)
-        layers.append(linear_out)
+        Args:
+        ----
+            in_type (escnn.nn.FieldType): Input field type containing the representation of the input space.
+            out_type (escnn.nn.FieldType): Output field type containing the representation of the output space.
+            num_hidden_units: Number of hidden units in the intermediate layers. The effective number of hidden units
+            will be ceil(num_hidden_units/|G|). Since we assume intermediate embeddings are regular fields.
+            activation (escnn.nn.EquivariantModule, str): Name of pointwise activation function to use.
+            num_layers: Number of layers in the MLP including input and output/head layers. That is, the number of
+            hidden layers will be num_layers - 2.
+            bias: Whether to include a bias term in the linear layers.
+            activation (escnn.nn.EquivariantModule, list(escnn.nn.EquivariantModule)): If a single activation module is
+            provided it will be used for all layers except the output layer. If a list of activation modules is provided
+            then `num_layers` activation equivariant modules should be provided.
+            head_with_activation: Whether to include an activation module in the output layer.
+            init_mode: Not used until now. Will be used to initialize the weights of the MLP.
+        """
+        super(EMLP, self).__init__()
+        logging.info("Instantiating EMLP (PyTorch)")
+        self.in_type, self.out_type = in_type, out_type
+        self.gspace = self.in_type.gspace
+        self.group = self.gspace.fibergroup
 
-        self.net = torch.nn.Sequential(*layers)
-        self.reset_parameters(init_mode=self.init_mode)
-        EquivariantModel.test_module_equivariance(self, rep_in, rep_out)
-        self.save_cache_file()
+        self.num_layers = num_layers
+        if self.num_layers == 1 and not head_with_activation:
+            log.warning(f"{self} model with 1 layer and no activation. This is equivalent to a linear map")
+
+        if isinstance(activation, str):
+            # Approximate the num of neurons as the num of signals in the space spawned by the irreps of the input type
+            # To compute the signal over the group we use all elements for finite groups
+            activation = self.get_activation(activation, in_type=in_type, desired_hidden_units=num_hidden_units)
+            hidden_type = activation.in_type
+        elif isinstance(activation, EquivariantModule):
+            hidden_type = activation.in_type
+        else:
+            raise ValueError(f"Activation type {type(activation)} not supported.")
+
+        input_irreps = set(in_type.representation.irreps)
+        inner_irreps = set(out_type.irreps)
+        diff = input_irreps.symmetric_difference(inner_irreps)
+        if len(diff) > 0:
+            log.warning(f"Irreps {list(diff)} of group {self.gspace.fibergroup} are not in the input/output types."
+                        f"This represents an information bottleneck. Consider extracting invariant features.")
+
+        layer_in_type = in_type
+
+        self.net = escnn.nn.SequentialModule()
+        for n in range(self.num_layers - 1):
+            layer_out_type = hidden_type
+
+            block = escnn.nn.SequentialModule()
+            block.add_module(f"linear_{n}", escnn.nn.Linear(layer_in_type, layer_out_type, bias=bias))
+            if batch_norm:
+                block.add_module(f"batchnorm_{n}", escnn.nn.IIDBatchNorm1d(layer_out_type)),
+            block.add_module(f"act_{n}", activation)
+
+            self.net.add_module(f"block_{n}", block)
+            layer_in_type = layer_out_type
+
+        # Add final layer
+        head_block = escnn.nn.SequentialModule()
+        head_block.add_module(f"linear_{num_layers - 1}", escnn.nn.Linear(layer_in_type, out_type, bias=bias))
+        if head_with_activation:
+            if batch_norm:
+                head_block.add_module(f"batchnorm_{num_layers - 1}", escnn.nn.IIDBatchNorm1d(out_type)),
+            head_block.add_module(f"act_{num_layers - 1}", activation)
+        # head_layer.check_equivariance()
+        self.net.add_module("head", head_block)
+        # Test the entire model is equivariant.
+        # self.net.check_equivariance()
+
+    @staticmethod
+    def get_activation(activation, in_type: FieldType, desired_hidden_units: int):
+        gspace = in_type.gspace
+        group = gspace.fibergroup
+        grid_length = group.order() if not group.continuous else 20
+
+        unique_irreps = set(in_type.irreps)
+        unique_irreps_dim = sum([group.irrep(*id).size for id in set(in_type.irreps)])
+        scale = in_type.size // unique_irreps_dim
+        channels = int(np.ceil(desired_hidden_units // unique_irreps_dim // scale))
+        if "identity" in activation.lower():
+            raise NotImplementedError("Identity activation not implemented yet")
+            # return escnn.nn.IdentityModule()
+        else:
+            return escnn.nn.FourierPointwise(gspace,
+                                             channels=channels,
+                                             irreps=list(unique_irreps),
+                                             function=f"p_{activation.lower()}",
+                                             inplace=True,
+                                             type='regular' if not group.continuous else 'rand',
+                                             N=grid_length)
 
     def forward(self, x):
+        """Forward pass of the EMLP model."""
         return self.net(x)
 
-    def get_hparams(self):
-        return {'num_layers': len(self.net),
-                'hidden_ch': self.hidden_channels,
-                'activation': str(self.activations.__class__.__name__),
-                'Repin': str(self.rep_in),
-                'Repout': str(self.rep_in),
-                'init_mode': str(self.init_mode),
-                'inv_dim_scale': self.inv_dims_scale,
-                }
-
     def reset_parameters(self, init_mode=None):
-        assert init_mode is not None or self.init_mode is not None
-        self.init_mode = init_mode if init_mode is not None else self.init_mode
-        for module in self.net:
-            if isinstance(module, EquivariantBlock):
-                module.linear.reset_parameters(mode=self.init_mode, activation=module.activation.__class__.__name__.lower())
-            elif isinstance(module, BasisLinear):
-                module.reset_parameters(mode=self.init_mode, activation="Linear")
-        log.info(f"EMLP initialized with mode: {self.init_mode}")
+        """Initialize weights and biases of E-MLP model."""
+        raise NotImplementedError()
 
-    def unfreeze_equivariance(self, num_layers=1):
-        assert num_layers >= 1, num_layers
-        # Freeze most of model parameters.
-        for parameter in self.parameters():
-            parameter.requires_grad = False
-
-        for e_layer in self.net[-num_layers:]:
-            e_layer.unfreeze_equivariance()
+    def evaluate_output_shape(self, input_shape: tuple[int, ...]) -> tuple[int, ...]:
+        """Returns the output shape of the model given an input shape."""
+        batch_size = input_shape[0]
+        return batch_size, self.out_type.size
 
 
 class MLP(torch.nn.Module):
     """Standard baseline MLP. Representations and group are used for shapes only."""
 
-    def __init__(self, d_in, d_out, ch=128, num_layers=3, activation=torch.nn.ReLU, with_bias=True, init_mode="fan_in"):
+    def __init__(self, d_in, d_out, num_hidden_units=128, num_layers=3,
+                 activation: Union[torch.nn.Module, List[torch.nn.Module]] = torch.nn.ReLU,
+                 with_bias=True, init_mode="fan_in"):
+        """Constructor of a Multi-Layer Perceptron (MLP) model.
+
+        This utility class allows to easily instanciate a G-equivariant MLP architecture.
+
+        Args:
+            d_in: Dimension of the input space.
+            d_out: Dimension of the output space.
+            num_hidden_units: Number of hidden units in the intermediate layers.
+            num_layers: Number of layers in the MLP including input and output/head layers. That is, the number of
+            activation (escnn.nn.EquivariantModule, list(escnn.nn.EquivariantModule)): If a single activation module is
+            provided it will be used for all layers except the output layer. If a list of activation modules is provided
+            then `num_layers` activation equivariant modules should be provided.
+            with_bias: Whether to include a bias term in the linear layers.
+            init_mode: Not used until now. Will be used to initialize the weights of the MLP
+        """
         super().__init__()
         self.d_in = d_in
         self.d_out = d_out
         self.init_mode = init_mode
-        self.hidden_channels = ch
+        self.hidden_channels = num_hidden_units
         self.activation = activation
 
-        logging.info("Initing MLP")
+        logging.info("Initializing MLP")
 
         dim_in = self.d_in
-        dim_out = ch
-        layers = []
-        for n in range(num_layers + 1):
-            dim_out = ch
-            layer = LinearBlock(dim_in=dim_in, dim_out=dim_out, with_bias=with_bias, activation=activation)
-            # init
-            # torch.nn.init.kaiming_uniform_(layer.linear.weight, mode=init_mode,
-            #                                nonlinearity=activation.__name__.lower())
+        dim_out = num_hidden_units
+        self.net = torch.nn.Sequential()
+        for n in range(num_layers - 1):
+            dim_out = num_hidden_units
+            block = torch.nn.Sequential()
+            block.add_module(f"linear_{n}", torch.nn.Linear(dim_in, dim_out, bias=with_bias))
+            block.add_module(f"batchnorm_{n}", torch.nn.BatchNorm1d(dim_out))
+            block.add_module(f"act_{n}", activation())
+
+            self.net.add_module(f"block_{n}", block)
             dim_in = dim_out
-            layers.append(layer)
         # Add last layer
         linear_out = torch.nn.Linear(in_features=dim_out, out_features=self.d_out, bias=with_bias)
-        # init.
-        # torch.nn.init.kaiming_uniform_(linear_out.weight, mode=init_mode, nonlinearity="linear")
-        layers.append(linear_out)
+        self.net.add_module("head", linear_out)
 
-        self.net = torch.nn.Sequential(*layers)
         self.reset_parameters(init_mode=self.init_mode)
 
     def forward(self, input):
@@ -133,16 +190,16 @@ class MLP(torch.nn.Module):
 
     def get_hparams(self):
         return {'num_layers': len(self.net),
-                'hidden_ch': self.hidden_channels,
-                'init_mode': self.init_mode}
+                'hidden_ch':  self.hidden_channels,
+                'init_mode':  self.init_mode}
 
     def reset_parameters(self, init_mode=None):
         assert init_mode is not None or self.init_mode is not None
         self.init_mode = self.init_mode if init_mode is None else init_mode
         for module in self.net:
-            if isinstance(module, LinearBlock):
-                tensor = module.linear.weight if isinstance(module, LinearBlock) else module.weight
-                activation = module.activation.__class__.__name__
+            if isinstance(module, torch.nn.Sequential):
+                tensor = module[0].weight
+                activation = module[-1].__class__.__name__
             elif isinstance(module, torch.nn.Linear):
                 tensor = module.weight
                 activation = "Linear"
@@ -154,43 +211,8 @@ class MLP(torch.nn.Module):
             elif 'normal' in self.init_mode.lower():
                 split = self.init_mode.split('l')
                 std = 0.1 if len(split) == 1 else float(split[1])
-                tensor = module.linear.weight if isinstance(module, LinearBlock) else module.weight
                 torch.nn.init.normal_(tensor, 0, std)
             else:
                 raise NotImplementedError(self.init_mode)
 
         log.info(f"MLP initialized with mode: {self.init_mode}")
-
-
-class LinearBlock(torch.nn.Module):
-
-    def __init__(self, dim_in, dim_out, with_bias=True, activation=torch.nn.Identity):
-        super().__init__()
-
-        # TODO: Optional Batch Normalization
-        self.linear = torch.nn.Linear(in_features=dim_in, out_features=dim_out, bias=with_bias)
-        self.activation = activation()
-        self._preact = None  # Debug variable holding last linear activation Tensor, useful for logging.
-
-    def forward(self, x, **kwargs):
-        self._preact = self.linear(x)
-        return self.activation(self._preact)
-
-
-class EquivariantBlock(torch.nn.Module):
-
-    def __init__(self, rep_in: BaseRep, rep_out: BaseRep, with_bias=True, activation=torch.nn.Identity):
-        super(EquivariantBlock, self).__init__()
-
-        # TODO: Optional Batch Normalization
-        self.linear = BasisLinear(rep_in, rep_out, with_bias)
-        self.activation = activation()
-        self._preact = None  # Debug variable holding last linear activation Tensor, useful for logging.
-        EquivariantModel.test_module_equivariance(self, rep_in, rep_out)
-
-    def forward(self, x, **kwargs):
-        self._preact = self.linear(x)
-        return self.activation(self._preact)
-
-    def unfreeze_equivariance(self):
-        self.linear.unfreeze_equivariance()

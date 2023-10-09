@@ -21,8 +21,8 @@ def draw_vector(pb, origin, vector, v_color, scale=1.0):
     linewidth = 4
     if np.linalg.norm(vector) == 0:
         return None
-    pb.addUserDebugLine(lineFromXYZ=origin, lineToXYZ=origin + vector * scale,
-                        lineColorRGB=v_color[:3], lineWidth=linewidth, lifeTime=0)
+    # pb.addUserDebugLine(lineFromXYZ=origin, lineToXYZ=origin + vector * scale,
+    #                     lineColorRGB=v_color[:3], lineWidth=linewidth, lifeTime=0)
 
     v_norm = np.linalg.norm(vector) * scale
 
@@ -63,7 +63,7 @@ def draw_vector(pb, origin, vector, v_color, scale=1.0):
     return vector_id
 
 
-def plot_reflection_plane(pb, R, p, color, size=(0.01, 0.25, 0.25), cylinder=False):
+def draw_plane(pb, R, p, color, size=(0.01, 0.25, 0.25), cylinder=False):
     """Plots a plane with a given rotation and position."""
     if not cylinder:
         body_id = pb.createVisualShape(shapeType=pb.GEOM_BOX, halfExtents=size, rgbaColor=color)
@@ -162,14 +162,14 @@ def render_orbiting_animation(
 
 def render_camera_trajectory(pb, pitch, roll, yaw, n_frames, cam_distance, cam_target_pose, upAxisIndex=2,
                              render_width=812, render_height=812, nearPlane=0.01, farPlane=100, fov=60,
-                             light_direction=(0, 0, 0.5), light_distance=1.0, shadow=True,
+                             light_direction=(0, 0, 0.5), light_distance=1.0, shadow=True, progress=False,
                              ):
     """Renders a camera trajectory given a set of yaw, pitch, roll angle trajectories."""
     # Set rendering constants
     aspect = render_width / render_height
     # Capture frames
     frames = []  # frames to create animated png
-    for s in tqdm(range(n_frames), desc="Capturing frames"):
+    for s in tqdm(range(n_frames), desc="Capturing frames", disable=not progress):
         yaw_t, pitch_t, roll_t = yaw[s], pitch[s], roll[s]
         # Compute view and projection matrices from yaw, pitch, roll
         viewMatrix = pb.computeViewMatrixFromYawPitchRoll(
@@ -304,11 +304,12 @@ def spawn_robot_instances(
     return robots
 
 
-def display_robots_and_vectors(pb, robot, base_confs, Gq_js, Gdq_js, Ghg, forces, forces_points, surface_normals,
-                               GX_g_bar, tint=True, draw_floor=True):
+def display_robots_and_vectors(pb, robot, group, base_confs, orbit_q_js, orbit_v_js, orbit_com_momentum, forces,
+                               forces_points, surface_normals, tint=True, draw_floor=True):
     """Plot side by side robots with different configurations, CoM momentums and expected CoM after an action g."""
     # pb.resetSimulation()
-
+    G = group
+    rep_Ed = G.representations["Ed"]
     # Optional: Display origin.
     draw_vector(pb, np.zeros(3), np.asarray([.1, 0, 0]), v_color=[1, 0, 0, 1])
     draw_vector(pb, np.zeros(3), np.asarray([0, .1, 0]), v_color=[0, 1, 0, 1])
@@ -318,42 +319,40 @@ def display_robots_and_vectors(pb, robot, base_confs, Gq_js, Gdq_js, Ghg, forces
     plane_size = (0.01, robot.hip_height / 2, robot.hip_height / 2)
 
     # Sagittal plane
-    plot_reflection_plane(pb, R=rt.matrix_from_two_vectors(a=[0, 1, 0], b=[1, 0, 0]),
-                          p=[0.0, 0.0, plane_height],
-                          color=np.array([230, 230, 256, 40]) / 256., size=plane_size)
-    plot_reflection_plane(pb, R=rt.matrix_from_two_vectors(a=[1, 0, 0], b=[0, 1, 0]),
-                          p=[0.0, 0.0, plane_height],
-                          color=np.array([256, 230, 230, 40]) / 256., size=plane_size)
-    plot_reflection_plane(pb, R=rt.matrix_from_two_vectors(a=[0, 0, 1], b=[0, 1, 0]),
-                          p=[0.0, 0.0, 0.0],
-                          color=np.array([250, 250, 250, 80]) / 256.,
-                          size=(0.01, robot.hip_height * 6, robot.hip_height * 6))
+    draw_plane(pb, R=rt.matrix_from_two_vectors(a=[0, 1, 0], b=[1, 0, 0]),
+               p=[0.0, 0.0, plane_height],
+               color=np.array([230, 230, 256, 40]) / 256., size=plane_size)
+    draw_plane(pb, R=rt.matrix_from_two_vectors(a=[1, 0, 0], b=[0, 1, 0]),
+               p=[0.0, 0.0, plane_height],
+               color=np.array([256, 230, 230, 40]) / 256., size=plane_size)
+    draw_plane(pb, R=rt.matrix_from_two_vectors(a=[0, 0, 1], b=[0, 1, 0]),
+               p=[0.0, 0.0, 0.0],
+               color=np.array([250, 250, 250, 80]) / 256.,
+               size=(0.01, robot.hip_height * 6, robot.hip_height * 6))
 
     robots = [robot]
     com_pos = None
-    for i in range(0, len(Gq_js)):
-        q_js, dq_js, XB_w, ghg_B, rho_X_gbar = Gq_js[i], Gdq_js[i], base_confs[i], Ghg[i], GX_g_bar[i]
+    for g in G.elements:
+        q_js, v_js, XB, ghg_B = orbit_q_js[g], orbit_v_js[g], base_confs[g], orbit_com_momentum[g]
         assert q_js.size == robot.nq - 7, f"Invalid joint-space position dim(Q_js)={robot.nq - 7}!={q_js.size}"
-        assert dq_js.size == robot.nv - 6, f"Invalid joint-space velocity dim(TqQ_js)={robot.nv - 6}!={dq_js.size}"
-        RB_w = XB_w[:3, :3]
-        tB_w = XB_w[:3, 3]
-        grobot = robot
-        if i > 0:
-            grobot = robot if i == 0 else copy.copy(robot)
+        assert v_js.size == robot.nv - 6, f"Invalid joint-space velocity dim(TqQ_js)={robot.nv - 6}!={v_js.size}"
+        RB = XB[:3, :3] # Base rotation
+        rB = XB[:3, 3]  # Base position
+        base_q = SE3_2_gen_coordinates(XB) # vector-quaternion representation of the base conf
+        gq, gv = np.concatenate((base_q, q_js)), np.concatenate((np.zeros(6), v_js))
+        if g != G.identity:
+            grobot = copy.copy(robot)
             grobot.configure_bullet_simulation(pb, world=None)
             if tint:
                 change_robot_appearance(pb, grobot)
             robots.append(grobot)
-        # Place robots in env
-        base_q = SE3_2_gen_coordinates(XB_w)
-        # Set positions:
-        grobot.reset_state(np.concatenate((base_q, q_js)), np.concatenate((np.zeros(6), dq_js)))
-        # Add small offset to COM for visualization.
-        if com_pos is None:
-            com_pos = robot.pinocchio_robot.com(q=np.concatenate((base_q, q_js))) + \
-                      (RB_w @ np.array([robot.hip_height, robot.hip_height, 0.05]))
-
-        gcom_pos = tr.transform(rho_X_gbar, tr.vector_to_point(com_pos), strict_check=False)[:3]
+        else:
+            grobot = robot
+            # Add offset to CoM to make the CoM momentum vectors visible.
+            com_pos = robot.pinocchio_robot.com(q=gq) + (RB @ np.array([robot.hip_height, robot.hip_height, 0.05]))
+        grobot.reset_state(q=gq, v=gv)
+        # Get symmetric CoM position for visualization
+        gcom_pos = (rep_Ed(g) @ np.concatenate((com_pos, np.ones(1))))[:3]
         # Draw COM momentum and COM location
         com_id = pb.createVisualShape(shapeType=pb.GEOM_SPHERE, radius=0.02,
                                       rgbaColor=np.array([10, 10, 10, 255]) / 255.)
@@ -369,7 +368,7 @@ def display_robots_and_vectors(pb, robot, base_confs, Gq_js, Gdq_js, Ghg, forces
         # Draw forces and contact planes
         force_color = (0.590, 0.153, 0.510, 1.0)
         for force_orbit, rf_orbit, GRf_w in zip(forces, forces_points, surface_normals):
-            draw_vector(pb, origin=rf_orbit[i], vector=force_orbit[i], v_color=force_color)
+            draw_vector(pb, origin=rf_orbit[g], vector=force_orbit[g], v_color=force_color)
             if draw_floor:
                 body_id = pb.createVisualShape(shapeType=pb.GEOM_BOX, halfExtents=[.2 * robot.hip_height,
                                                                                    .2 * robot.hip_height,
@@ -379,11 +378,11 @@ def display_robots_and_vectors(pb, robot, base_confs, Gq_js, Gdq_js, Ghg, forces
                                    baseInertialFramePosition=[0, 0, 0],
                                    baseCollisionShapeIndex=body_id,
                                    baseVisualShapeIndex=body_id,
-                                   basePosition=rf_orbit[i],
-                                   baseOrientation=matrix_to_quat_xyzw(GRf_w[i]))
+                                   basePosition=rf_orbit[g],
+                                   baseOrientation=matrix_to_quat_xyzw(GRf_w[g]))
         # Draw Base orientation
         if robot.nq == 12:  # Only for Solo
-            draw_vector(pb, origin=tB_w + RB_w @ np.array((0.06, 0, 0.03)), vector=RB_w[:, 0], v_color=[1, 1, 1, 1],
+            draw_vector(pb, origin=rB + RB @ np.array((0.06, 0, 0.03)), vector=RB[:, 0], v_color=[1, 1, 1, 1],
                         scale=0.05)
 
 

@@ -1,7 +1,7 @@
 import copy
 import logging
 from abc import ABC, abstractmethod
-from typing import Collection, Optional, Tuple, Union
+from typing import Collection, List, Optional, Tuple, Union
 
 import numpy as np
 import scipy
@@ -9,6 +9,8 @@ from pinocchio import JointModelFreeFlyer, RobotWrapper
 from pinocchio import pinocchio_pywrap as pin
 from robot_descriptions.loaders.pinocchio import load_robot_description as pin_load_robot_description
 from scipy.linalg import inv
+
+from morpho_symm.utils.algebra_utils import quat_xyzw_to_SO3
 
 log = logging.getLogger(__name__)
 
@@ -65,7 +67,7 @@ class PinSimWrapper(ABC):
 
             q_j_zero, _ = self.pin_joint_space[joint_name].zero()
             # self._q_zero[joint.idx_q:joint.idx_q + joint.nq] = q_j_zero
-
+        self.joint_space_names = sorted(self.joint_space_names, key=lambda x: self.pin_joint_space[x].idx_q)
         self._q_zero = self._q_zero if q_zero is None else np.array(q_zero)
         assert self._q_zero.size == self.nq, f"Expected |q_0|=3+4+nj={self.nq}, but received {q_zero}"
         self._init_q = np.concatenate((np.zeros(6), [1], np.zeros(self.n_js))) if init_q is None else np.array(init_q)
@@ -75,7 +77,7 @@ class PinSimWrapper(ABC):
         self.joint_space = {}
         log.debug(f"Robot loaded {self}")
 
-    def get_state(self):
+    def get_state(self) -> State:
         """Fetch state of the system from a physics simulator and return pinocchio convention (q, dq).
 
         Obtains the system state from the simulator and returns the generalized positions and velocities,
@@ -90,6 +92,30 @@ class PinSimWrapper(ABC):
         q_pin_centered = self.center_state(q_pin)
         return q_pin_centered, dq_pin
 
+    def get_joint_space_state(self, q: Optional[np.ndarray] = None, v: Optional[np.ndarray] = None) -> State:
+        """Fetch joint-space state of the system from a physics simulator and return pinocchio convention (q, dq).
+
+        Obtains the system joint-space state from the simulator and returns the generalized positions and velocities.
+
+        TODO: This function should handle cases where the Euclidean space `Ed` in which the system evolvs in is not
+          3-dimensional. Such as fixed based-robots or planar robots.
+
+        Args:
+            q (ndarray): Generalized position coordinates of shape (self.nq,) in pinocchio convention.
+            v (ndarray): Generalized velocity coordinates of shape (self.nv,) in pinocchio convention.
+
+        Returns:
+            q_js (ndarray): Joint-Space generalized position coordinates of shape (|Q_J|) in pinocchio convention.
+            v_js (ndarray): Joint-Space generalized velocity coordinates of shape (|TqQ_J) in pinocchio convention.
+        """
+        if q is None or v is None:
+            q_sim, v_sim = self.get_state_sim()
+            q_pin, v_pin = self.sim2pin(q_sim, v_sim)
+            q_pin_centered = self.center_state(q_pin)
+        else:
+            q_pin_centered, v_pin = q, v
+        return q_pin_centered[7:], v_pin[6:]  # TODO: handle non-3D cases
+
     @abstractmethod
     def get_state_sim(self) -> State:
         """Get the system state in simulator convention.
@@ -99,6 +125,20 @@ class PinSimWrapper(ABC):
             dq (ndarray): Generalized velocity coordinates of shape in simulator convention.
         """
 
+    def get_base_configuration(self) -> np.ndarray:
+        """Return an SE(3) homogenous transformation matrix describing the orientation and position of the robot base.
+
+        Returns:
+            base_config (np.ndarray): (4x4) homogenous transformation matrix.
+        """
+        q, dq = self.get_state()
+        rB_w = q[:3]  # Base Position in World Frame
+        RB_w = quat_xyzw_to_SO3(q[3:7])  # Base Rotation in World Frame
+        XB_w = np.eye(4)
+        XB_w[:3, :3] = RB_w
+        XB_w[:3, 3] = rB_w
+        return XB_w
+
     def reset_state(self, q, v, update_pin=False) -> None:
         """Sets the state of the system in the simulator and Pinocchio if requested.
 
@@ -107,7 +147,7 @@ class PinSimWrapper(ABC):
             v (ndarray): Generalized velocity coordinates of shape (self.nv,) in pinocchio convention.
             update_pin (bool): If True, update the pinocchio model with the new state.
         """
-        q_centered = self.center_state(q) # - self._q_zero
+        q_centered = self.center_state(q)  # - self._q_zero
 
         assert np.isclose(np.linalg.norm(q_centered[3:7]), 1), f"Invalid base orientation quaterion with norm " \
                                                                f":{np.linalg.norm(q_centered[3:7]):.2f}"
@@ -278,13 +318,7 @@ class PinSimWrapper(ABC):
         """
         if self.pinocchio_robot is None:
             raise AttributeError("Pinocchio robot has not been loaded")
-        elif self._dqj_limit is None:
-            self._dqj_limit = []
-            for joint_name in self.joint_names:
-                vel_limit = self.pin_joint_space[joint_name].vel_lim
-                self._dqj_limit.append(vel_limit)
-            self._dqj_limit = np.asarray(self._dqj_limit).flatten()
-        return self._dqj_limit
+        return self.pinocchio_robot.model.velocityLimit[6:]
 
     @property
     def joint_pos_limits(self, q=None, dq=None):
@@ -299,15 +333,7 @@ class PinSimWrapper(ABC):
         """
         if self.pinocchio_robot is None:
             raise AttributeError("Pinocchio robot has not been loaded")
-        elif self._qj_low_limit is None or self._qj_high_limit is None:
-            self._qj_high_limit, self._qj_low_limit = [], []
-            for joint_name in self.joint_names:
-                low, high = self.pin_joint_space[joint_name].pos_lims
-                self._qj_low_limit.append(low)
-                self._qj_high_limit.append(high)
-            self._qj_high_limit = np.asarray(self._qj_high_limit).flatten()
-            self._qj_low_limit = np.asarray(self._qj_low_limit).flatten()
-        return self._qj_low_limit, self._qj_high_limit
+        return self.pinocchio_robot.model.lowerPositionLimit[7:], self.pinocchio_robot.model.upperPositionLimit[7:]
 
     @property
     def endeff_names(self) -> Collection[str]:
@@ -342,7 +368,7 @@ class PinSimWrapper(ABC):
 
             for joint_name, joint in self.pin_joint_space.items():
                 idx_q, idx_v = joint.state_idx
-                q_j, v_j = joint.random_configuration(max_range=angle_sweep)
+                q_j, v_j = joint.random_configuration(max_range=angle_sweep if angle_sweep is not None else np.pi)
                 q[idx_q] = joint.add_configuration(q[idx_q], q_j)
                 v[idx_v] += v_j
             q[3:7] = base_ori
@@ -382,8 +408,8 @@ class PinSimWrapper(ABC):
 class JointWrapper:
 
     def __init__(self, type: Union[str, int], idx_q: int, idx_v: int, nq: int, nv: int,
-                 pos_limit_low: Union[list[float], float] = -np.inf,
-                 pos_limit_high: Union[list[float], float] = np.inf):
+                 pos_limit_low: Union[List[float], float] = -np.inf,
+                 pos_limit_high: Union[List[float], float] = np.inf):
         self.type = type
         self.idx_q = idx_q
         self.idx_v = idx_v
@@ -459,19 +485,31 @@ class JointWrapper:
             raise NotImplementedError()
 
     @property
-    def state_idx(self) -> Tuple[list[int], list[int]]:
+    def state_idx(self) -> Tuple[List[int], List[int]]:
         idx_q = list(range(self.idx_q, self.idx_q + self.nq))
         idx_v = list(range(self.idx_v, self.idx_v + self.nv))
         return idx_q, idx_v
 
+    def __repr__(self):
+        return f"[{self.type}]-nq:{self.nq}-nv:{self.nv}-idx_q:{self.idx_q}-idx_v:{self.idx_v}"
+
+
 class SimPinJointWrapper(ABC):
 
     def __init__(self) -> object:
-        self._pin_joint = None
-        self._sim_joint = None
+        self.pin_joint = None
+        self.sim_joint = None
 
     def sim2pin(self, q, dq) -> State:
         return q, dq
 
     def pin2sim(self, q, dq) -> State:
         return q, dq
+
+    def __repr__(self):
+        return f"Pin[{self.pin_joint.type}]_" \
+               f"idxq:{list(range(self.pin_joint.idx_q, self.pin_joint.idx_q + self.pin_joint.nq))}_" \
+               f"idxv:{list(range(self.pin_joint.idx_v, self.pin_joint.idx_v + self.pin_joint.nv))}-" \
+               f"Sim[{self.sim_joint.type}]_" \
+               f"idxq:{list(range(self.sim_joint.idx_q, self.sim_joint.idx_q + self.sim_joint.nq))}_" \
+               f"idxv:{list(range(self.sim_joint.idx_v, self.sim_joint.idx_v + self.sim_joint.nv))}"
