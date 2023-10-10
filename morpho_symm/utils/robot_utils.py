@@ -5,14 +5,16 @@
 # @email   : daniels.ordonez@gmail.com
 
 import re
+from pathlib import Path
+from typing import Optional
 
 import escnn
 import escnn.group
 import numpy as np
 from escnn.group import CyclicGroup, DihedralGroup, DirectProductGroup, Group, Representation
-from omegaconf import DictConfig
-from scipy.spatial.transform import Rotation
+from omegaconf import DictConfig, OmegaConf
 
+import morpho_symm
 from morpho_symm.robots.PinBulletWrapper import PinBulletWrapper
 from morpho_symm.utils.algebra_utils import gen_permutation_matrix
 from morpho_symm.utils.group_utils import group_rep_from_gens
@@ -57,7 +59,9 @@ def get_escnn_group(cfg: DictConfig):
     return symmetry_space
 
 
-def load_symmetric_system(robot_cfg: DictConfig, debug=False) -> [PinBulletWrapper, escnn.group.Group]:
+def load_symmetric_system(
+        robot_cfg: Optional[DictConfig] = None, robot_name: Optional[str] = None, debug=False
+        ) -> [PinBulletWrapper, escnn.group.Group]:
     """Utility function to get the symmetry group and representations of a robotic system defined in config.
 
     This function loads the robot into pinocchio, and generate the symmetry group representations for the following
@@ -67,14 +71,27 @@ def load_symmetric_system(robot_cfg: DictConfig, debug=False) -> [PinBulletWrapp
         3. The Euclidean space (Ed) in which the dynamical system evolves in.
 
     Args:
-        robot_cfg (DictConfig): Dictionary holding the configuration parameters of the robot. Check `cfg/robot/`
+        robot_name: (str): (Optional) name of the robot configuration file in `cfg/robot/` to load.
+        robot_cfg (DictConfig): (Optional) configuration parameters of the robot. Check `cfg/robot/`
         debug (bool): if true we load the robot into an interactive simulation session to visually inspect URDF
 
     Returns:
         robot (PinBulletWrapper): instance with the robot loaded in pinocchio and ready to be loaded in pyBullet
-        G (escnn.group.Group): Instance of the symmetry Group of the robot. The representations for Q_js, TqQ_js and Ed are
+        G (escnn.group.Group): Instance of the symmetry Group of the robot. The representations for Q_js, TqQ_js and
+        Ed are
         added to the list of representations of the group.
     """
+    assert robot_cfg is not None or robot_name is not None, \
+        "Either a robot configuration file or a robot name must be provided."
+    if robot_cfg is None:
+        path_cfg = Path(morpho_symm.__file__).parent / 'cfg' / 'robot'
+        path_robot_cfg = path_cfg / f'{robot_name}.yaml'
+        assert path_robot_cfg.exists(), \
+            f"Robot configuration {path_robot_cfg} does not exist."
+        base_cfg = OmegaConf.load(path_cfg / 'base_robot.yaml')
+        robot_cfg = OmegaConf.load(path_robot_cfg)
+        robot_cfg = OmegaConf.merge(base_cfg, robot_cfg)
+
     robot_name = str.lower(robot_cfg.name)
     # We allow symbolic expressions (e.g. `np.pi/2`) in the `q_zero` and `init_q`.
     q_zero = np.array([eval(str(s)) for s in robot_cfg.q_zero], dtype=float) if robot_cfg.q_zero is not None else None
@@ -163,22 +180,22 @@ def generate_euclidean_space_representations(G: Group) -> Representation:
     # Configure E3 representations and group
     if isinstance(G, CyclicGroup):
         if G.order() == 2:  # Reflection symmetry
-            rep_O3 = G.irrep(0) + G.irrep(1) + G.trivial_representation
+            rep_R3 = G.irrep(0) + G.irrep(1) + G.trivial_representation
         else:
-            rep_O3 = G.irrep(1) + G.trivial_representation
+            rep_R3 = G.irrep(1) + G.trivial_representation
     elif isinstance(G, DihedralGroup):
-        rep_O3 = G.irrep(0, 1) + G.irrep(1, 1) + G.trivial_representation
+        rep_R3 = G.irrep(0, 1) + G.irrep(1, 1) + G.trivial_representation
     elif isinstance(G, DirectProductGroup):
         if G.name == "Klein4":
-            rep_O3 = G.representations['rectangle'] + G.trivial_representation
-            rep_O3 = escnn.group.change_basis(rep_O3, np.array([[0, 1, 0], [1, 0, 0], [0, 0, 1]]), name="E3")
+            rep_R3 = G.representations['rectangle'] + G.trivial_representation
+            rep_R3 = escnn.group.change_basis(rep_R3, np.array([[0, 1, 0], [1, 0, 0], [0, 0, 1]]), name="E3")
         elif G.name == "FullCylindricalDiscrete":
             rep_hx = np.array(np.array([[-1, 0, 0], [0, 1, 0], [0, 0, 1]]))
             rep_hy = np.array(np.array([[1, 0, 0], [0, -1, 0], [0, 0, 1]]))
             rep_hz = np.array(np.array([[1, 0, 0], [0, 1, 0], [0, 0, -1]]))
             rep_E3_gens = {h: rep_h for h, rep_h in zip(G.generators, [rep_hy, rep_hx, rep_hz])}
             rep_E3_gens[G.identity] = np.eye(3)
-            rep_O3 = group_rep_from_gens(G, rep_E3_gens)
+            rep_R3 = group_rep_from_gens(G, rep_E3_gens)
         else:
             raise NotImplementedError(f"Direct product {G} not implemented yet.")
     else:
@@ -186,18 +203,18 @@ def generate_euclidean_space_representations(G: Group) -> Representation:
 
     # We include some utility symmetry representations for different geometric objects.
     # We define a Ed as a (d+1)x(d+1) matrix representing a homogenous transformation matrix in d dimensions.
-    rep_E3 = rep_O3 + G.trivial_representation
+    rep_E3 = rep_R3 + G.trivial_representation
     rep_E3.name = "E3"
 
     # Representation of unitary/orthogonal transformations in d dimensions.
-    rep_O3.name = "O3"
+    rep_R3.name = "R3"
     # Build a representation of orthogonal transformations of pseudo-vectors.
     # That is if det(rep_O3(h)) == -1 [improper rotation] then we have to change the sign of the pseudo-vector.
     # See: https://en.wikipedia.org/wiki/Pseudovector
-    psuedo_gens = {h: -1 * rep_O3(h) if np.linalg.det(rep_O3(h)) < 0 else rep_O3(h) for h in G.generators}
+    psuedo_gens = {h: -1 * rep_R3(h) if np.linalg.det(rep_R3(h)) < 0 else rep_R3(h) for h in G.generators}
     psuedo_gens[G.identity] = np.eye(3)
-    rep_O3pseudo = group_rep_from_gens(G, psuedo_gens)
-    rep_O3pseudo.name = "O3_pseudo"
+    rep_R3pseudo = group_rep_from_gens(G, psuedo_gens)
+    rep_R3pseudo.name = "R3_pseudo"
 
     # Representation of quaternionic transformations in d dimensions.
     # TODO: Add quaternion representation
@@ -206,5 +223,4 @@ def generate_euclidean_space_representations(G: Group) -> Representation:
     # TODO: Add quaternion pseudo representation
     # rep_O3pseudo = group_rep_from_gens(G, psuedo_gens)
 
-    G.representations.update(Od=rep_O3, Ed=rep_E3, Od_pseudo=rep_O3pseudo)
-
+    G.representations.update(Rd=rep_R3, Ed=rep_E3, Rd_pseudo=rep_R3pseudo)
