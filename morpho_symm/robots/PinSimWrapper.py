@@ -47,10 +47,17 @@ class PinSimWrapper(ABC):
         self.n_js = self.nq - 7
         self.nf = len(self.endeff_names) if self.endeff_names is not None else -1
 
+        self._q0 = pin.neutral(self.pinocchio_robot.model) if q_zero is None else np.array(q_zero)
+        self._new_neutral = q_zero is not None
+        self._diff_neutral_conf = np.zeros(self.nv)
+        assert self._q0.size == self.nq, f"Expected |q_0|=3+4+nj={self.nq}, but received {q_zero}"
+
+        self._init_q = np.concatenate((np.zeros(6), [1], np.zeros(self.n_js))) if init_q is None else np.array(init_q)
+        assert len(self._init_q) == self.nq, f"Expected |q_init|=3+4+nj={self.nq}, but received {self._init_q.size}"
+
         # Mappings between joint names pin and bullet ids, and pinocchio generalized q and dq coordinates
         self.pin_joint_space = {}
         self.joint_space_names = []
-        self._q_zero = np.zeros(self.nq)
         for joint, joint_name in zip(self.pinocchio_robot.model.joints, self.pinocchio_robot.model.names):
             if joint.idx_q == -1: continue  # Ignore universe
             if joint.nq == 7: continue  # Ignore floating-base
@@ -64,14 +71,15 @@ class PinSimWrapper(ABC):
                                                             nq=joint.nq, nv=joint.nv,
                                                             idx_q=joint.idx_q, idx_v=joint.idx_v,
                                                             pos_limit_low=low_lim, pos_limit_high=high_lim)
+            # Handle initial configurations.
+            default_q0 = pin.neutral(self.pinocchio_robot.model)
+            # Compute tangent vector between the default and new neutral configuration.
+            diff_neutral_conf = pin.difference(self.pinocchio_robot.model, default_q0, self._q0)
+            self._new_neutral = not np.allclose(diff_neutral_conf[6:], 0)
+            self._diff_neutral_conf = diff_neutral_conf
 
-            q_j_zero, _ = self.pin_joint_space[joint_name].zero()
-            # self._q_zero[joint.idx_q:joint.idx_q + joint.nq] = q_j_zero
         self.joint_space_names = sorted(self.joint_space_names, key=lambda x: self.pin_joint_space[x].idx_q)
-        self._q_zero = self._q_zero if q_zero is None else np.array(q_zero)
-        assert self._q_zero.size == self.nq, f"Expected |q_0|=3+4+nj={self.nq}, but received {q_zero}"
-        self._init_q = np.concatenate((np.zeros(6), [1], np.zeros(self.n_js))) if init_q is None else np.array(init_q)
-        assert len(self._init_q) == self.nq, f"Expected |q_init|=3+4+nj={self.nq}, but received {self._init_q.size}"
+
         # TODO: ensure joint state is within configuration space.
 
         self.joint_space = {}
@@ -147,10 +155,13 @@ class PinSimWrapper(ABC):
             v (ndarray): Generalized velocity coordinates of shape (self.nv,) in pinocchio convention.
             update_pin (bool): If True, update the pinocchio model with the new state.
         """
-        q_centered = self.center_state(q)  # - self._q_zero
+        q_centered = self.center_state(q)
 
-        assert np.isclose(np.linalg.norm(q_centered[3:7]), 1), f"Invalid base orientation quaterion with norm " \
-                                                               f":{np.linalg.norm(q_centered[3:7]):.2f}"
+        q_2 = self.uncenter_state(q_centered)
+        qjs = np.rad2deg(q[7:])
+        qjs_c = np.rad2deg(q_centered[7:])
+        qjs_2 = np.rad2deg(q_2[7:])
+        assert np.allclose(q, q_2), f"{np.rad2deg(q - q_2)[7:]}"
 
         q_sim, dq_sim = self.pin2sim(q_centered, v)
         self.reset_state_sim(q_sim, dq_sim)
@@ -206,16 +217,14 @@ class PinSimWrapper(ABC):
         Returns:
             q_centered (ndarray): Generalized position coordinates of shape (self.nq,) in pinocchio convention.
         """
-        q_centered = np.array(q)
-        # If no custom zero configuration is defined return the input configuration.
-        if np.sum(self._q_zero) == 0:
+        if not self._new_neutral:
             return q
-
-        for joint_name, joint in self.pin_joint_space.items():
-            idx_q, idx_v = joint.state_idx
-            qj = joint.add_configuration(q[idx_q], self._q_zero[idx_q])
-            q_centered[idx_q] = qj
-
+        # Compute tangent vector between current configuration and the default neutral configuration
+        q_diff = pin.difference(self.pinocchio_robot.model, self.pinocchio_robot.q0, q)
+        # Configuration w.r.t to new neutral configuration is the addition of the tangent vectors
+        q_new_diff = self._diff_neutral_conf - q_diff
+        q_centered = pin.integrate(self.pinocchio_robot.model, self.pinocchio_robot.q0, q_new_diff)
+        q_centered[:7] = q[:7]
         return q_centered
 
     def uncenter_state(self, q) -> Vector:
@@ -229,16 +238,12 @@ class PinSimWrapper(ABC):
         Returns:
             q_centered (ndarray): Generalized position coordinates of shape (self.nq,) in pinocchio convention.
         """
-        q_uncentered = np.array(q)
-        # If no custom zero configuration is defined return the input configuration.
-        if np.sum(self._q_zero) == 0:
+        if not self._new_neutral:
             return q
-
-        for joint_name, joint in self.pin_joint_space.items():
-            idx_q, idx_v = joint.state_idx()
-            qj = joint.substract_configuration(q[idx_q], self._q_zero[idx_q])
-            q_uncentered[idx_q] = qj
-
+        q_diff = pin.difference(self.pinocchio_robot.model, self.pinocchio_robot.q0, q)
+        q_new_diff = - q_diff + self._diff_neutral_conf
+        q_uncentered = pin.integrate(self.pinocchio_robot.model, self.pinocchio_robot.q0, q_new_diff)
+        q_uncentered[:7] = q[:7]
         return q_uncentered
 
     def update_pinocchio(self, q, dq):

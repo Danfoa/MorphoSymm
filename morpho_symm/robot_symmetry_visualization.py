@@ -19,7 +19,7 @@ from morpho_symm.utils.pybullet_visual_utils import configure_bullet_simulation
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
 
-@hydra.main(config_path='cfg/supervised', config_name='config_visualization', version_base='1.3')
+@hydra.main(config_path='cfg/', config_name='config_visualization', version_base='1.3')
 def main(cfg: DictConfig):
     """Visualize the effect of DMSs transformations in 3D animation.
 
@@ -47,6 +47,7 @@ def main(cfg: DictConfig):
 
     # Get initial random configuration of the system
     q, v = robot.get_init_config(random=True, angle_sweep=cfg.robot.angle_sweep, fix_base=cfg.robot.fix_base)
+    # q[7:] *= 0
     rB0 = np.array([-offset if G.order() != 2 else 0, -offset] + [robot.hip_height * 1.5])
     q[:3] = rB0  # Place base of the robot with some `offset` from origin.
     robot.reset_state(q, v)  # Reset robot state in pybullet and pinocchio.
@@ -146,7 +147,7 @@ def main(cfg: DictConfig):
                                   invert_roll="dh" in cfg.robot.group_label.lower(),
                                   save_path=save_path, gen_gif=False, gen_imgs=True)
     if cfg.gui:
-        for _ in range(500):
+        while True:
             time.sleep(0.1)
 
         pb.disconnect()
