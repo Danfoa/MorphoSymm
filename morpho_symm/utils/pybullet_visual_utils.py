@@ -293,7 +293,7 @@ def spawn_robot_instances(
     # TODO: Copy error from Pinocchio. To be checked
     # robots = [PinBulletWrapper.from_instance(robot) for _ in range(n_instances)]
     kwargs = dict(robot_name=robot.robot_name, init_q=robot._init_q, hip_height=robot.hip_height,
-                  endeff_names=robot.endeff_names, q_zero=robot._q_zero)
+                  endeff_names=robot.endeff_names, q_zero=robot._q0)
     robots = [PinBulletWrapper(**kwargs) for _ in range(n_instances)]
     world = robot.world
     for r, pos, ori in zip(robots, base_positions, base_orientations):
