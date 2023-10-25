@@ -7,9 +7,8 @@ import numpy as np
 import pytorch_lightning as pl
 import torch
 
-from morpho_symm.nn.EMLP import EMLP, MLP, LinearBlock
-
-from .EquivariantModules import BasisLinear
+from morpho_symm.nn.EMLP import EMLP
+from morpho_symm.nn.MLP import MLP
 
 log = logging.getLogger(__name__)
 
@@ -137,36 +136,6 @@ class LightningModel(pl.LightningModule):
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(self.parameters(), lr=self.lr)
         return optimizer
-
-    def log_weights(self):
-        if not self.logger: return
-        tb_logger = self.logger.experiment
-        layer_index = 0  # Count layers by linear operators not position in network sequence
-        for layer in self.model.net:
-            layer_name = f"Layer{layer_index:02d}"
-            if isinstance(layer, EquivariantBlock) or isinstance(layer, BasisLinear):
-                lin = layer.linear if isinstance(layer, EquivariantBlock) else layer
-                W = lin.weight.view(-1).detach()
-                basis_coeff = lin.basis_coeff.view(-1).detach()
-                tb_logger.add_histogram(tag=f"{layer_name}/c", values=basis_coeff, global_step=self.current_epoch)
-                tb_logger.add_histogram(tag=f"{layer_name}/W", values=W, global_step=self.current_epoch)
-                layer_index += 1
-            elif isinstance(layer, LinearBlock) or isinstance(layer, torch.nn.Linear):
-                lin = layer.linear if isinstance(layer, LinearBlock) else layer
-                W = lin.weight.view(-1).detach()
-                tb_logger.add_histogram(tag=f"{layer_name}/W", values=W, global_step=self.current_epoch)
-                layer_index += 1
-
-    def log_preactivations(self, ):
-        if not self.logger: return
-        tb_logger = self.logger.experiment
-        layer_index = 0  # Count layers by linear operators not position in network sequence
-        for layer in self.model.net:
-            layer_name = f"Layer{layer_index:02d}"
-            if isinstance(layer, EquivariantBlock) or isinstance(layer, LinearBlock):
-                tb_logger.add_histogram(tag=f"{layer_name}/pre-act", values=layer._preact,
-                                        global_step=self.current_epoch)
-                layer_index += 1
 
     def get_metrics(self):
         # don't show the version number on console logs.

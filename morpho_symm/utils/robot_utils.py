@@ -17,7 +17,7 @@ from omegaconf import DictConfig, OmegaConf
 import morpho_symm
 from morpho_symm.robots.PinBulletWrapper import PinBulletWrapper
 from morpho_symm.utils.algebra_utils import gen_permutation_matrix
-from morpho_symm.utils.group_utils import group_rep_from_gens
+from morpho_symm.utils.rep_theory_utils import group_rep_from_gens
 from morpho_symm.utils.pybullet_visual_utils import (
     change_robot_appearance,
     configure_bullet_simulation,

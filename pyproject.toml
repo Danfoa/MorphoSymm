@@ -6,7 +6,7 @@ allow-direct-references = true   # We use custom branch of escnn with some devel
 
 [project]
 name = "morpho_symm"
-version = "0.1.1"
+version = "0.1.2"
 keywords = ["morphological symmetry", "locomotion", "dynamical systems", "robot symmetries", "symmetry"]
 description = "Tools for the identification, study, and exploitation of morphological symmetries in locomoting dynamical systems"
 readme = "README.md"
@@ -47,7 +47,6 @@ dependencies = [
 learning = [
     "pytorch-lightning>=1.7.7",
     "torch>=1.12.1",
-    "emlp",
 ]
 
 [project.urls]
