@@ -4,7 +4,7 @@ from typing import Union
 import escnn
 import numpy as np
 import torch
-from escnn.nn import EquivariantModule, FieldType
+from escnn.nn import EquivariantModule, FieldType, GeometricTensor
 
 from morpho_symm.nn.EquivariantModules import IsotypicBasis
 
@@ -93,7 +93,8 @@ class EMLP(EquivariantModule):
             layer_out_type = hidden_type
 
             block = escnn.nn.SequentialModule()
-            block.add_module(f"linear_{n}", escnn.nn.Linear(layer_in_type, layer_out_type, bias=bias))
+            block.add_module(f"linear_{n}: in={layer_in_type.size}-out={layer_out_type.size}",
+                             escnn.nn.Linear(layer_in_type, layer_out_type, bias=bias))
             if batch_norm:
                 block.add_module(f"batchnorm_{n}", escnn.nn.IIDBatchNorm1d(layer_out_type)),
             block.add_module(f"act_{n}", activation)
@@ -126,7 +127,7 @@ class EMLP(EquivariantModule):
         # Test the entire model is equivariant.
         # self.net.check_equivariance()
 
-    def forward(self, x):
+    def forward(self, x: GeometricTensor) -> GeometricTensor:
         """Forward pass of the EMLP model."""
         equivariant_features = self.net(x)
         if self.invariant_fn:
@@ -143,7 +144,7 @@ class EMLP(EquivariantModule):
         raise NotImplementedError()
 
     @staticmethod
-    def get_activation(activation, in_type: FieldType, desired_hidden_units: int):
+    def get_activation(activation, in_type: FieldType, desired_hidden_units: int) -> EquivariantModule:
         gspace = in_type.gspace
         group = gspace.fibergroup
 
@@ -151,18 +152,20 @@ class EMLP(EquivariantModule):
 
         unique_irreps = set(in_type.irreps)
         unique_irreps_dim = sum([group.irrep(*id).size for id in set(in_type.irreps)])
-        scale = in_type.size // unique_irreps_dim
-        channels = int(np.ceil(desired_hidden_units // unique_irreps_dim // scale))
+        channels = int(np.ceil(desired_hidden_units // unique_irreps_dim))
         if "identity" in activation.lower():
             raise NotImplementedError("Identity activation not implemented yet")
             # return escnn.nn.IdentityModule()
         else:
-            return escnn.nn.FourierPointwise(gspace,
-                                             channels=channels,
-                                             irreps=list(unique_irreps),
-                                             function=f"p_{activation.lower()}",
-                                             inplace=True,
-                                             **grid_kwargs)
+            act = escnn.nn.FourierPointwise(gspace,
+                                            channels=channels,
+                                            irreps=list(unique_irreps),
+                                            function=f"p_{activation.lower()}",
+                                            inplace=True,
+                                            **grid_kwargs)
+        assert (act.out_type.size - desired_hidden_units) <= unique_irreps_dim, \
+            f"out_type.size {act.out_type.size} - des_hidden_units {desired_hidden_units} > {unique_irreps_dim}"
+        return act
 
     @staticmethod
     def get_group_kwargs(group: escnn.group.Group):

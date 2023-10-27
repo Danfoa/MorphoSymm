@@ -5,7 +5,7 @@ name: 'com_momentum'
 
 data_folder: "dataset/com_momentum"
 
-augment: true
+augment: False
 angular_momentum: True
 
 standarize: True
@@ -14,6 +14,7 @@ batch_size: 256
 max_epochs: 600
 log_every_n_epochs: 0.5
 
+#samples: 100000     # Dataset size.
 samples: 100000     # Dataset size.
 train_ratio: 0.7
 test_ratio: 0.15

@@ -221,7 +221,7 @@ class UmichContactDataset(contact_dataset):
         metrics.update(balanced_acc_dir)
         metrics.update(individual_state_metrics)
 
-        model.log_metrics(metrics, prefix=prefix)
+        model.log_metrics(metrics, suffix=prefix)
         model.train()
 
     def decimal2binary(self, x):

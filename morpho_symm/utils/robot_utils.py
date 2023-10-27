@@ -88,7 +88,7 @@ def load_symmetric_system(
         # This allows to load the parent configuration files automatically.
         path_cfg = Path(morpho_symm.__file__).parent / 'cfg' / 'robot'
         from hydra import compose, initialize_config_dir
-        with initialize_config_dir(config_dir=str(path_cfg)):
+        with initialize_config_dir(config_dir=str(path_cfg), version_base='1.3'):
             robot_cfg = compose(config_name=robot_name)
 
     robot_name = str.lower(robot_cfg.name)

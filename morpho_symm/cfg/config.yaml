@@ -4,6 +4,8 @@ defaults:
   - dataset: com_momentum
   - model: emlp
   - robot: solo
+  - override hydra/launcher: joblib
+
 
 # TODO: Make distinctions between. Trainer Args, Model Psecific Args, Program Args
 #robot: 'solo12'
@@ -18,12 +20,14 @@ debug_loops: False
 use_volatile: False
 
 # Hydra configuration _________
+
 hydra:
   run:
-    dir: ./experiments/${hydra.job.name}/${hydra.job.override_dirname}
+    dir: ./morpho_symm/experiments/${hydra.job.name}/${hydra.job.override_dirname}
 
   job:
     # TODO: Reorganize output dir
+    chdir: True  # Create a new directory for each run
     name: ${dataset.job_name}
     num: ${seed}
     env_set:
@@ -56,7 +60,7 @@ hydra:
           - use_volatile
 
   sweep:
-    dir: ./experiments/${hydra.job.name}/
+    dir: ./morpho_symm/experiments/${hydra.job.name}/
     subdir: ${hydra.job.override_dirname}
 
   job_logging:
