@@ -1,6 +1,7 @@
 
 defaults:
   - solo
+  - _self_
 
 group_label: C2
 

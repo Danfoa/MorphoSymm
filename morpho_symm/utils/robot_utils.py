@@ -84,13 +84,12 @@ def load_symmetric_system(
     assert robot_cfg is not None or robot_name is not None, \
         "Either a robot configuration file or a robot name must be provided."
     if robot_cfg is None:
+        # Only robot name is provided. Load the robot configuration file using compose API from hydra.
+        # This allows to load the parent configuration files automatically.
         path_cfg = Path(morpho_symm.__file__).parent / 'cfg' / 'robot'
-        path_robot_cfg = path_cfg / f'{robot_name}.yaml'
-        assert path_robot_cfg.exists(), \
-            f"Robot configuration {path_robot_cfg} does not exist."
-        base_cfg = OmegaConf.load(path_cfg / 'base_robot.yaml')
-        robot_cfg = OmegaConf.load(path_robot_cfg)
-        robot_cfg = OmegaConf.merge(base_cfg, robot_cfg)
+        from hydra import compose, initialize_config_dir
+        with initialize_config_dir(config_dir=str(path_cfg)):
+            robot_cfg = compose(config_name=robot_name)
 
     robot_name = str.lower(robot_cfg.name)
     # We allow symbolic expressions (e.g. `np.pi/2`) in the `q_zero` and `init_q`.
