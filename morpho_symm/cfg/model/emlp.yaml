@@ -5,5 +5,6 @@ defaults:
 model_type: 'EMLP'
 lr: 2.4e-3
 num_layers: 4
+batch_norm: False
 activation: 'elu'
 num_channels: 128

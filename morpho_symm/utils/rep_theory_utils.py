@@ -179,3 +179,21 @@ def isotypic_decomp_representation(rep: Representation) -> [Representation]:
     rep_iso_basis.attributes['isotypic_reps'] = ordered_isotypic_reps
 
     return rep_iso_basis
+
+
+def isotypic_basis(representation: Representation, multiplicity: int = 1, prefix=''):
+    rep_iso = isotypic_decomp_representation(representation)
+    Q_iso = rep_iso.change_of_basis
+
+    iso_reps = OrderedDict()
+    iso_range = OrderedDict()
+
+    start_dim = 0
+    for iso_irrep_id, reg_rep_iso in rep_iso.attributes['isotypic_reps'].items():
+        iso_reps[iso_irrep_id] = directsum([reg_rep_iso] * multiplicity, name=f"{prefix}_IsoSpace{iso_irrep_id}")
+        iso_range[iso_irrep_id] = range(start_dim, start_dim + iso_reps[iso_irrep_id].size)
+        start_dim += iso_reps[iso_irrep_id].size
+
+    assert rep_iso.size * multiplicity == sum([iso_rep.size for iso_rep in iso_reps.values()])
+
+    return iso_reps, iso_range  # Dict[key:id_space -> value: rep_iso_space]

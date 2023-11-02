@@ -6,7 +6,7 @@ allow-direct-references = true   # We use custom branch of escnn with some devel
 
 [project]
 name = "morpho_symm"
-version = "0.1.2"
+version = "0.1.3"
 keywords = ["morphological symmetry", "locomotion", "dynamical systems", "robot symmetries", "symmetry"]
 description = "Tools for the identification, study, and exploitation of morphological symmetries in locomoting dynamical systems"
 readme = "README.md"

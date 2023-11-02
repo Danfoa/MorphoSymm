@@ -15,7 +15,7 @@ class MLP(torch.nn.Module):
                  num_hidden_units: int = 64,
                  num_layers: int = 3,
                  bias: bool = True,
-                 batch_norm: bool = True,
+                 batch_norm: bool = False,
                  head_with_activation: bool = False,
                  activation: Union[torch.nn.Module, List[torch.nn.Module]] = torch.nn.ReLU,
                  init_mode="fan_in"):

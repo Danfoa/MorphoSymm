@@ -50,6 +50,7 @@ def get_model(cfg: DictConfig, in_field_type=None, out_field_type=None):
         model = EMLP(in_type=in_field_type,
                      out_type=out_field_type,
                      num_layers=cfg.num_layers,
+                     batch_norm=cfg.batch_norm,
                      num_hidden_units=cfg.num_channels,
                      activation=cfg.activation,
                      bias=cfg.bias)
@@ -59,6 +60,7 @@ def get_model(cfg: DictConfig, in_field_type=None, out_field_type=None):
         model = MLP(in_dim=in_field_type.size,
                     out_dim=out_field_type.size,
                     num_layers=cfg.num_layers,
+                    batch_norm=cfg.batch_norm,
                     init_mode=cfg.init_mode,
                     num_hidden_units=cfg.num_channels,
                     bias=cfg.bias,
@@ -214,6 +216,7 @@ def main(cfg: DictConfig):
                                    name=run_name,
                                    group=f'{cfg.exp_name}',
                                    job_type='debug' if (cfg.debug or cfg.debug_loops) else None)
+        wandb_logger.watch(pl_model)
 
         log.info("\n\nInitiating Training\n\n")
         trainer = Trainer(accelerator='cuda' if torch.cuda.is_available() and cfg.device != 'cpu' else 'cpu',

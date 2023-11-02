@@ -22,7 +22,7 @@ class EMLP(EquivariantModule):
                  bias: bool = True,
                  activation: Union[str, EquivariantModule] = "ELU",
                  head_with_activation: bool = False,
-                 batch_norm: bool = True):
+                 batch_norm: bool = False):
         """Constructor of an Equivariant Multi-Layer Perceptron (EMLP) model.
 
         This utility class allows to easily instanciate a G-equivariant MLP architecture. As a convention, we assume
@@ -61,6 +61,8 @@ class EMLP(EquivariantModule):
         self.group = self.gspace.fibergroup
         self.num_layers = num_layers
 
+        if batch_norm:
+            log.warning("Equivariant Batch norm affects the performance of the model. Dont use if for now!!!")
         # Check if the network is a G-invariant function (i.e., out rep is composed only of the trivial representation)
         out_irreps = set(out_type.representation.irreps)
         if len(out_irreps) == 1 and self.group.trivial_representation.id == list(out_irreps)[0]:
@@ -96,7 +98,7 @@ class EMLP(EquivariantModule):
             block.add_module(f"linear_{n}: in={layer_in_type.size}-out={layer_out_type.size}",
                              escnn.nn.Linear(layer_in_type, layer_out_type, bias=bias))
             if batch_norm:
-                block.add_module(f"batchnorm_{n}", escnn.nn.IIDBatchNorm1d(layer_out_type)),
+                block.add_module(f"batchnorm_{n}", escnn.nn.IIDBatchNorm1d(layer_out_type, )),
             block.add_module(f"act_{n}", activation)
 
             self.net.add_module(f"block_{n}", block)

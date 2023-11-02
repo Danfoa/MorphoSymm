@@ -11,7 +11,7 @@ angular_momentum: True
 standarize: True
 
 batch_size: 256
-max_epochs: 600
+max_epochs: 300
 log_every_n_epochs: 0.5
 
 #samples: 100000     # Dataset size.
