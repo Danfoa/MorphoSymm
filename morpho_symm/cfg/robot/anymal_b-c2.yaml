@@ -1,5 +1,6 @@
 defaults:
   - anymal_b
+  - _self_
 
 name: anymal_b
 

@@ -4,5 +4,7 @@ defaults:
 
 model_type: 'MLP'
 lr: 2.4e-3
-num_layers: 2
+num_layers: 4
+batch_norm: False
+activation: 'elu'
 num_channels: 128

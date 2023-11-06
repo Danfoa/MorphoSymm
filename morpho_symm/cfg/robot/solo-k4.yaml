@@ -1,5 +1,7 @@
 defaults:
   - solo
+  - _self_
+
 seed: 40
 
 group_label: K4
