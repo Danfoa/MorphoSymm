@@ -13,7 +13,7 @@ import morpho_symm
 from morpho_symm.robot_symmetry_visualization_dynamic import load_mini_cheetah_trajs
 from morpho_symm.utils.algebra_utils import matrix_to_quat_xyzw
 from utils.pybullet_visual_utils import change_robot_appearance, spawn_robot_instances
-from utils.robot_utils import load_robot_and_symmetries
+from utils.robot_utils import load_symmetric_system
 
 from morpho_symm.robots.PinBulletWrapper import PinBulletWrapper
 from morpho_symm.utils.pybullet_visual_utils import configure_bullet_simulation
@@ -55,10 +55,10 @@ def generate_dof_motions(robot: PinBulletWrapper, angle_sweep=0.5):
         # feet_contact_states = recording['contacts']
 
         q = []
-        q0, _ = robot.pin2sim(robot._q_zero, np.zeros(robot.nv))
+        q0, _ = robot.pin2sim(robot._q0, np.zeros(robot.nv))
         for q_js, base_ori in zip(q_js_t, base_ori_t):
             # Define the recording base configuration.
-            q_rec = np.concatenate([q0[:7], q_js])
+            q_rec = np.concatenate([q0[:7], -1 * q_js])
             v_rec = np.zeros(robot.nv)
             # Just for Mit Cheetah.
             q_t = q_rec - q0
@@ -80,7 +80,7 @@ def generate_dof_motions(robot: PinBulletWrapper, angle_sweep=0.5):
 
 
 
-@hydra.main(config_path='cfg/supervised', config_name='config_visualization', version_base='1.1')
+@hydra.main(config_path='cfg', config_name='config_visualization', version_base='1.1')
 def main(cfg: DictConfig):
     """Visualize the effect of DMSs transformations in 3D animation.
 
@@ -90,9 +90,8 @@ def main(cfg: DictConfig):
     np.random.seed(cfg.robot.seed)
     # Get robot instance, along with representations of the symmetry group on the Euclidean space (in which the robot
     # base B evolves in) and Joint Space (in which the internal configuration of the robot evolves in).
-    robot, symmetry_space = load_robot_and_symmetries(robot_cfg=cfg.robot, debug=cfg.debug)
+    robot, G = load_symmetric_system(robot_cfg=cfg.robot, debug=cfg.debug)
 
-    G = symmetry_space.fibergroup
     assert isinstance(G, Group)
     assert np.all(rep_name in G.representations for rep_name in ['Ed', 'Q_js', 'TqQ_js']), \
         f"Group {G} should have representations for Ed, Q_js and TqQ_js, found: {list(G.representations.keys())}"
@@ -194,7 +193,8 @@ def main(cfg: DictConfig):
                 keys = new_command.copy()
                 new_command.clear()
                 if keys == ['t']:
-                    dt = 1 if dt == 0 else 0
+                    pass
+                    # dt = 1 if dt == 0 else 0
                 if keys == ['m']:
                     mode = qj2iso if mode == iso2qj else iso2qj
                     print(f"Mode changed to {mode}")

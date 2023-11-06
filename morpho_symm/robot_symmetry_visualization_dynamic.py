@@ -13,11 +13,11 @@ from tqdm import tqdm
 
 import morpho_symm
 from morpho_symm.utils.algebra_utils import matrix_to_quat_xyzw, permutation_matrix
-from morpho_symm.utils.group_utils import group_rep_from_gens
+from morpho_symm.utils.rep_theory_utils import group_rep_from_gens
 from morpho_symm.utils.pybullet_visual_utils import configure_bullet_simulation
-from utils.pybullet_visual_utils import (draw_vector, plot_reflection_plane, render_camera_trajectory,
+from utils.pybullet_visual_utils import (draw_vector, draw_plane, render_camera_trajectory,
                                          spawn_robot_instances)
-from utils.robot_utils import load_robot_and_symmetries
+from utils.robot_utils import load_symmetric_system
 
 log = logging.getLogger(__name__)
 
@@ -56,9 +56,9 @@ def get_kinematic_three_rep(G: Group):
 
 def get_ground_reaction_forces_rep(G: Group, rep_kin_three: Representation):
 
-    rep_O3 = G.representations['Od']
+    rep_R3 = G.representations['Rd']
     rep_F = {G.identity: np.eye(12, dtype=int)}
-    gens = [np.kron(rep_kin_three(g), rep_O3(g)) for g in G.generators]
+    gens = [np.kron(rep_kin_three(g), rep_R3(g)) for g in G.generators]
     for h, rep_h in zip(G.generators, gens):
         rep_F[h] = rep_h
 
@@ -102,7 +102,7 @@ def update_contacts(pb, feet_pos, prev_contact_state, contact_state, planes=None
         planes = []
         for r in feet_pos:
             # Draw a dark purple plane (R, r) in the world frame.
-            planes.append(plot_reflection_plane(pb, np.eye(3), out_of_view_pos,
+            planes.append(draw_plane(pb, np.eye(3), out_of_view_pos,
                                      color=(0.9, 0, 0.9, 0.5), cylinder=True, size=(0.05, 0.005)))
 
     state_change = contact_state != prev_contact_state
@@ -123,7 +123,7 @@ def update_contacts(pb, feet_pos, prev_contact_state, contact_state, planes=None
 def update_heading(pb, X_B, heading_arrow=None):
     pos = (X_B @ np.array([-0.09, 0, 0.045, 1]))[:3]
     if heading_arrow is None:
-        heading_arrow = plot_reflection_plane(pb, X_B[:3, :3], pos, color=(0.504, 0.931, 0.970, 1.0),
+        heading_arrow = draw_plane(pb, X_B[:3, :3], pos, color=(0.504, 0.931, 0.970, 1.0),
                                    size=(0.01, 0.04, 0.01))
     else:
         pb.resetBasePositionAndOrientation(heading_arrow, pos, matrix_to_quat_xyzw(X_B[:3, :3]))
@@ -153,7 +153,7 @@ def update_ground_reaction_forces(pb, feet_pos, forces, contact_state, vectors=N
     return vectors
 
 
-@hydra.main(config_path='cfg/supervised', config_name='config_visualization', version_base='1.1')
+@hydra.main(config_path='cfg', config_name='config_visualization', version_base='1.1')
 def main(cfg: DictConfig):
     """Visualize the effect of DMSs transformations in 3D animation.
 
@@ -167,13 +167,12 @@ def main(cfg: DictConfig):
 
     # Get robot instance, along with representations of the symmetry group on the Euclidean space (in which the robot
     # base B evolves in) and Joint Space (in which the internal configuration of the robot evolves in).
-    robot, symmetry_space = load_robot_and_symmetries(robot_cfg=cfg.robot, debug=cfg.debug)
-    G = symmetry_space.fibergroup
+    robot, G = load_symmetric_system(robot_cfg=cfg.robot, debug=cfg.debug)
 
     rep_Q_js = G.representations['Q_js']
     # rep_TqJ = G.representations['TqQ_js']
     rep_E3 = G.representations['Ed']
-    rep_O3 = G.representations['Od']
+    rep_R3 = G.representations['Rd']
 
     # Load a trajectory of motion and measurements from the mini-cheetah robot
     recordings_path = Path(morpho_symm.__file__).parent / 'datasets/contact_dataset/training_splitted/mat_test'
@@ -204,20 +203,19 @@ def main(cfg: DictConfig):
     q_js_t = recording['q']    # Joint space positions
     v_js_t = recording['qd']   # Joint space velocities
     base_ori_t = recording['imu_rpy']
+    feet_pos = recording['p']  # Feet positions  [x,y,z] w.r.t base frame
     ground_reaction_forces = recording['F']
     base_acc = recording['imu_acc']
     base_ang_vel = recording['imu_omega']
     feet_contact_states = recording['contacts']
     # Prepare representations acting on proprioceptive and exteroceptive measurements.
-    rep_vect3 = rep_O3  # Representation for transformations of 3D vectors.
+    rep_vect3 = rep_R3  # Representation for transformations of 3D vectors.
     # Representation for transformations of 3D pseudo-vectors.
-    def rep_p_vect3(g : GroupElement):
-        return -1 * rep_vect3(g) if np.linalg.det(rep_vect3(g)) < 0 else rep_vect3(g)
     rep_kin_three = get_kinematic_three_rep(G)       # Contact state is a 4D vector, transformed by rep_QJ.
     rep_F = get_ground_reaction_forces_rep(G, rep_kin_three)
 
     #
-    q0, _ = robot.pin2sim(robot._q_zero, np.zeros(robot.nv))
+    q0, _ = robot.pin2sim(robot._q0, np.zeros(robot.nv))
 
     frames = []
     robot_frames = [[] for _ in range(G.order())]
@@ -234,8 +232,8 @@ def main(cfg: DictConfig):
     camera_view_point = Rotation.from_euler("xyz", [0, -25, 90], True)
     # rpy = camera_view_point.as_euler("xyz") * 180/np.pi
     for i, t in tqdm(enumerate(timestamps), total=len(timestamps), desc=f"Capturing frames from {cfg.robot.name}"):
-        if i < 21000 or i > 25000:
-            continue
+        # if i < 21000 or i > 25000:
+        #     continue
         # for i, t in tqdm(enumerate(timestamps[:int(len(timestamps) // 2)]), total = len(timestamps), desc=f"Capturing frames from {cfg.robot.name}"):
         run_time = time.time()
         if cfg.gui:
@@ -255,8 +253,9 @@ def main(cfg: DictConfig):
         q_rec = np.concatenate([X_B[:3, 3], matrix_to_quat_xyzw(X_B[:3, :3]), q_js_t[i]])
         v_rec = np.concatenate([np.zeros(6), v_js_t[i]])
         # Just for Mit Cheetah.
-        q, _ = robot.sim2pin(q_rec - q0, v_rec)
-
+        q, _ = robot.sim2pin(q_rec + q0, v_rec)
+        feet_pos_fk = feet_pos[i]
+        a = feet_pos_fk[:3]
         for robot_idx, g in enumerate(G.elements):
             g_X_B = np.real(rep_E3(g) @ X_B @ np.linalg.inv(rep_E3(g)))
             orbit_X_B[g] = g_X_B
@@ -268,6 +267,7 @@ def main(cfg: DictConfig):
 
             # Get the position of the 4 feet of the robot in the world frame [RF, LF, RH, LH].
             g_rf_w = [pb.getLinkState(robots[robot_idx].robot_id, name)[0] for name in end_effectors]
+
             # Display contact terrain
             g_contact_state = np.rint(np.real(rep_kin_three(g) @ contact_state)).astype(np.uint8)
             g_prev_contact_state = np.rint(np.real(rep_kin_three(g) @ prev_contact_state)).astype(np.uint8)
@@ -290,7 +290,7 @@ def main(cfg: DictConfig):
                                                                            g_contact_state,
                                                                            vectors=robot_grf_vects[robot_idx])
 
-                g_camera_view_point = np.real(rep_O3(g) @ camera_view_point.as_matrix() @ np.linalg.inv(rep_O3(g)))
+                g_camera_view_point = np.real(rep_R3(g) @ camera_view_point.as_matrix() @ np.linalg.inv(rep_R3(g)))
                 roll, pitch, yaw = Rotation.from_matrix(g_camera_view_point).as_euler("xyz") * 180/np.pi
                 cam_target = orbit_X_B[g][:3, 3]
                 robot_frames[robot_idx].append(render_camera_trajectory(pb,
