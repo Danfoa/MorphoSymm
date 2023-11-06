@@ -156,15 +156,15 @@ In practice, products and additions of these representations are enough to obtai
    Vector measurements can represent linear velocities, forces, linear accelerations, etc. While [pseudo-vectors](https://en.wikipedia.org/wiki/Pseudovector#:~:text=In%20physics%20and%20mathematics%2C%20a,of%20the%20space%20is%20changed) (or axial-vectors) can represent angular velocities, angular accelerations, etc. To obtain symmetric measurements we transform vectors with $`
   \rho_{\mathrm{O}_d}`$. Likewise, to obtain symmetric pseudo-vectors we use $`\rho_{\mathrm{O}_{d,pseudo}}(g) := |\rho_{\mathrm{O}_d}(g)| \rho_{\mathrm{O}_d}(g) \; | \; g \in \mathcal{G}`$. Equivalently, in code we can do:
 ```python
-    rep_Od = G.representations['Od'] # rep_Od(g) is an orthogonal matrix ∈ R^dxd
-    rep_Od_pseudo = G.representations['Od_pseudo'] 
+    rep_Rd = G.representations['Rd'] # rep_Rd(g) is an orthogonal matrix ∈ R^dxd
+    rep_Rd_pseudo = G.representations['Od_pseudo'] 
     
     v = np.random.rand(3)  # Example vector in Ed, assuming d=3. E.g. linear velocity of the base frame.
     w = np.random.rand(3)  # Example pseudo-vector in Ed, assuming d=3. E.g. angular velocity of the base frame.
     # The orbit of the vector is a map from group elements g ∈ G to the set of symmetric vectors g·v ∈ R^d
-    orbit_v = {g: rep_Od(g) @ v for g in G.elements}
+    orbit_v = {g: rep_Rd(g) @ v for g in G.elements}
     # The orbit of the pseudo-vector is a map from group elements g ∈ G to the set of symmetric pseudo-vectors g·w ∈ R^d
-    orbit_w = {g: rep_Od_pseudo(g) @ w for g in G.elements}
+    orbit_w = {g: rep_Rd_pseudo(g) @ w for g in G.elements}
 ```
 
 > As an example you can check the script [robot_symmetry_visualization.py](https://github.com/Danfoa/MorphoSymm/blob/devel/morpho_symm/robot_symmetry_visualization.py), where we use the symmetry representations to generate the animations of all robot in the library (with the same script).

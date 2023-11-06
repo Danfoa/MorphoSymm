@@ -183,7 +183,6 @@ def isotypic_decomp_representation(rep: Representation) -> [Representation]:
 
 def isotypic_basis(representation: Representation, multiplicity: int = 1, prefix=''):
     rep_iso = isotypic_decomp_representation(representation)
-    Q_iso = rep_iso.change_of_basis
 
     iso_reps = OrderedDict()
     iso_range = OrderedDict()
