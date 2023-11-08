@@ -228,11 +228,14 @@ In summary, to construct a G-equivariant architecture you need to:
 ## How to cite us?
 If you find this repository or the [paper](https://scholar.google.it/scholar?q=on+discrete+symmetries+of+robotic+systems:+a+data-driven+and+group-theoretic+analysis&hl=en&as_sdt=0&as_vis=1&oi=scholart) useful, please cite us as:
 ```
-@article{ordonez2023dms_discrete_morphological_symmetries,
-  title={On discrete symmetries of robotics systems: A group-theoretic and data-driven analysis},
-  author={Ordonez-Apraez, Daniel and Martin, Mario and Agudo, Antonio and Moreno-Noguer, Francesc},
-  journal={arXiv preprint arXiv:2302.10433},
-  year={2023}
+@INPROCEEDINGS{Ordonez-Apraez-RSS-23,
+    AUTHOR    = {Daniel F Ordonez-Apraez AND Martin, Mario AND Antonio Agudo AND Francesc Moreno},
+    TITLE     = {{On discrete symmetries of robotics systems: A group-theoretic and data-driven analysis}},
+    BOOKTITLE = {Proceedings of Robotics: Science and Systems},
+    YEAR      = {2023},
+    ADDRESS   = {Daegu, Republic of Korea},
+    MONTH     = {July},
+    DOI       = {10.15607/RSS.2023.XIX.053}
 }
 ```
 
