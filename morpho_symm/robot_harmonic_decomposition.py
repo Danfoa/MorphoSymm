@@ -13,7 +13,7 @@ import morpho_symm
 from morpho_symm.robot_symmetry_visualization_dynamic import load_mini_cheetah_trajs
 from morpho_symm.utils.algebra_utils import matrix_to_quat_xyzw
 from utils.pybullet_visual_utils import change_robot_appearance, spawn_robot_instances
-from utils.robot_utils import load_robot_and_symmetries
+from utils.robot_utils import load_symmetric_system
 
 from morpho_symm.robots.PinBulletWrapper import PinBulletWrapper
 from morpho_symm.utils.pybullet_visual_utils import configure_bullet_simulation
@@ -73,14 +73,14 @@ def generate_dof_motions(robot: PinBulletWrapper, angle_sweep=0.5):
         periods = np.random.randint(min_period, max_period, n_dof)[..., None]
         q_period = np.lcm.reduce(periods).item()
         t = np.linspace(0, q_period, q_period * 10)[None, ...]
-        q_js = np.sin(2 * np.pi * (1 / periods) * t + phases) * amplitudes
+        q_js = q0[7:, None] + 0 * np.sin(2 * np.pi * (1 / periods) * t + phases) * amplitudes
         q_base = q0[:7, None] * np.ones_like(t)
         q = np.concatenate([q_base, q_js], axis=0).T
         return q
 
 
 
-@hydra.main(config_path='cfg/supervised', config_name='config_visualization', version_base='1.1')
+@hydra.main(config_path='cfg', config_name='config_visualization', version_base='1.1')
 def main(cfg: DictConfig):
     """Visualize the effect of DMSs transformations in 3D animation.
 
@@ -90,9 +90,7 @@ def main(cfg: DictConfig):
     np.random.seed(cfg.robot.seed)
     # Get robot instance, along with representations of the symmetry group on the Euclidean space (in which the robot
     # base B evolves in) and Joint Space (in which the internal configuration of the robot evolves in).
-    robot, symmetry_space = load_robot_and_symmetries(robot_cfg=cfg.robot, debug=cfg.debug)
-
-    G = symmetry_space.fibergroup
+    robot, G = load_symmetric_system(robot_cfg=cfg.robot, debug=cfg.debug)
     assert isinstance(G, Group)
     assert np.all(rep_name in G.representations for rep_name in ['Ed', 'Q_js', 'TqQ_js']), \
         f"Group {G} should have representations for Ed, Q_js and TqQ_js, found: {list(G.representations.keys())}"
@@ -107,7 +105,10 @@ def main(cfg: DictConfig):
     n_dof = robot.nq - 7
     if cfg.robot.tint_bodies: change_robot_appearance(pb, robot)
     q0, dq0 = robot.get_init_config(random=True, angle_sweep=cfg.robot.angle_sweep, fix_base=cfg.robot.fix_base)
+    orientation_0 = matrix_to_quat_xyzw(Rotation.from_euler('xyz', [0, 0, np.pi / 2]).as_matrix())
     base_pos = q0[:3]
+    q0[3:7] = orientation_0
+    robot.reset_state(q0, dq0)
 
     # Determine the number of isotypic components of the Joint-Space (JS) vector space.
     # This is equivalent to the number of unique irreps of the JS representation.
@@ -126,11 +127,13 @@ def main(cfg: DictConfig):
     n_components = len(iso_comp)
     base_positions = np.asarray([base_pos] * n_components)
     base_positions[:, 0] = -1.0
-    base_positions[:, 1] = np.linspace(0, 2 * robot.hip_height * n_components, n_components)
+    base_positions[:, 1] = np.linspace(0, 2.5 * robot.hip_height * n_components, n_components)
     base_positions[:, 1] -= np.max(base_positions[:, 1]) / 2
+    # Base positions. Quaternion from (roll=0, pitch=0, yaw=90)
 
     iso_robots = spawn_robot_instances(
-        robot, bullet_client=pb, base_positions=base_positions, tint=cfg.robot.tint_bodies, alpha=0.5,
+        robot, bullet_client=pb, base_positions=base_positions, base_orientations=[orientation_0] * n_components,
+        tint=cfg.robot.tint_bodies, alpha=1.0,
         )
 
     # For the symmetries of the system some robots require centering of DoF domain.
@@ -154,8 +157,8 @@ def main(cfg: DictConfig):
 
     t, dt = 0, 1
     while True:
-
-
+        if t >= len(traj_q_js):
+            t = 0
         # for q_js, q_iso in tqdm(zip(traj_q_js, traj_q_iso), total=len(traj_q_js), desc="playback"):
         q_js, q_iso = traj_q_js[t], traj_q_iso[t]
         g = G.elements[g_idx]

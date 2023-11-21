@@ -5,13 +5,14 @@ from pathlib import Path
 import hydra
 import numpy as np
 import scipy
-from escnn.group import Group, GroupElement, Representation
+from escnn.group import Group, Representation
 from omegaconf import DictConfig
 from pynput import keyboard
 from scipy.spatial.transform import Rotation
 from tqdm import tqdm
 
 import morpho_symm
+from morpho_symm.data.DynamicsRecording import DynamicsRecording
 from morpho_symm.utils.algebra_utils import matrix_to_quat_xyzw, permutation_matrix
 from morpho_symm.utils.rep_theory_utils import group_rep_from_gens
 from morpho_symm.utils.pybullet_visual_utils import configure_bullet_simulation
@@ -175,21 +176,17 @@ def main(cfg: DictConfig):
     rep_R3 = G.representations['Rd']
 
     # Load a trajectory of motion and measurements from the mini-cheetah robot
-    recordings_path = Path(morpho_symm.__file__).parent / 'datasets/contact_dataset/training_splitted/mat_test'
+    recordings_path = Path(morpho_symm.__file__).parent / 'data/mini_cheetah/flat_terrain/forward_minus_0_4/recording.pkl'
 
-    recordings = load_mini_cheetah_trajs(recordings_path)
+    dyn_recordings = DynamicsRecording.load_from_file(recordings_path)
 
-    # Load main robot in pybullet.
-    # q0, dq0 = robot.get_init_config(random=True, angle_sweep=cfg.robot.angle_sweep, fix_base=cfg.robot.fix_base)
     offset = max(0.2, 1.8 * robot.hip_height)
     base_pos = np.array([-offset if G.order() != 2 else 0, -offset] + [robot.hip_height * 5.5])
     pb = configure_bullet_simulation(gui=cfg.gui, debug=cfg.debug)
-
     # Define the positions to spawn the |G| instances of the robot to represent the |G| symmetric states.
     X_B = np.eye(4)
     X_B[:3, 3] = base_pos
     orbit_X_B = [rep_E3(g) @ X_B @ np.linalg.inv(rep_E3(g)) for g in G.elements]
-
     robots = spawn_robot_instances(
         robot, bullet_client=pb, base_positions=[X[:3, 3] for X in orbit_X_B], tint=cfg.robot.tint_bodies,
         )
@@ -197,26 +194,20 @@ def main(cfg: DictConfig):
     end_effectors = robot.bullet_ids_allowed_floor_contacts
 
     # Load and prepare data for visualization
-    recording_name = cfg.recording_name  # 'concrete_galloping'
-    recording = recordings[recording_name]
-    timestamps = recording['control_time'].flatten()
-    q_js_t = recording['q']    # Joint space positions
-    v_js_t = recording['qd']   # Joint space velocities
-    base_ori_t = recording['imu_rpy']
-    feet_pos = recording['p']  # Feet positions  [x,y,z] w.r.t base frame
-    ground_reaction_forces = recording['F']
-    base_acc = recording['imu_acc']
-    base_ang_vel = recording['imu_omega']
-    feet_contact_states = recording['contacts']
+    q_js_t = dyn_recordings.recordings['joint_pos']     # Joint space positions
+    v_js_t = dyn_recordings.recordings['joint_vel']     # Joint space velocities
+    base_ori_t = dyn_recordings.recordings['base_ori']  # Base orientation
+    feet_pos = dyn_recordings.recordings['feet_pos']  # Feet positions  [x,y,z] w.r.t base frame
+    # ground_reaction_forces = recording['F']
+    # feet_contact_states = recording['contacts']
     # Prepare representations acting on proprioceptive and exteroceptive measurements.
-    rep_vect3 = rep_R3  # Representation for transformations of 3D vectors.
-    # Representation for transformations of 3D pseudo-vectors.
-    rep_kin_three = get_kinematic_three_rep(G)       # Contact state is a 4D vector, transformed by rep_QJ.
-    rep_F = get_ground_reaction_forces_rep(G, rep_kin_three)
+    rep_kin_three = dyn_recordings.obs_representations['gait']    # Contact state is a 4D vector.
+    rep_grf = dyn_recordings.obs_representations['ref_feet_pos']  #
 
-    #
     q0, _ = robot.pin2sim(robot._q0, np.zeros(robot.nv))
 
+    dt = dyn_recordings.dynamics_parameters['dt']
+    timestamps = np.linspace(0, dt * q_js_t.shape[0], q_js_t.shape[0])
     frames = []
     robot_frames = [[] for _ in range(G.order())]
     symmetry_frames = []
@@ -248,12 +239,12 @@ def main(cfg: DictConfig):
         # Define the recording base configuration.
         X_B[:3, :3] = Rotation.from_euler("xyz", base_ori_t[i] - np.array([0, 0, 0*np.pi/2])).as_matrix()
         X_B[:3, 3] = base_pos
-        contact_state = feet_contact_states[i]
+        # contact_state = feet_contact_states[i]
         orbit_X_B, orbit_cam_target = {}, {}
         q_rec = np.concatenate([X_B[:3, 3], matrix_to_quat_xyzw(X_B[:3, :3]), q_js_t[i]])
         v_rec = np.concatenate([np.zeros(6), v_js_t[i]])
         # Just for Mit Cheetah.
-        q, _ = robot.sim2pin(q_rec + q0, v_rec)
+        q = q_rec
         feet_pos_fk = feet_pos[i]
         a = feet_pos_fk[:3]
         for robot_idx, g in enumerate(G.elements):
@@ -266,29 +257,29 @@ def main(cfg: DictConfig):
             robots[robot_idx].reset_state(g_q, np.zeros(robot.nv))
 
             # Get the position of the 4 feet of the robot in the world frame [RF, LF, RH, LH].
-            g_rf_w = [pb.getLinkState(robots[robot_idx].robot_id, name)[0] for name in end_effectors]
+            # g_rf_w = [pb.getLinkState(robots[robot_idx].robot_id, name)[0] for name in end_effectors]
 
             # Display contact terrain
-            g_contact_state = np.rint(np.real(rep_kin_three(g) @ contact_state)).astype(np.uint8)
-            g_prev_contact_state = np.rint(np.real(rep_kin_three(g) @ prev_contact_state)).astype(np.uint8)
-            robot_terrain[robot_idx] = update_contacts(pb,
-                                                       g_rf_w,
-                                                       g_prev_contact_state,
-                                                       g_contact_state,
-                                                       planes=robot_terrain[robot_idx])
+            # g_contact_state = np.rint(np.real(rep_kin_three(g) @ contact_state)).astype(np.uint8)
+            # g_prev_contact_state = np.rint(np.real(rep_kin_three(g) @ prev_contact_state)).astype(np.uint8)
+            # robot_terrain[robot_idx] = update_contacts(pb,
+            #                                            g_rf_w,
+            #                                            g_prev_contact_state,
+            #                                            g_contact_state,
+            #                                            planes=robot_terrain[robot_idx])
             robot_heading[robot_idx] = update_heading(pb, g_X_B, heading_arrow=robot_heading[robot_idx])
             # Display ground reaction forces
             if not cfg.gui:
                 # If in contacts draw the vect representing the ground reaction forces.
-                grf = ground_reaction_forces[i]
-                g_grf = np.real((rep_F(g) @ grf))
-                g_forces = np.split(g_grf, 4)
+                # grf = ground_reaction_forces[i]
+                # g_grf = np.real((rep_F(g) @ grf))
+                # g_forces = np.split(g_grf, 4)
 
-                robot_grf_vects[robot_idx] = update_ground_reaction_forces(pb,
-                                                                           g_rf_w,
-                                                                           g_forces,
-                                                                           g_contact_state,
-                                                                           vectors=robot_grf_vects[robot_idx])
+                # robot_grf_vects[robot_idx] = update_ground_reaction_forces(pb,
+                #                                                            g_rf_w,
+                #                                                            g_forces,
+                #                                                            g_contact_state,
+                #                                                            vectors=robot_grf_vects[robot_idx])
 
                 g_camera_view_point = np.real(rep_R3(g) @ camera_view_point.as_matrix() @ np.linalg.inv(rep_R3(g)))
                 roll, pitch, yaw = Rotation.from_matrix(g_camera_view_point).as_euler("xyz") * 180/np.pi
@@ -313,7 +304,7 @@ def main(cfg: DictConfig):
             #                                        cam_distance=robot.hip_height * 5.0,
             #                                        cam_distance=robot.hip_height * 3.5,
             #                                        cam_target_pose=[0, 0, robot.hip_height]))
-        prev_contact_state = contact_state
+        # prev_contact_state = contact_state
 
 
     frames = symmetry_frames
