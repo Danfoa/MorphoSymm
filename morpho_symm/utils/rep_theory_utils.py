@@ -169,7 +169,7 @@ def isotypic_decomp_representation(rep: Representation) -> [Representation]:
     oneline_permutation = np.concatenate(oneline_permutation)
     P_in2iso = permutation_matrix(oneline_permutation)
 
-    Q_iso = rep.change_of_basis_inv @ P_in2iso.T
+    Q_iso = rep.change_of_basis @ P_in2iso.T
     rep_iso_basis = directsum(list(ordered_isotypic_reps.values()),
                               name=rep.name + '-Iso',
                               change_of_basis=Q_iso)
@@ -183,7 +183,6 @@ def isotypic_decomp_representation(rep: Representation) -> [Representation]:
 
 def isotypic_basis(representation: Representation, multiplicity: int = 1, prefix=''):
     rep_iso = isotypic_decomp_representation(representation)
-    Q_iso = rep_iso.change_of_basis
 
     iso_reps = OrderedDict()
     iso_range = OrderedDict()

@@ -35,8 +35,8 @@ def main(cfg: DictConfig):
     rep_QJ = G.representations['Q_js']  # rep_QJ(g) is a permutation matrix ∈ R^nqj
     rep_TqQJ = G.representations['TqQ_js']  # rep_TqQJ(g) is a permutation matrix ∈ R^nvj
     rep_Ed = G.representations['Ed']  # rep_Ed(g) is a homogenous transformation matrix ∈ R^(d+1)x(d+1)
-    rep_Od = G.representations['Od']  # rep_Od(g) is an orthogonal matrix ∈ R^dxd
-    rep_Od_pseudo = G.representations['Od_pseudo']  # rep_Od_pseudo(g) is an orthogonal matrix ∈ R^dxd
+    rep_Rd = G.representations['Rd']  # rep_Rd(g) is an orthogonal matrix ∈ R^dxd
+    rep_Rd_pseudo = G.representations['Rd_pseudo']  # rep_Rd_pseudo(g) is an orthogonal matrix ∈ R^dxd
 
     # Configuration of the 3D visualization -------------------------------------------------------------------------
     # Not really relevant to understand.
@@ -75,7 +75,7 @@ def main(cfg: DictConfig):
     # Consider the robot Center of Mass (CoM) momentum in base `B` coordinates. A vector and a pseudo-vector.
     hg_B = np.array([0.1, 0.1, 0.0, -0.0, -0.2, -0.2])  # Set to fix value for visualization.
     # The representation for the linear `l` and angular `k` components  of Center of Mass (CoM) momentum `h=[l,k]` is:
-    rep_h = rep_Od + rep_Od_pseudo  # Additions of representations amounts to block-diagonal matrix concatenation.
+    rep_h = rep_Rd + rep_Rd_pseudo  # Additions of representations amounts to block-diagonal matrix concatenation.
 
     # Define mock surface orientations `Rf_w`, force contact points `rf_w` and contact forces `f_w`
     Rf1, Rf2, f1, f2, rf1, rf2 = get_mock_ground_reaction_forces(pb, robot, cfg.robot)
@@ -104,13 +104,13 @@ def main(cfg: DictConfig):
 
         # Use symmetry representations to get symmetric versions of Euclidean vectors, representing measurements of data
         # We could also add some pseudo-vectors e.g. torque, and augment them as we did with `k`
-        orbit_f1[g], orbit_f2[g] = rep_Od(g) @ f1, rep_Od(g) @ f2
+        orbit_f1[g], orbit_f2[g] = rep_Rd(g) @ f1, rep_Rd(g) @ f2
         orbit_rf1[g] = (rep_Ed(g) @ np.concatenate((rf1, np.ones(1))))[:3]  # using homogenous coordinates
         orbit_rf2[g] = (rep_Ed(g) @ np.concatenate((rf2, np.ones(1))))[:3]
 
         # Apply transformations to the terrain elevation estimations/measurements
-        orbit_Rf1[g] = rep_Od(g) @ Rf1 @ rep_Od(g).T
-        orbit_Rf2[g] = rep_Od(g) @ Rf2 @ rep_Od(g).T
+        orbit_Rf1[g] = rep_Rd(g) @ Rf1 @ rep_Rd(g).T
+        orbit_Rf2[g] = rep_Rd(g) @ Rf2 @ rep_Rd(g).T
     # =============================================================================================================
 
     # Visualization of orbits of robot states and of data ==========================================================

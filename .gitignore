@@ -17,3 +17,5 @@ output/
 
 morpho_symm/robot_harmonic_decomposition.py
 /morpho_symm/experiments/
+
+.vscode/
