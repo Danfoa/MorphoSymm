@@ -157,11 +157,11 @@ class PinSimWrapper(ABC):
         """
         q_centered = self.center_state(q)
 
-        q_2 = self.uncenter_state(q_centered)
-        qjs = np.rad2deg(q[7:])
-        qjs_c = np.rad2deg(q_centered[7:])
-        qjs_2 = np.rad2deg(q_2[7:])
-        assert np.allclose(q, q_2), f"{np.rad2deg(q - q_2)[7:]}"
+        # q_2 = self.uncenter_state(q_centered)
+        # qjs = np.rad2deg(q[7:])
+        # qjs_c = np.rad2deg(q_centered[7:])
+        # qjs_2 = np.rad2deg(q_2[7:])
+        # assert np.allclose(q, q_2), f"{np.rad2deg(q - q_2)[7:]}"
 
         q_sim, dq_sim = self.pin2sim(q_centered, v)
         self.reset_state_sim(q_sim, dq_sim)

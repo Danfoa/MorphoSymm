@@ -73,7 +73,7 @@ def get_model(cfg: DictConfig, in_field_type=None, out_field_type=None):
 
 def get_datasets(cfg, device, root_path):
     if cfg.dataset.name == "contact":
-        from morpho_symm.datasets.contact_dataset.umich_contact_dataset import UmichContactDataset
+        from morpho_symm.data.contact_dataset.umich_contact_dataset import UmichContactDataset
         assert 'cnn' in cfg.model.model_type.lower(), "Only CNN models are supported for contact dataset"
         train_dataset = UmichContactDataset(data_name="train.npy", robot_cfg=cfg.robot,
                                             label_name="train_label.npy", train_ratio=cfg.dataset.train_ratio,
