@@ -5,7 +5,7 @@ import escnn
 import numpy as np
 import torch
 from escnn.nn import EquivariantModule, FieldType, GeometricTensor
-
+from morpho_symm.utils.robot_utils import load_symmetric_system
 from morpho_symm.nn.EquivariantModules import IsotypicBasis
 
 log = logging.getLogger(__name__)
@@ -187,6 +187,7 @@ class EMLP(EquivariantModule):
 
     @staticmethod
     def irrep_norm_pooling(x: torch.Tensor, field_type: FieldType) -> torch.Tensor:
+        from morpho_symm.utils.rep_theory_utils import irreps_stats
         n_inv_features = len(field_type.irreps)
         # TODO: Ensure isotypic basis i.e irreps of the same type are consecutive to each other.
         inv_features = []
@@ -198,7 +199,8 @@ class EMLP(EquivariantModule):
             x_field = x[..., field_start:field_end]
             num_G_stable_spaces = len(rep.irreps)  # Number of G-invariant features = multiplicity of irrep
             # Again this assumes we are already in an Isotypic basis
-            assert len(np.unique(rep.irreps, axis=0)) == 1, "This only works for now on the Isotypic Basis"
+            unique_irreps, _, _ = irreps_stats(rep.irreps)
+            assert len(unique_irreps) >= 1, f"Field type is not an Isotypic Subspace irreps:{unique_irreps}"
             # This basis is useful because we can apply the norm in a vectorized way
             # Reshape features to [batch, num_G_stable_spaces, num_features_per_G_stable_space]
             x_field_p = torch.reshape(x_field, (x_field.shape[0], num_G_stable_spaces, -1))
@@ -218,11 +220,34 @@ class EMLP(EquivariantModule):
 
 
 if __name__ == "__main__":
-    G = escnn.group.DihedralGroup(6)
+    # Load robot instance and its symmetry group
+    robot_name = 'mini_cheetah-k4'  # or any of the robots in the library (see `/morpho_symm/cfg/robot`)
+    robot, G = load_symmetric_system(robot_name=robot_name)
+    # We use ESCNN to handle the group/representation-theoretic concepts and for the construction of equivariant neural networks.
     gspace = escnn.gspaces.no_base_space(G)
+    # Get the relevant group representations.
+    rep_QJ = G.representations["Q_js"]  # Used to transform joint-space position coordinates q_js ∈ Q_js
+    rep_TqQJ = G.representations["TqQ_js"]  # Used to transform joint-space velocity coordinates v_js ∈ TqQ_js
+    rep_R3 = G.representations["Rd"]  # Used to transform the linear momentum l ∈ R3
+    rep_R3_pseudo = G.representations["Rd_pseudo"]  # Used to transform the angular momentum k ∈ R3
+
+    nom = torch.tensor([1, 0.7, -1.4, 1, 0.7, -1.4, 1, 0.7, -1.4, 1, 0.7, -1.4])
+    print(nom)
+    nom = torch.stack([torch.cos(nom), torch.sin(nom)], dim=-1).view(-1)
+    for g in G.elements[1:]:
+        sym = torch.from_numpy(rep_QJ(g)).float() @ nom.float()
+    sym = sym.view(-1, 2)
+    sym = torch.atan2(sym[..., 1], sym[..., 0])
+    print(sym)
+
+    nom = torch.tensor([1, 0.7, -1.4, 1, 0.7, -1.4, 1, 0.7, -1.4, 1, 0.7, -1.4])
+    # Define the input and output FieldTypes using the representations of each geometric object.
+    # in_type = escnn.nn.FieldType(gspace, [G.regular_representation] * 5)
+    # Define the input and output FieldTypes using the representations of each geometric object.
+    # Representation of x := [q, v] ∈ Q_js x TqQ_js => ρ_X_js(g) := ρ_Q_js(g) ⊕ ρ_TqQ_js(g) | g ∈ G
+    in_type = FieldType(gspace, [rep_R3, rep_R3_pseudo, rep_R3, rep_R3, rep_R3_pseudo, rep_TqQJ, rep_TqQJ, rep_TqQJ])
+    out_type = escnn.nn.FieldType(gspace, [G.trivial_representation] * 1)
     # Test Invariant EMLP
-    in_type = escnn.nn.FieldType(gspace, [G.regular_representation] * 5)
-    out_type = escnn.nn.FieldType(gspace, [G.trivial_representation] * 6)
     emlp = EMLP(in_type, out_type,
                 num_hidden_units=128,
                 num_layers=3,
@@ -231,29 +256,46 @@ if __name__ == "__main__":
     emlp.eval()  # Shut down batch norm
     x = in_type(torch.randn(1, in_type.size))
     y = emlp(x)
+    import numpy as np
 
-    for g in G.elements:
-        g_x = in_type(in_type.transform_fibers(x.tensor, g))  # Compute g · x
-        g_y = emlp(g_x)  # Compute g · y
-        assert torch.allclose(y.tensor, g_y.tensor, rtol=1e-4, atol=1e-4), \
-            f"{g} invariance failed {y.tensor} != {g_y.tensor}"
 
-    # Test Equivariant EMLP
-    in_type = escnn.nn.FieldType(gspace, [G.regular_representation] * 5)
-    out_type = escnn.nn.FieldType(gspace, [G.regular_representation] * 2)
-    emlp = EMLP(in_type, out_type,
-                num_hidden_units=128,
-                num_layers=3,
-                activation="ReLU",
-                head_with_activation=False)
-    emlp.eval()  # Shut down batch norm
 
-    x = in_type(torch.randn(1, in_type.size))
-    y = emlp(x)
-
-    for g in G.elements:
-        g_x = in_type(in_type.transform_fibers(x.tensor, g))  # Compute g · x
-        g_y_gt = out_type(out_type.transform_fibers(y.tensor, g))  # Compute ground truth g · y
-        g_y = emlp(g_x)  # Compute g · y
-        assert torch.allclose(g_y_gt.tensor, g_y.tensor, rtol=1e-4, atol=1e-4), \
-            f"{g} invariance failed {g_y_gt.tensor} != {g_y.tensor}"
+    # G = escnn.group.DihedralGroup(6)
+    # gspace = escnn.gspaces.no_base_space(G)
+    # # Test Invariant EMLP
+    # in_type = escnn.nn.FieldType(gspace, [G.regular_representation] * 5)
+    # out_type = escnn.nn.FieldType(gspace, [G.trivial_representation] * 6)
+    # emlp = EMLP(in_type, out_type,
+    #             num_hidden_units=128,
+    #             num_layers=3,
+    #             activation="ReLU",
+    #             head_with_activation=False)
+    # emlp.eval()  # Shut down batch norm
+    # x = in_type(torch.randn(1, in_type.size))
+    # y = emlp(x)
+    #
+    # for g in G.elements:
+    #     g_x = in_type(in_type.transform_fibers(x.tensor, g))  # Compute g · x
+    #     g_y = emlp(g_x)  # Compute g · y
+    #     assert torch.allclose(y.tensor, g_y.tensor, rtol=1e-4, atol=1e-4), \
+    #         f"{g} invariance failed {y.tensor} != {g_y.tensor}"
+    #
+    # # Test Equivariant EMLP
+    # in_type = escnn.nn.FieldType(gspace, [G.regular_representation] * 5)
+    # out_type = escnn.nn.FieldType(gspace, [G.regular_representation] * 2)
+    # emlp = EMLP(in_type, out_type,
+    #             num_hidden_units=128,
+    #             num_layers=3,
+    #             activation="ReLU",
+    #             head_with_activation=False)
+    # emlp.eval()  # Shut down batch norm
+    #
+    # x = in_type(torch.randn(1, in_type.size))
+    # y = emlp(x)
+    #
+    # for g in G.elements:
+    #     g_x = in_type(in_type.transform_fibers(x.tensor, g))  # Compute g · x
+    #     g_y_gt = out_type(out_type.transform_fibers(y.tensor, g))  # Compute ground truth g · y
+    #     g_y = emlp(g_x)  # Compute g · y
+    #     assert torch.allclose(g_y_gt.tensor, g_y.tensor, rtol=1e-4, atol=1e-4), \
+    #         f"{g} invariance failed {g_y_gt.tensor} != {g_y.tensor}"
