@@ -28,6 +28,8 @@ class IsotypicBasis(EquivariantModule):
                                   [iso_rep for iso_rep in self.iso_rep.attributes['isotypic_reps'].values()])
         # Orthogonal transformation from the input basis to the isotypic basis
         self.Q2iso = Parameter(torch.from_numpy(self.iso_rep.change_of_basis_inv).float(), requires_grad=False)
+        self.Q2ori = Parameter(torch.from_numpy(self.iso_rep.change_of_basis).float(), requires_grad=False)
+
 
     def forward(self, x: GeometricTensor) -> GeometricTensor:
         """Change of basis of the input field to a symmetry enabled basis (or isotypic basis)."""
@@ -39,6 +41,15 @@ class IsotypicBasis(EquivariantModule):
         """Shape of the output field."""
         return input_shape
 
+    def change2iso(self, x: GeometricTensor) -> GeometricTensor:
+        """Change of basis of the input field to a symmetry enabled basis (or isotypic basis)."""
+        return self.forward(x)
+
+    def change2ori(self, x: GeometricTensor) -> GeometricTensor:
+        """Change of basis of the input field to a symmetry enabled basis (or isotypic basis)."""
+        assert x.type == self.out_type, f"Input type {x.type} does not match module's input type {self.out_type}"
+        x_ori = torch.einsum('ij,...j->...i', self.Q2ori, x.tensor)
+        return self.in_type(x_ori)
 
 if __name__ == '__main__':
     G = escnn.group.DihedralGroup(5)

@@ -10,6 +10,7 @@ from scipy.spatial.transform import Rotation
 from tqdm import tqdm
 
 import morpho_symm
+from morpho_symm.data.DynamicsRecording import DynamicsRecording
 from morpho_symm.robot_symmetry_visualization_dynamic import load_mini_cheetah_trajs
 from morpho_symm.utils.algebra_utils import matrix_to_quat_xyzw
 from utils.pybullet_visual_utils import change_robot_appearance, spawn_robot_instances
@@ -41,7 +42,7 @@ listener.start()
 def generate_dof_motions(robot: PinBulletWrapper, angle_sweep=0.5):
     """TODO: In construction."""
     if robot.robot_name == 'mini_cheetah':
-        recordings_path = Path(morpho_symm.__file__).parent / 'datasets/contact_dataset/training_splitted/mat_test'
+        recordings_path = Path(morpho_symm.__file__).parent / 'data/contact_dataset/training_splitted/mat_test'
         recordings = load_mini_cheetah_trajs(recordings_path)
         recording_name = 'forest'
         recording = recordings[recording_name]
@@ -136,9 +137,22 @@ def main(cfg: DictConfig):
         tint=cfg.robot.tint_bodies, alpha=1.0,
         )
 
-    # For the symmetries of the system some robots require centering of DoF domain.
+    # Load a trajectory of motion and measurements from the mini-cheetah robot
+    recordings_path = Path(
+        morpho_symm.__file__).parent / 'data/mini_cheetah/raysim_recordings/flat/forward_minus_0_4/n_trajs=1-frames=7771-train.pkl'
+    dyn_recordings = DynamicsRecording.load_from_file(recordings_path)
+    # Load and prepare data for visualization
+    q_js_t = dyn_recordings.recordings['joint_pos']     # Joint space positions
+    v_js_t = dyn_recordings.recordings['joint_vel']     # Joint space velocities
+    base_ori_t = dyn_recordings.recordings['base_ori']  # Base orientation
+    feet_pos = dyn_recordings.recordings['feet_pos']  # Feet positions  [x,y,z] w.r.t base frame
+    # ground_reaction_forces = recording['F']
+    # feet_contact_states = recording['contacts']
+    # Prepare representations acting on proprioceptive and exteroceptive measurements.
+    rep_kin_three = dyn_recordings.obs_representations['gait']    # Contact state is a 4D vector.
+    rep_grf = dyn_recordings.obs_representations['ref_feet_pos']  #
 
-    # Generate random DoF motions.
+    q0, _ = robot.pin2sim(robot._q0, np.zeros(robot.nv))
     traj_q = generate_dof_motions(robot, angle_sweep=cfg.robot.angle_sweep * 2)
     traj_q_js = traj_q[:, 7:]
     # Add offset if needed

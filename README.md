@@ -179,8 +179,10 @@ Let's consider the example from [(1)](https://arxiv.org/abs/2302.1043) of approx
 \mathbf{x} = (\mathbf{q}_{js}, \mathbf{v}_{js}) \;|\; \mathbf{q}_{js} \in \mathrm{Q}_J, \;\mathbf{v}_{js} \in T_{q}\mathrm{Q}_J
 `$ as the joint-space position and velocity generalized coordinates.
 
-For this example, you can build an equivariant MLP as follows: 
+For this example, you can build an equivariant MLP as follows:
+
 ```python
+import numpy as np
 import escnn
 from escnn.nn import FieldType
 from hydra import compose, initialize
@@ -191,30 +193,37 @@ from morpho_symm.utils.robot_utils import load_symmetric_system
 # Load robot instance and its symmetry group
 initialize(config_path="morpho_symm/cfg/supervised/robot", version_base='1.3')
 robot_name = 'solo'  # or any of the robots in the library (see `/morpho_symm/cfg/robot`)
-robot_cfg = compose(config_name=f"{robot_name}.yaml")
-robot, G = load_symmetric_system(robot_cfg=robot_cfg)
+robot, G = load_symmetric_system(robot_name=robot_name)
 
 # We use ESCNN to handle the group/representation-theoretic concepts and for the construction of equivariant neural networks.
 gspace = escnn.gspaces.no_base_space(G)
 # Get the relevant group representations.
 rep_QJ = G.representations["Q_js"]  # Used to transform joint-space position coordinates q_js ∈ Q_js
 rep_TqQJ = G.representations["TqQ_js"]  # Used to transform joint-space velocity coordinates v_js ∈ TqQ_js
-rep_O3 = G.representations["Od"]  # Used to transform the linear momentum l ∈ R3
-rep_O3_pseudo = G.representations["Od_pseudo"]  # Used to transform the angular momentum k ∈ R3
+rep_R3 = G.representations["Od"]  # Used to transform the linear momentum l ∈ R3
+rep_R3_pseudo = G.representations["Od_pseudo"]  # Used to transform the angular momentum k ∈ R3
+rep_E3 = G.representations["Ed"]  # Homogenous transformation matrix 
 
+x = np.random.rand(3)  #
+g = G.sample()
+g_x = rep_EG(g) @ np.concatenate([x, np.ones(1)])  # Transform x with the representation of the Euclidean group
+
+e, gs, gr, gt = G.elements
+A = rep_R3(gs)  # 3x3 matrix.
 # Define the input and output FieldTypes using the representations of each geometric object.
-# Representation of x := [q, v] ∈ Q_js x TqQ_js      =>    ρ_X_js(g) := ρ_Q_js(g) ⊕ ρ_TqQ_js(g)  | g ∈ G
-in_field_type = FieldType(gspace, [rep_QJ, rep_TqQJ])
+# Representation of x := [q, v, base_vel, base_ang_vel] ∈ Q_js x TqQ_js x R3 x R3     =>    ρ_X_js(g) := ρ_Q_js(g) ⊕ ρ_TqQ_js(g)  | g ∈ G
+in_field_type = FieldType(gspace, [rep_QJ, rep_TqQJ, rep_R3, rep_R3_pseudo])
 # Representation of y := [l, k] ∈ R3 x R3            =>    ρ_Y_js(g) := ρ_O3(g) ⊕ ρ_O3pseudo(g)  | g ∈ G
-out_field_type = FieldType(gspace, [rep_O3, rep_O3_pseudo])
+out_field_type = FieldType(gspace, [rep_R3, rep_R3_pseudo])
 
+out_field_type = FieldType(gspace, [G.trivial_representation])
 # Construct the equivariant MLP
 model = EMLP(in_type=in_field_type,
              out_type=out_field_type,
-             num_layers=5,              # Input layer + 3 hidden layers + output/head layer
-             num_hidden_units=128,      # Number of hidden units per layer
+             num_layers=5,  # Input layer + 3 hidden layers + output/head layer
+             num_hidden_units=128,  # Number of hidden units per layer
              activation=escnn.nn.ReLU,  # Activarions must be `EquivariantModules` instances
-             with_bias=True             # Use bias in the linear layers
+             with_bias=True  # Use bias in the linear layers
              )
 
 print(f"Here is your equivariant MLP \n {model}")

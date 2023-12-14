@@ -1,3 +1,4 @@
+import copy
 import logging
 import math
 import pickle
@@ -339,7 +340,7 @@ def reduce_dataset_size(recordings: Iterable[DynamicsRecording], train_ratio: fl
         return recordings
     log.info(f"Reducing dataset size to {train_ratio * 100}%")
     # Ensure all training seeds use the same training data partitions
-    from utils.mysc import TemporaryNumpySeed
+    from morpho_symm.utils.mysc import TemporaryNumpySeed
     with TemporaryNumpySeed(10):
         for r in recordings:
             # Decide to keep a ratio of the original trajectories
@@ -383,6 +384,54 @@ def reduce_dataset_size(recordings: Iterable[DynamicsRecording], train_ratio: fl
                 # Keep only the selected trajectories
                 new_recordings = {k: v[idx_to_keep] for k, v in r.recordings.items()}
                 r.recordings = new_recordings
+
+def split_train_val_test(
+        dyn_recording: DynamicsRecording, partition_sizes=(0.70, 0.15, 0.15)) -> tuple[DynamicsRecording]:
+    assert np.isclose(np.sum(partition_sizes), 1.0), f"Invalid partition sizes {partition_sizes}"
+    partitions_names = ["train", "val", "test"]
+
+    log.info(f"Partitioning {dyn_recording.description} into train/val/test of sizes {partition_sizes}[%]")
+    # Ensure all training seeds use the same training data partitions
+    from morpho_symm.utils.mysc import TemporaryNumpySeed
+    with TemporaryNumpySeed(10):   # Ensure deterministic behavior
+        # Decide to keep a ratio of the original trajectories
+        num_trajs = int(dyn_recording.info['num_traj'])
+        if num_trajs < 10:  # Do not discard entire trajectories, but rather parts of the trajectories
+            # Take the time horizon from the first observation
+            sample_obs = dyn_recording.recordings[dyn_recording.state_obs[0]]
+            if len(sample_obs.shape) == 3:  # [traj, time, obs_dim]
+                time_horizon = sample_obs.shape[1]
+            elif len(sample_obs.shape) == 2:  # [traj, obs_dim]
+                time_horizon = sample_obs.shape[0]
+            else:
+                raise RuntimeError(f"Invalid shape {sample_obs.shape} of {dyn_recording.state_obs[0]}")
+
+            num_samples = time_horizon
+            min_idx = 0
+            partitions_sample_idx = {partition: None for partition in partitions_names}
+            for partition_name, ratio in zip(partitions_names, partition_sizes):
+                max_idx = min_idx + int(num_samples * ratio)
+                partitions_sample_idx[partition_name] = list(range(min_idx, max_idx))
+                min_idx = min_idx + int(num_samples * ratio)
+
+            # TODO: Avoid deep copying the data itself.
+            partitions_recordings = {partition: copy.deepcopy(dyn_recording) for partition in partitions_names}
+            for partition_name, sample_idx in partitions_sample_idx.items():
+                part_num_samples = len(sample_idx)
+                partitions_recordings[partition_name].info['trajectory_length'] = part_num_samples
+                partitions_recordings[partition_name].recordings = dict()
+                for obs_name in dyn_recording.recordings.keys():
+                    if len(dyn_recording.recordings[obs_name].shape) == 3:
+                        data = dyn_recording.recordings[obs_name][:, sample_idx]
+                    elif len(dyn_recording.recordings[obs_name].shape) == 2:
+                        data = dyn_recording.recordings[obs_name][sample_idx]
+                    else:
+                        raise RuntimeError(f"Invalid shape {dyn_recording.recordings[obs_name].shape} of {obs_name}")
+                    partitions_recordings[partition_name].recordings[obs_name] = data
+
+            return partitions_recordings['train'], partitions_recordings['val'], partitions_recordings['test']
+        else:  # Discard entire trajectories
+            raise NotImplementedError()
 
 
 def get_dynamics_dataset(train_shards: list[Path],

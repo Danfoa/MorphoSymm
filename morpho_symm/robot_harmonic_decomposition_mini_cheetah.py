@@ -12,7 +12,7 @@ from tqdm import tqdm
 import morpho_symm
 from morpho_symm.robot_symmetry_visualization_dynamic import load_mini_cheetah_trajs
 from morpho_symm.utils.algebra_utils import matrix_to_quat_xyzw
-from utils.pybullet_visual_utils import change_robot_appearance, spawn_robot_instances
+from utils.pybullet_visual_utils import change_robot_appearance, spawn_robot_instances, render_camera_trajectory
 from utils.robot_utils import load_symmetric_system
 
 from morpho_symm.robots.PinBulletWrapper import PinBulletWrapper
@@ -38,12 +38,12 @@ listener = keyboard.Listener(on_press=on_key_press)
 listener.start()
 
 
-def generate_dof_motions(robot: PinBulletWrapper, angle_sweep=0.5):
+def generate_dof_motions(robot: PinBulletWrapper, angle_sweep=0.5, recording_name = 'forest'):
     """TODO: In construction."""
     if robot.robot_name == 'mini_cheetah':
-        recordings_path = Path(morpho_symm.__file__).parent / 'datasets/contact_dataset/forward_minus/mat_test'
+        # / home / danfoa / Projects / MorphoSymm / morpho_symm / data / contact_dataset / training_splitted / mat_test / forest.mat
+        recordings_path = Path(morpho_symm.__file__).parent / 'data/contact_dataset/training_splitted/mat_test'
         recordings = load_mini_cheetah_trajs(recordings_path)
-        recording_name = 'forest'
         recording = recordings[recording_name]
         # timestamps = recording['control_time'].flatten()
         q_js_t = recording['q']  # Joint space positions
@@ -53,7 +53,7 @@ def generate_dof_motions(robot: PinBulletWrapper, angle_sweep=0.5):
         # base_acc = recording['imu_acc']
         # base_ang_vel = recording['imu_omega']
         # feet_contact_states = recording['contacts']
-
+        time = recording['control_time']
         q = []
         q0, _ = robot.pin2sim(robot._q0, np.zeros(robot.nv))
         for q_js, base_ori in zip(q_js_t, base_ori_t):
@@ -61,9 +61,9 @@ def generate_dof_motions(robot: PinBulletWrapper, angle_sweep=0.5):
             q_rec = np.concatenate([q0[:7], -1 * q_js])
             v_rec = np.zeros(robot.nv)
             # Just for Mit Cheetah.
-            q_t = q_rec - q0
+            q_t = q_rec + q0
             q.append(q_t)
-        return np.asarray(q)
+        return np.asarray(q), time[0]
     else:
         n_dof = robot.nq - 7
         q0, _ = robot.get_init_config(False)
@@ -106,7 +106,13 @@ def main(cfg: DictConfig):
     n_dof = robot.nv - 6
     if cfg.robot.tint_bodies: change_robot_appearance(pb, robot)
     q0, dq0 = robot.get_init_config(random=True, angle_sweep=cfg.robot.angle_sweep, fix_base=cfg.robot.fix_base)
+    base_ori = q0[3:7]
     base_pos = q0[:3]
+    base_oriR = Rotation.from_quat(base_ori)
+    base_ori_rpg = Rotation.from_euler('xyz', base_oriR.as_euler(seq='xyz') - np.array([0, 0, np.pi/2]))
+    base_ori = [ 0, 0, 0.7071068, 0.7071068 ]
+    q0[3:7] = base_ori
+    robot.reset_state(q0, dq0)
 
     # Determine the number of isotypic components of the Joint-Space (JS) vector space.
     # This is equivalent to the number of unique irreps of the JS representation.
@@ -125,17 +131,23 @@ def main(cfg: DictConfig):
     n_components = len(iso_comp)
     base_positions = np.asarray([base_pos] * n_components)
     base_positions[:, 0] = -1.0
-    base_positions[:, 1] = np.linspace(0, 2 * robot.hip_height * n_components, n_components)
+    base_positions[:, 1] = np.linspace(0, 2.8 * robot.hip_height * n_components, n_components)
     base_positions[:, 1] -= np.max(base_positions[:, 1]) / 2
+    # base_positions[:, 2] += 0.5
 
     iso_robots = spawn_robot_instances(
-        robot, bullet_client=pb, base_positions=base_positions, tint=cfg.robot.tint_bodies, alpha=0.5,
+        robot,
+        bullet_client=pb,
+        base_positions=base_positions,
+        base_orientations=[base_ori]*n_components,
+        tint=cfg.robot.tint_bodies, alpha=.5,
         )
 
     # For the symmetries of the system some robots require centering of DoF domain.
 
     # Generate random DoF motions.
-    traj_q = generate_dof_motions(robot, angle_sweep=cfg.robot.angle_sweep * 2)
+    recording_name = 'small_pebble'
+    traj_q, time = generate_dof_motions(robot, recording_name=recording_name, angle_sweep=cfg.robot.angle_sweep * 2)
     traj_q_js = traj_q[:, 7:]
     # Add offset if needed
 
@@ -151,62 +163,114 @@ def main(cfg: DictConfig):
 
     traj_q_iso = (Q_inv @ traj_q_js.T).T  # if mode == qj2iso else traj_q_js
 
+    t_idx = 0
+    time_shift = 1
+    fps = 30
+    make_gif = True
+    timescale = 1
+    last_capture_time = time[0]
+    frames = []
     while True:
-        for q_js, q_iso in tqdm(zip(traj_q_js, traj_q_iso), total=len(traj_q_js), desc="playback"):
-            g = G.elements[g_idx]
+        t_idx = t_idx + time_shift
+        t = time[t_idx] * timescale
+        dt = t - time[t_idx - 1]
+        capture_frame = t - last_capture_time > 1 / fps
+        if not capture_frame:
+            continue
+        # for q_js, q_iso in tqdm(zip(traj_q_js, traj_q_iso), total=len(traj_q_js), desc="playback"):
+        q_js = traj_q_js[t_idx]
+        q_iso = traj_q_iso[t_idx]
+        g = G.elements[g_idx]
 
+        # Apply selected symmetry action
+        q, dq = robot.get_state()
+        g_q_js = np.real(rep_Q_js(g) @ q_js)
+        g_q = np.concatenate((q[:7], g_q_js)).astype(float)
+        robot.reset_state(*robot.sim2pin(g_q, dq))
+
+        components_q_js = []
+        for iso_robot, (re_irrep, dims) in zip(iso_robots, iso_comp.items()):
+            q, dq = iso_robot.get_state()
+            # Get point in isotypic component and describe it in the basis of generalized coordinates.
+            q_iso_masked = q_iso * dims
+            # Transform back to generalized coordinates.
+            q_js_comp = np.real(Q @ q_iso_masked)
+            a = np.linalg.norm(q_js_comp[2:4])
+            components_q_js.append(q_js_comp)
             # Apply selected symmetry action
-            q, dq = robot.get_state()
-            g_q_js = np.real(rep_Q_js(g) @ q_js)
-            g_q = np.concatenate((q[:7], g_q_js)).astype(float)
-            robot.reset_state(*robot.sim2pin(g_q, dq))
+            g_q_js_comp = np.real(rep_Q_js(g) @ q_js_comp)
+            # Set the robot to desired state.
+            g_q = np.concatenate((q[:7], g_q_js_comp))
+            iso_robot.reset_state(*iso_robot.sim2pin(g_q, dq))
 
-            components_q_js = []
-            for iso_robot, (re_irrep, dims) in zip(iso_robots, iso_comp.items()):
-                q, dq = iso_robot.get_state()
-                # Get point in isotypic component and describe it in the basis of generalized coordinates.
-                q_iso_masked = q_iso * dims
-                # Transform back to generalized coordinates.
-                q_js_comp = np.real(Q @ q_iso_masked)
-                a = np.linalg.norm(q_js_comp[2:4])
-                components_q_js.append(q_js_comp)
-                # Apply selected symmetry action
-                g_q_js_comp = np.real(rep_Q_js(g) @ q_js_comp)
-                # Set the robot to desired state.
-                g_q = np.concatenate((q[:7], g_q_js_comp))
-                iso_robot.reset_state(*iso_robot.sim2pin(g_q, dq))
+        # Get real robot generalized positions.
+        q_iso_rec = sum(components_q_js)
+        if mode == qj2iso:
+            rec_error = q_js - q_iso_rec
+            assert np.allclose(np.abs(rec_error), 0), f"Reconstruction error {rec_error}"
+        elif mode == iso2qj:
+            q_js = q_iso_rec
+        else:
+            raise NotImplementedError()
 
-            # Get real robot generalized positions.
-            q_iso_rec = sum(components_q_js)
-            if mode == qj2iso:
-                rec_error = q_js - q_iso_rec
-                assert np.allclose(np.abs(rec_error), 0), f"Reconstruction error {rec_error}"
-            elif mode == iso2qj:
-                q_js = q_iso_rec
+
+
+        if make_gif and capture_frame:
+            init_roll_pitch_yaw = ([0], [-30], [90])
+            roll, pitch, yaw = init_roll_pitch_yaw
+            light_distance, light_directions = 4, (0.5, 0.5, 1)
+            cam_distance, cam_target_pose = 0.7, base_pos
+            aspect_ratio = 3.5
+            width = 1024
+            height = int(width / aspect_ratio)
+            frame = render_camera_trajectory(pb, pitch, roll, yaw, 1, cam_distance, cam_target_pose,
+                                             render_width=width, render_height=height,
+                                             light_direction=light_directions, light_distance=light_distance,
+                                             )[0]
+            frames.append(frame)
+            last_capture_time = t
+            print(f"Frame {len(frames)} captured at time {t} [s]")
+
+        # Process new keyboard commands.
+        if new_command:
+            keys = new_command.copy()
+            new_command.clear()
+            if keys == ['t']:
+                time_shift = 1 if time_shift == 0 else 0
+            if keys == ['p']:
+                break
+            if keys == ['m']:
+                mode = qj2iso if mode == iso2qj else iso2qj
+                print(f"Mode changed to {mode}")
+        if num_pressed:
+            if num_pressed[0] < G.order():
+                g_idx = num_pressed[0]
+                print(f"Group element selected {G.elements[g_idx]}")
             else:
-                raise NotImplementedError()
+                print(f"Group element {num_pressed[0]} is larger than group order...ignoring")
+            num_pressed.clear()
 
-            # time.sleep(0.01)
-
-            # Process new keyboard commands.
-            if new_command:
-                keys = new_command.copy()
-                new_command.clear()
-                if keys == ['t']:
-                    pass
-                    # dt = 1 if dt == 0 else 0
-                if keys == ['m']:
-                    mode = qj2iso if mode == iso2qj else iso2qj
-                    print(f"Mode changed to {mode}")
-            if num_pressed:
-                if num_pressed[0] < G.order():
-                    g_idx = num_pressed[0]
-                    print(f"Group element selected {G.elements[g_idx]}")
-                else:
-                    print(f"Group element {num_pressed[0]} is larger than group order...ignoring")
-                num_pressed.clear()
-
+        if t_idx == len(traj_q_js) - 1:
+            t_idx = 0
+        if t > 4:
+            break
     pb.disconnect()
+
+    if len(frames) > 0:
+        from moviepy.editor import ImageSequenceClip
+        # Save animation
+        root_path = Path(morpho_symm.__file__).parents[1].absolute()
+        save_path = root_path / "docs/static/dynamic_animations/dynamics_harmonics_analyis"
+        file_name = f"mini-cheetah_{G}-{recording_name}_harmonic_analysis"
+        file_path = save_path / f'{file_name}.gif'
+        file_count = 1
+        while file_path.exists():
+            file_path = save_path / f'{file_name}({file_count}).gif'
+            file_count += 1
+        clip = ImageSequenceClip(list(frames), fps=fps)
+        clip.write_gif(file_path, fps=fps, loop=0, fuzz=0.9)
+        print(f"Animation with {len(frames)} ({len(frames)/fps}[s]) saved to {file_path.absolute()}")
+
 
 
 if __name__ == '__main__':

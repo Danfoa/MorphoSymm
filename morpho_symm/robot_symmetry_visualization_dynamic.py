@@ -175,11 +175,6 @@ def main(cfg: DictConfig):
     rep_E3 = G.representations['Ed']
     rep_R3 = G.representations['Rd']
 
-    # Load a trajectory of motion and measurements from the mini-cheetah robot
-    recordings_path = Path(morpho_symm.__file__).parent / 'data/mini_cheetah/flat_terrain/forward_minus_0_4/recording.pkl'
-
-    dyn_recordings = DynamicsRecording.load_from_file(recordings_path)
-
     offset = max(0.2, 1.8 * robot.hip_height)
     base_pos = np.array([-offset if G.order() != 2 else 0, -offset] + [robot.hip_height * 5.5])
     pb = configure_bullet_simulation(gui=cfg.gui, debug=cfg.debug)
@@ -193,10 +188,14 @@ def main(cfg: DictConfig):
     robot = robots[0]
     end_effectors = robot.bullet_ids_allowed_floor_contacts
 
+    # Load a trajectory of motion and measurements from the mini-cheetah robot
+    recordings_path = Path(
+        morpho_symm.__file__).parent / 'data/mini_cheetah/raysim_recordings/flat/forward_minus_0_4/n_trajs=1-frames=7771-train.pkl'
+    dyn_recordings = DynamicsRecording.load_from_file(recordings_path)
     # Load and prepare data for visualization
     q_js_t = dyn_recordings.recordings['joint_pos']     # Joint space positions
     v_js_t = dyn_recordings.recordings['joint_vel']     # Joint space velocities
-    base_ori_t = dyn_recordings.recordings['base_ori']  # Base orientation
+    base_ori_t = dyn_recordings.recordings['base_ori'][0]  # Base orientation
     feet_pos = dyn_recordings.recordings['feet_pos']  # Feet positions  [x,y,z] w.r.t base frame
     # ground_reaction_forces = recording['F']
     # feet_contact_states = recording['contacts']
@@ -248,7 +247,7 @@ def main(cfg: DictConfig):
         feet_pos_fk = feet_pos[i]
         a = feet_pos_fk[:3]
         for robot_idx, g in enumerate(G.elements):
-            g_X_B = np.real(rep_E3(g) @ X_B @ np.linalg.inv(rep_E3(g)))
+            g_X_B = np.real(rep_E3(g) @ X_B @ rep_E3(~g))
             orbit_X_B[g] = g_X_B
             g_q_js = np.real(rep_Q_js(g) @ q[7:])
             g_q = np.concatenate([g_X_B[:3, 3], matrix_to_quat_xyzw(g_X_B[:3, :3]), g_q_js]).astype(float)
