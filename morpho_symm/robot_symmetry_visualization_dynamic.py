@@ -154,7 +154,7 @@ def update_ground_reaction_forces(pb, feet_pos, forces, contact_state, vectors=N
     return vectors
 
 
-@hydra.main(config_path='cfg', config_name='config_visualization', version_base='1.1')
+@hydra.main(config_path='cfg', config_name='config_visualization', version_base='1.3')
 def main(cfg: DictConfig):
     """Visualize the effect of DMSs transformations in 3D animation.
 
@@ -197,7 +197,7 @@ def main(cfg: DictConfig):
     v_js_t = dyn_recordings.recordings['joint_vel']     # Joint space velocities
     base_ori_t = dyn_recordings.recordings['base_ori'][0]  # Base orientation
     feet_pos = dyn_recordings.recordings['feet_pos']  # Feet positions  [x,y,z] w.r.t base frame
-    # ground_reaction_forces = recording['F']
+    # ground_reaction_forces = recpitcording['F']
     # feet_contact_states = recording['contacts']
     # Prepare representations acting on proprioceptive and exteroceptive measurements.
     rep_kin_three = dyn_recordings.obs_representations['gait']    # Contact state is a 4D vector.
@@ -260,7 +260,7 @@ def main(cfg: DictConfig):
 
             # Display contact terrain
             # g_contact_state = np.rint(np.real(rep_kin_three(g) @ contact_state)).astype(np.uint8)
-            # g_prev_contact_state = np.rint(np.real(rep_kin_three(g) @ prev_contact_state)).astype(np.uint8)
+            # g_prev_contact_state = np.rint(np.real(rep_kin_three(g) @ prev_contact_state)).astype(np.uint8)(np.uint8)
             # robot_terrain[robot_idx] = update_contacts(pb,
             #                                            g_rf_w,
             #                                            g_prev_contact_state,

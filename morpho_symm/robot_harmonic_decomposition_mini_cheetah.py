@@ -80,7 +80,7 @@ def generate_dof_motions(robot: PinBulletWrapper, angle_sweep=0.5, recording_nam
 
 
 
-@hydra.main(config_path='cfg', config_name='config_visualization', version_base='1.1')
+@hydra.main(config_path='cfg', config_name='config_visualization', version_base='1.3')
 def main(cfg: DictConfig):
     """Visualize the effect of DMSs transformations in 3D animation.
 
@@ -166,7 +166,7 @@ def main(cfg: DictConfig):
     t_idx = 0
     time_shift = 1
     fps = 30
-    make_gif = True
+    make_gif = False
     timescale = 1
     last_capture_time = time[0]
     frames = []
@@ -213,8 +213,6 @@ def main(cfg: DictConfig):
         else:
             raise NotImplementedError()
 
-
-
         if make_gif and capture_frame:
             init_roll_pitch_yaw = ([0], [-30], [90])
             roll, pitch, yaw = init_roll_pitch_yaw
@@ -252,8 +250,8 @@ def main(cfg: DictConfig):
 
         if t_idx == len(traj_q_js) - 1:
             t_idx = 0
-        if t > 4:
-            break
+        # if t > 4:
+        #     break
     pb.disconnect()
 
     if len(frames) > 0:

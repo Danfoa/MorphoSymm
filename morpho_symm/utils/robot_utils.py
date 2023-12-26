@@ -17,7 +17,7 @@ from omegaconf import DictConfig, OmegaConf
 import morpho_symm
 from morpho_symm.robots.PinBulletWrapper import PinBulletWrapper
 from morpho_symm.utils.algebra_utils import gen_permutation_matrix
-from morpho_symm.utils.rep_theory_utils import group_rep_from_gens
+from morpho_symm.utils.rep_theory_utils import escnn_representation_form_mapping, group_rep_from_gens
 from morpho_symm.utils.pybullet_visual_utils import (
     change_robot_appearance,
     configure_bullet_simulation,
@@ -60,7 +60,9 @@ def get_escnn_group(cfg: DictConfig):
 
 
 def load_symmetric_system(
-        robot_cfg: Optional[DictConfig] = None, robot_name: Optional[str] = None, debug=False
+        robot_cfg: Optional[DictConfig] = None,
+        robot_name: Optional[str] = None,
+        debug=False
         ) -> [PinBulletWrapper, escnn.group.Group]:
     """Utility function to get the symmetry group and representations of a robotic system defined in config.
 
@@ -112,58 +114,56 @@ def load_symmetric_system(
     # Select the field for the representations.
     rep_field = float if robot_cfg.rep_fields.lower() != 'complex' else complex
 
-    # Get the dimensions of the spaces Q_js and TqQ_js
-    dimQ_js, dimTqQ_js = robot.nq - 7, robot.nv - 6
-
-    # Joint-Space Q_js (generalized position coordinates)
-    rep_Q_js = {G.identity: np.eye(dimQ_js, dtype=rep_field)}
-    # Check a representation for each generator is provided
-    assert len(robot_cfg.permutation_Q_js) == len(robot_cfg.reflection_Q_js) >= len(G.generators), \
-        f"Not enough representation provided for the joint-space `Q_js`. " \
-        f"Found {len(robot_cfg.permutation_TqQ_js)} but symmetry group {G} has {len(G.generators)} generators."
-
-    # Generate ESCNN representation of generators
-    for g_gen, perm, refx in zip(G.generators, robot_cfg.permutation_Q_js, robot_cfg.reflection_Q_js):
-        assert len(perm) == dimQ_js == len(refx), \
-            f"Dimension of joint-space position coordinates dim(Q_js)={robot.n_js} != dim(rep_Q_JS): {len(refx)}"
-        refx = np.array(refx, dtype=rep_field)
-        rep_Q_js[g_gen] = gen_permutation_matrix(oneline_notation=perm, reflections=refx)
-    # Generate the entire group
-    rep_Q_js = group_rep_from_gens(G, rep_Q_js)
-
-    # Joint-Space Tangent bundle TqQ_js (generalized velocity coordinates)
-    rep_TqQ_js = {G.identity: np.eye(dimTqQ_js, dtype=rep_field)}
-    if dimQ_js == dimTqQ_js:  # If position and velocity coordinates have the same dimensions
-        rep_TqQ_js = rep_Q_js
-    else:
-        # Check a representation for each generator is provided
-        assert robot_cfg.permutation_TqQ_js is not None and robot_cfg.reflection_TqQ_js is not None, \
-            f"No representations provided for the joint-space tangent bundle rep_TqQ_js of {robot_name}"
-        assert len(robot_cfg.permutation_TqQ_js) == len(robot_cfg.reflection_TqQ_js) >= len(G.generators), \
-            f"Not enough representation provided for the joint-space tangent bundle `TqQ_js`. " \
-            f"Found {len(robot_cfg.permutation_TqQ_js)} but symmetry group {G} has {len(G.generators)} generators."
-
+    reps_in_cfg = [k.split('permutation_')[1] for k in robot_cfg if "permutation" in k]
+    for rep_name in reps_in_cfg:
+        perm_list = list(robot_cfg[f'permutation_{rep_name}'])
+        rep_dim = len(perm_list[0])
+        reflex_list = list(robot_cfg[f'reflection_{rep_name}'])
+        assert len(perm_list) == len(reflex_list), \
+            f"Found different number of permutations and reflections for {rep_name}"
+        assert len(perm_list) >= len(G.generators), \
+            f"Found {len(perm_list)} element reps for {rep_name}, Expected {len(G.generators)} generators for {G}"
         # Generate ESCNN representation of generators
-        for g_gen, perm, refx in zip(G.generators, robot_cfg.permutation_TqQ_js, robot_cfg.reflection_TqQ_js):
-            assert len(perm) == dimTqQ_js == len(refx), \
-                f"Dimension of joint-space position coordinates dim(Q_js)={robot.n_js} != dim(rep_Q_JS): {len(refx)}"
+        gen_rep = {}
+        for h, perm, refx in zip(G.generators, perm_list, reflex_list):
+            assert len(perm) == len(refx) == rep_dim
             refx = np.array(refx, dtype=rep_field)
-            rep_TqQ_js[g_gen] = gen_permutation_matrix(oneline_notation=perm, reflections=refx)
+            gen_rep[h] = gen_permutation_matrix(oneline_notation=perm, reflections=refx)
         # Generate the entire group
-        rep_TqQ_js = group_rep_from_gens(G, rep_TqQ_js)
-        rep_TqQ_js.name = 'TqQ_js'
+        rep = group_rep_from_gens(G, rep_H=gen_rep)
+        rep.name = rep_name
+        G.representations.update({rep_name: rep})
 
-    rep_Q_js.name = 'Q_js'
+    rep_Q_js = G.representations['Q_js']
+    rep_TqQ_js = G.representations.get('TqQ_js', None)
+    rep_TqQ_js = rep_Q_js if rep_TqQ_js is None else rep_TqQ_js
+    dimQ_js, dimTqQ_js = robot.nq - 7, robot.nv - 6
+    assert dimQ_js == rep_Q_js.size
+    assert dimTqQ_js == rep_TqQ_js.size
 
     # Create the representation of isometries on the Euclidean Space in d dimensions.
-    generate_euclidean_space_representations(G)  # This adds `O3` and `E3` representations to the group.
+    rep_R3, rep_E3, rep_R3pseudo, rep_E3pseudo = generate_euclidean_space_representations(G)  # This adds `O3` and `E3` representations to the group.
+
+    # Define the representation of the rotation matrix R that transforms the base orientation.
+    rep_rot_flat = {}
+    for h in G.elements:
+        rep_rot_flat[h] = np.kron(rep_R3(h), rep_R3(~h).T)
+    rep_rot_flat = escnn_representation_form_mapping(G, rep_rot_flat)
+    rep_rot_flat.name = "SO3_flat"
 
     # Add representations to the group.
-    G.representations.update(Q_js=rep_Q_js, TqQ_js=rep_TqQ_js)
+    G.representations.update(Q_js=rep_Q_js,
+                             TqQ_js=rep_TqQ_js,
+                             R3=rep_R3,
+                             E3=rep_E3,
+                             R3_pseudo=rep_R3pseudo,
+                             E3_pseudo=rep_E3pseudo,
+                             SO3_flat=rep_rot_flat)
+
     return robot, G
 
 
-def generate_euclidean_space_representations(G: Group) -> Representation:
+def generate_euclidean_space_representations(G: Group) -> tuple[Representation]:
     """Generate the E3 representation of the group G.
 
     This representation is used to transform all members of the Euclidean Space in 3D.
@@ -200,26 +200,23 @@ def generate_euclidean_space_representations(G: Group) -> Representation:
     else:
         raise NotImplementedError(f"Group {G} not implemented yet.")
 
+    # Representation of unitary/orthogonal transformations in d dimensions.
+    rep_R3.name = "R3"
+
     # We include some utility symmetry representations for different geometric objects.
     # We define a Ed as a (d+1)x(d+1) matrix representing a homogenous transformation matrix in d dimensions.
     rep_E3 = rep_R3 + G.trivial_representation
     rep_E3.name = "E3"
 
-    # Representation of unitary/orthogonal transformations in d dimensions.
-    rep_R3.name = "R3"
     # Build a representation of orthogonal transformations of pseudo-vectors.
     # That is if det(rep_O3(h)) == -1 [improper rotation] then we have to change the sign of the pseudo-vector.
     # See: https://en.wikipedia.org/wiki/Pseudovector
-    psuedo_gens = {h: -1 * rep_R3(h) if np.linalg.det(rep_R3(h)) < 0 else rep_R3(h) for h in G.generators}
-    psuedo_gens[G.identity] = np.eye(3)
-    rep_R3pseudo = group_rep_from_gens(G, psuedo_gens)
+    pseudo_gens = {h: -1 * rep_R3(h) if np.linalg.det(rep_R3(h)) < 0 else rep_R3(h) for h in G.generators}
+    pseudo_gens[G.identity] = np.eye(3)
+    rep_R3pseudo = group_rep_from_gens(G, pseudo_gens)
     rep_R3pseudo.name = "R3_pseudo"
 
-    # Representation of quaternionic transformations in d dimensions.
-    # TODO: Add quaternion representation
-    # quat_gens = {h: Rotation.from_matrix(rep_O3(h)).as_quat() for h in G.generators}
-    # quat_gens[G.identity] = np.eye(4)
-    # TODO: Add quaternion pseudo representation
-    # rep_O3pseudo = group_rep_from_gens(G, psuedo_gens)
+    rep_E3pseudo = rep_R3pseudo + G.trivial_representation
+    rep_E3pseudo.name = "E3_pseudo"
 
-    G.representations.update(Rd=rep_R3, Ed=rep_E3, Rd_pseudo=rep_R3pseudo)
+    return rep_R3, rep_E3, rep_R3pseudo, rep_E3pseudo

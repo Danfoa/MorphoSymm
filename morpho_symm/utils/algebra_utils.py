@@ -69,9 +69,6 @@ def append_dictionaries(dict1, dict2, recursive=True):
     return result
 
 
-
-
-
 def slugify(value, allow_unicode=False):
     """Taken from github.com/django/django/blob/master/django/utils/text.py.
 

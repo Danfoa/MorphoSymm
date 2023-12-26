@@ -1,12 +1,10 @@
-import functools
 import itertools
-from collections import OrderedDict
 from typing import Callable, Dict, List, Union
 
 import networkx as nx
 import numpy as np
-from escnn.group import CyclicGroup, DihedralGroup, DirectProductGroup, Group, GroupElement, Representation
-from escnn.group.representation import Representation, directsum
+from escnn.group import CyclicGroup, DihedralGroup, DirectProductGroup, Group, GroupElement
+from escnn.group.representation import Representation
 from networkx import Graph
 from scipy.linalg import block_diag
 
@@ -108,97 +106,6 @@ def irreps_stats(irreps_ids):
     unique_str_ids, counts, indices = np.unique(str_ids, return_counts=True, return_index=True)
     unique_ids = [eval(s) for s in unique_str_ids]
     return unique_ids, counts, indices
-
-
-def isotypic_decomp_representation(rep: Representation) -> Representation:
-    """Returns a representation in a "symmetry enabled basis" (a.k.a Isotypic Basis).
-
-    Takes a representation with an arbitrary basis (i.e., arbitrary change of basis and an arbitrary order of
-    irreducible representations in the escnn Representation) and returns a new representation in which the basis
-    is changed to a "symmetry enabled basis" (a.k.a Isotypic Basis). That is a representation in which the
-    vector space is decomposed into a direct sum of Isotypic Subspaces. Each Isotypic Subspace is a subspace of the
-    original vector space with a subspace representation composed of multiplicities of a single irreducible
-    representation. In oder words, each Isotypic Subspace is a subspace with a subgroup of symmetries of the original
-    vector space's symmetry group.
-
-    Args:
-        rep (Representation): Input representation in any arbitrary basis.
-
-    Returns: A `Representation` with a change of basis exposing an Isotypic Basis (a.k.a symmetry enabled basis).
-        The instance of the representation contains an additional attribute `isotypic_subspaces` which is an
-        `OrderedDict` of representations per each isotypic subspace. The keys are the active irreps' ids associated
-        with each Isotypic subspace.
-    """
-    symm_group = rep.group
-    potential_irreps = rep.group.irreps()
-    isotypic_subspaces_indices = {irrep.id: [] for irrep in potential_irreps}
-
-    for pot_irrep in potential_irreps:
-        cur_dim = 0
-        for rep_irrep_id in rep.irreps:
-            rep_irrep = symm_group.irrep(*rep_irrep_id)
-            if rep_irrep == pot_irrep:
-                isotypic_subspaces_indices[rep_irrep_id].append(list(range(cur_dim, cur_dim + rep_irrep.size)))
-            cur_dim += rep_irrep.size
-
-    # Remove inactive Isotypic Spaces
-    for irrep in potential_irreps:
-        if len(isotypic_subspaces_indices[irrep.id]) == 0:
-            del isotypic_subspaces_indices[irrep.id]
-
-    # Each Isotypic Space will be indexed by the irrep it is associated with.
-    active_isotypic_reps = {}
-    for irrep_id, indices in isotypic_subspaces_indices.items():
-        irrep = symm_group.irrep(*irrep_id)
-        multiplicities = len(indices)
-        active_isotypic_reps[irrep_id] = Representation(group=rep.group,
-                                                        irreps=[irrep_id] * multiplicities,
-                                                        name=f'IsoSubspace {irrep_id}',
-                                                        change_of_basis=np.identity(irrep.size * multiplicities),
-                                                        supported_nonlinearities=irrep.supported_nonlinearities)
-
-    # Impose canonical order on the Isotypic Subspaces.
-    # If the trivial representation is active it will be the first Isotypic Subspace.
-    # Then sort by dimension of the space from smallest to largest.
-    ordered_isotypic_reps = OrderedDict(sorted(active_isotypic_reps.items(), key=lambda item: item[1].size))
-    if symm_group.trivial_representation.id in ordered_isotypic_reps.keys():
-        ordered_isotypic_reps.move_to_end(symm_group.trivial_representation.id, last=False)
-
-    # Required permutation to change the order of the irreps. So we obtain irreps of the same type consecutively.
-    oneline_permutation = []
-    for irrep_id, iso_rep in ordered_isotypic_reps.items():
-        idx = isotypic_subspaces_indices[irrep_id]
-        oneline_permutation.extend(idx)
-    oneline_permutation = np.concatenate(oneline_permutation)
-    P_in2iso = permutation_matrix(oneline_permutation)
-
-    Q_iso = rep.change_of_basis @ P_in2iso.T
-    rep_iso_basis = directsum(list(ordered_isotypic_reps.values()),
-                              name=rep.name + '-Iso',
-                              change_of_basis=Q_iso)
-
-    iso_supported_nonlinearities = [iso_rep.supported_nonlinearities for iso_rep in ordered_isotypic_reps.values()]
-    rep_iso_basis.supported_nonlinearities = functools.reduce(set.intersection, iso_supported_nonlinearities)
-    rep_iso_basis.attributes['isotypic_reps'] = ordered_isotypic_reps
-
-    return rep_iso_basis
-
-
-def isotypic_basis(representation: Representation, multiplicity: int = 1, prefix=''):
-    rep_iso = isotypic_decomp_representation(representation)
-
-    iso_reps = OrderedDict()
-    iso_range = OrderedDict()
-
-    start_dim = 0
-    for iso_irrep_id, reg_rep_iso in rep_iso.attributes['isotypic_reps'].items():
-        iso_reps[iso_irrep_id] = directsum([reg_rep_iso] * multiplicity, name=f"{prefix}_IsoSpace{iso_irrep_id}")
-        iso_range[iso_irrep_id] = range(start_dim, start_dim + iso_reps[iso_irrep_id].size)
-        start_dim += iso_reps[iso_irrep_id].size
-
-    assert rep_iso.size * multiplicity == sum([iso_rep.size for iso_rep in iso_reps.values()])
-
-    return iso_reps, iso_range  # Dict[key:id_space -> value: rep_iso_space]
 
 
 def escnn_representation_form_mapping(

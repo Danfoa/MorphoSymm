@@ -6,7 +6,7 @@ import torch
 from escnn.nn import EquivariantModule, FieldType, GeometricTensor
 from torch.nn import Parameter
 
-from morpho_symm.utils.rep_theory_utils import isotypic_decomp_representation
+from morpho_symm.utils.abstract_harmonics_analysis import isotypic_decomp_representation
 
 
 class IsotypicBasis(EquivariantModule):

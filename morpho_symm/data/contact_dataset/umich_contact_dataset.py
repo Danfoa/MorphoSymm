@@ -70,7 +70,7 @@ class UmichContactDataset(contact_dataset):
         # ----
         self.device = device
 
-        self.contact_state_freq = self.get_class_frequency()
+        self.contact_state_freq = slabelelf.get_class_frequency()
 
         self.rep_in, self.rep_out = self.get_in_out_symmetry_groups_reps(robot_cfg)
         self.augment = augment
@@ -316,6 +316,7 @@ class UmichContactDataset(contact_dataset):
     def mat2numpy_split(train_val_data_path: pathlib.Path, test_data_path: pathlib.Path, save_path: pathlib.Path,
                         train_ratio=0.7, val_ratio=0.15):
         """Load data from .mat file, concatenate into numpy array, and save as train/val/test.
+
         Inputs:
         - data_pth: path to mat data folder
         - save_pth: path to numpy saving directory.

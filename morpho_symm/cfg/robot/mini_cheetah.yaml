@@ -1,5 +1,6 @@
 defaults:
   - base_robot
+  - _self_
 
 name: mini_cheetah
 angle_sweep: 0.7
