@@ -362,21 +362,28 @@ class PinSimWrapper(ABC):
             dq (ndarray): generalized velocities.
         """
         q = self._init_q
+        q[3:7] = [0, 0, 0, 1]
+
         v = np.zeros(self.nv)
-
         if random:
-            pitch = np.random.uniform(low=-np.deg2rad(25), high=np.deg2rad(25)) if not fix_base else 0
-            roll = np.random.uniform(low=-np.deg2rad(25), high=np.deg2rad(25)) if not fix_base else 0
-            yaw = np.random.uniform(low=-np.deg2rad(25), high=np.deg2rad(25)) if not fix_base else 0
+            if not fix_base:
+                pitch = np.random.uniform(low=-np.deg2rad(25), high=np.deg2rad(25))
+                roll = np.random.uniform(low=-np.deg2rad(25), high=np.deg2rad(25))
+                yaw = np.random.uniform(low=-np.deg2rad(25), high=np.deg2rad(25))
+                base_ori = scipy.spatial.transform.Rotation.from_euler("xyz",
+                                                                       np.array([roll, pitch, yaw])).as_quat()
+                q[3:7] = base_ori
 
-            base_ori = scipy.spatial.transform.Rotation.from_euler("xyz", np.array([roll, pitch, yaw])).as_quat()
+            # Random Joint velocities
+            v_max = np.minimum(self.velocity_limits, np.pi)
+            v[6:] = np.random.uniform(low=-v_max, high=v_max, size=self.nv - 6)
 
+            # Random Joint positions
             for joint_name, joint in self.pin_joint_space.items():
                 idx_q, idx_v = joint.state_idx
                 q_j, v_j = joint.random_configuration(max_range=angle_sweep if angle_sweep is not None else np.pi)
                 q[idx_q] = joint.add_configuration(q[idx_q], q_j)
-                v[idx_v] += v_j
-            q[3:7] = base_ori
+                # v[idx_v] += v_j
 
         return q, v
 

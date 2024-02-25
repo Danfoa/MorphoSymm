@@ -7,6 +7,7 @@ import torch
 from escnn.nn import EquivariantModule, FieldType, GeometricTensor
 
 from morpho_symm.nn.EquivariantModules import IsotypicBasis
+from morpho_symm.utils.rep_theory_utils import irreps_stats
 
 log = logging.getLogger(__name__)
 
@@ -196,8 +197,8 @@ class EMLP(EquivariantModule):
             # irrep type.
             x_field = x[..., field_start:field_end]
             num_G_stable_spaces = len(rep.irreps)  # Number of G-invariant features = multiplicity of irrep
-            # Again this assumes we are already in an Isotypic basis
-            assert len(np.unique(rep.irreps, axis=0)) == 1, "This only works for now on the Isotypic Basis"
+            unique_irreps, _, _ = irreps_stats(rep.irreps)
+            assert len(unique_irreps) >= 1, f"Field type is not an Isotypic Subspace irreps:{unique_irreps}"
             # This basis is useful because we can apply the norm in a vectorized way
             # Reshape features to [batch, num_G_stable_spaces, num_features_per_G_stable_space]
             x_field_p = torch.reshape(x_field, (x_field.shape[0], num_G_stable_spaces, -1))

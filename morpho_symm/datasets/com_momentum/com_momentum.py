@@ -19,6 +19,7 @@ from morpho_symm.robots.PinBulletWrapper import PinBulletWrapper
 
 # from morpho_symm.utils.algebra_utils import dense
 from morpho_symm.utils.robot_utils import load_symmetric_system
+from pinocchio import pinocchio_pywrap as pin
 
 log = logging.getLogger(__name__)
 
@@ -62,17 +63,19 @@ class Standarizer:
             return yn * Y_std + Y_mean
 
 
-class COMMomentum(Dataset):
+class ProprioceptiveDataset(Dataset):
 
     def __init__(self, robot_cfg, type='train',
                  angular_momentum=True, standarizer: Union[bool, Standarizer] = True, augment=False,
                  train_ratio=0.7, test_ratio=0.15, val_ratio=0.15, samples=100000,
+                 kinetic_energy=False,
                  dtype=torch.float32, data_path="dataset/com_momentum", device='cpu', debug=False):
 
         self.dataset_type = type
         self.dtype = dtype
         self.angular_momentum = angular_momentum
         self.normalize = True if isinstance(standarizer, Standarizer) else standarizer
+        self.kin_energy = kinetic_energy
 
         # Load robot, symmetry group and input-output field types/representations
         self.robot, self.G, self.in_type, self.out_type = self.define_input_output_field_types(robot_cfg)
@@ -99,9 +102,12 @@ class COMMomentum(Dataset):
                 trials -= 1
                 time.sleep(np.random.random())
         #  -------------------------------------------------------------------
-        X, Y = data['X'], data['Y']
+        if self.kin_energy:
+            X, Y = data['X'], data['KinE']
+        else:
+            X, Y = data['X'], data['Y']
 
-        q, dq = self.robot.get_init_config(random=False)
+        q, dq = self.robot.get_init_config(random=False, fix_base=True)
         self.base_q = q[:7]
         self.base_dq = dq[:6]
 
@@ -121,14 +127,14 @@ class COMMomentum(Dataset):
 
         self.X, self.Y = self.standarizer.transform(self.X, self.Y)
 
-        if isinstance(augment, str) and augment.lower() == "hard":
-            for g in self.G.elements[1:]:
-                rep_X = self.in_type.fiber_representation(g).to(self.X.device)
-                rep_Y = self.out_type.fiber_representation(g).to(self.Y.device)
-                gX = (rep_X @ self.X.T).T
-                gY = (rep_Y @ self.Y.T).T
-                self.X = torch.vstack([self.X, gX])
-                self.Y = torch.vstack([self.Y, gY])
+        # if isinstance(augment, str) and augment.lower() == "hard":
+        #     for g in self.G.elements[1:]:
+        #         rep_X = self.in_type.fiber_representation(g).to(self.X.device)
+        #         rep_Y = self.out_type.fiber_representation(g).to(self.Y.device)
+        #         gX = (rep_X @ self.X.T).T
+        #         gY = (rep_Y @ self.Y.T).T
+        #         self.X = torch.vstack([self.X, gX])
+        #         self.Y = torch.vstack([self.Y, gY])
 
         self.loss_fn = F.mse_loss
         log.info(str(self))
@@ -166,13 +172,15 @@ class COMMomentum(Dataset):
         return X_mean, X_std,  # Y_mean, Y_std
 
     def test_equivariance(self):
-        trials = 10
+        trials = 50
         for trial in range(trials):
-            q, dq = self.robot.get_init_config(random=True)
+            q, dq = self.robot.get_init_config(random=True, fix_base=True)
+
+            kin_E = pin.computeKineticEnergy(self.robot.pinocchio_robot.model, self.robot.pinocchio_robot.data, q, dq)
 
             x = np.concatenate((q[7:], dq[6:]))
             x = x.astype(np.float64)
-            y = self.get_hg(*np.split(x, 2))
+            y = self.get_hg(q[7:], dq[6:])
             y = y.astype(np.float64)
 
             x_orbit, y_orbit = [x], [y]
@@ -188,6 +196,20 @@ class COMMomentum(Dataset):
                 y_orbit.append(gy)
                 assert gx.dtype == x.dtype, (gx.dtype, x.dtype)
                 assert gy.dtype == y.dtype, (gy.dtype, y.dtype)
+
+                qj, dqj = gx[:self.robot.nq - 7], gx[self.robot.nq - 7:]
+                gq, gdq = q, dq
+                gq[7:] = qj
+                gdq[6:] = dqj
+                g_kinE = pin.computeKineticEnergy(self.robot.pinocchio_robot.model,
+                                                  self.robot.pinocchio_robot.data,
+                                                  gq,
+                                                  gdq)
+
+                # Ensure kinetic energy is preserved, up to 5% relative error
+                kin_E_rel_error = np.abs((g_kinE - kin_E) / kin_E)
+                if kin_E_rel_error > 0.05:
+                    raise AttributeError(f"Kinetic energy G-invariance violated: relative error {g_kinE} != {kin_E}")
 
                 gy_true = self.get_hg(*np.split(gx, 2))
                 y_true.append(gy_true)
@@ -220,8 +242,14 @@ class COMMomentum(Dataset):
         with torch.no_grad():
             metrics = {}
 
+            assert y.shape == y_pred.shape, (y.shape, y_pred.shape)
+
             y_dn = self.standarizer.unstandarize(yn=y)
             y_pred_dn = self.standarizer.unstandarize(yn=y_pred)
+
+            if self.kin_energy:
+                metrics["kin_energy_err"] = torch.mean(torch.abs(y_dn - y_pred_dn))
+                return metrics
 
             lin, lin_pred = y_dn[:, :3], y_pred_dn[:, :3]
             metrics["lin_cos_sim"] = torch.mean(F.cosine_similarity(lin, lin_pred, dim=-1))
@@ -236,10 +264,13 @@ class COMMomentum(Dataset):
         return self.Y.shape[0]
 
     def __getitem__(self, i):
-        if self.angular_momentum:
-            x, y = self.X[i, :], self.Y[i, :],
+        if self.kin_energy:
+            x, y = self.X[i, :], self.Y[i],
         else:
-            x, y = self.X[i, :], self.Y[i, :3],
+            if self.angular_momentum:
+                x, y = self.X[i, :], self.Y[i, :],
+            else:
+                x, y = self.X[i, :], self.Y[i, :3],
         return x, y
 
     def collate_fn(self, batch):
@@ -264,9 +295,9 @@ class COMMomentum(Dataset):
         self._augment = augment
         log.debug(f"Dataset Group Augmentation {'ACTIVATED' if self.augment else 'DEACTIVATED'}")
 
-    def get_hg(self, q, dq):
-        hg = self.robot.pinocchio_robot.centroidalMomentum(q=np.concatenate((self.base_q, q)),
-                                                           v=np.concatenate((self.base_dq, dq)))
+    def get_hg(self, qj, dqj):
+        hg = self.robot.pinocchio_robot.centroidalMomentum(q=np.concatenate((self.base_q, qj)),
+                                                           v=np.concatenate((self.base_dq, dqj)))
         hg = np.array(hg)
         if self.angular_momentum:
             return hg
@@ -314,7 +345,7 @@ class COMMomentum(Dataset):
             morpho_symm.utils.pybullet_visual_utils.configure_bullet_simulation(self._pb, world=None)
             # tint_robot(robot2, alpha=0.9)
             # Place robots in env
-            random_q, random_dq = robot.get_init_config(random=True)
+            random_q, random_dq = robot.get_init_config(random=True, fix_base=True)
             random_q[:7] = self.base_q
             # random_dq[:6] = self.base_dq
             base_q = random_q[:7]
@@ -334,7 +365,7 @@ class COMMomentum(Dataset):
 
     def ensure_dataset_existance(self):
         # if self.robot.
-        q, dq = self.robot.get_init_config(random=False)
+        q, dq = self.robot.get_init_config(random=False, fix_base=True)
         self.base_q = q[:7]
         self.base_dq = dq[:6]
         if self.dataset_path.exists():
@@ -351,12 +382,16 @@ class COMMomentum(Dataset):
             q_min = np.maximum(q_min, -np.pi)
             q_max = np.minimum(q_max, np.pi)
 
-            x = np.zeros((self._samples, self.robot.n_js * 2))
+            x = np.zeros((self._samples, self.robot.nq + self.robot.nv - 7 - 6))
             y = np.zeros((self._samples, 6))
+            kinE = np.zeros((self._samples, 1))
             for i in range(self._samples):
                 q[7:] = np.random.uniform(q_min, q_max, size=None)
                 dq[6:] = np.random.uniform(-dq_max, dq_max, size=None)
                 hg = self.robot.pinocchio_robot.centroidalMomentum(q, dq)
+                kin_energy = pin.computeKineticEnergy(self.robot.pinocchio_robot.model,
+                                                      self.robot.pinocchio_robot.data, q, dq)
+                kinE[i, :] = kin_energy
                 y[i, :] = hg.np
                 x[i, :] = np.concatenate((q[7:], dq[6:]))
 
@@ -370,20 +405,21 @@ class COMMomentum(Dataset):
                 # Generate random configuration samples.
                 for i, x_sample in enumerate(gx):
                     gy_pin[i, :] = self.get_hg(x_sample[:self.robot.nq - 7], x_sample[self.robot.nq - 7:])
-                ys_pin.append((self.out_type.representation(
-                    ~g) @ gy_pin.T).T)  # inverse is not needed for the groups we use (C2, V4).
+                # Inverse is not needed for the groups we use (C2, V4).
+                ys_pin.append((self.out_type.representation(~g) @ gy_pin.T).T)
 
             y_pin_avg = np.mean(ys_pin, axis=0)
             y = y_pin_avg  # To mitigate numerical error
 
             # From the augmented dataset take the desired samples.
-            X, Y = x, y
-            np.savez_compressed(str(self.dataset_path), X=X, Y=Y)
+            X, Y, KinE = x, y, kinE
+            np.savez_compressed(str(self.dataset_path), X=X, Y=Y, KinE=KinE)
             log.info(f"Dataset saved to {self.dataset_path.absolute()}")
             self.test_equivariance()
         assert self.dataset_path.exists(), "Something went wrong"
 
     def ensure_dataset_partition(self, train_ratio=0.7, test_ratio=0.15, val_ratio=0.15) -> pathlib.Path:
+        assert train_ratio + test_ratio + val_ratio <= 1.0
         partition_folder = f"{self._samples}_train={train_ratio:.2f}_test={test_ratio:.2f}_val={val_ratio:.2f}"
         partition_path = self.dataset_path.parent.joinpath(partition_folder)
         partition_path.mkdir(exist_ok=True)
@@ -393,7 +429,7 @@ class COMMomentum(Dataset):
 
         if not train_path.exists() or not val_path.exists() or not test_path.exists():
             data = np.load(str(self.dataset_path))
-            X, Y = data["X"], data["Y"]
+            X, Y, KinE = data["X"], data["Y"], data["KinE"]
 
             num_data = X.shape[0]
             num_train = int(train_ratio * num_data)
@@ -405,9 +441,27 @@ class COMMomentum(Dataset):
             X_val, Y_val = X[num_test:num_val + num_test, :], Y[num_test:num_val + num_test, :]
             X_train, Y_train = X[-num_train:, :], Y[-num_train:, :]
 
-            np.savez_compressed(str(partition_path.joinpath("train.npz")), X=X_train, Y=Y_train)
-            np.savez_compressed(str(partition_path.joinpath("test.npz")), X=X_test, Y=Y_test)
-            np.savez_compressed(str(partition_path.joinpath("val.npz")), X=X_val, Y=Y_val)
+            KinE_test = KinE[:num_test, :]
+            KinE_val = KinE[num_test:num_val + num_test, :]
+            KinE_train = KinE[-num_train:, :]
+
+            G_X, G_Y, G_KinE = [X_test], [Y_test], [KinE_test]
+            for g in self.G.elements[1:]:
+                rep_X = self.in_type.representation
+                rep_Y = self.out_type.representation
+                gX = (rep_X(g) @ X_test.T).T
+                gY = (rep_Y(g) @ Y_test.T).T
+                G_X.append(gX)
+                G_Y.append(gY)
+                G_KinE.append(KinE_test)
+
+            X_test = np.vstack(G_X)
+            Y_test = np.vstack(G_Y)
+            KinE_test = np.vstack(G_KinE)
+
+            np.savez_compressed(str(partition_path.joinpath("train.npz")), X=X_train, Y=Y_train, KinE=KinE_train)
+            np.savez_compressed(str(partition_path.joinpath("test.npz")), X=X_test, Y=Y_test, KinE=KinE_test)
+            np.savez_compressed(str(partition_path.joinpath("val.npz")), X=X_val, Y=Y_val, KinE=KinE_val)
 
             log.info(f"Saving dataset partition {partition_folder} on {partition_path.parent}")
         else:
@@ -451,8 +505,11 @@ class COMMomentum(Dataset):
         # Rep for x := [q, dq] ∈ Q_js x TqQ_js     =>    ρ_Q_js(g) ⊕ ρ_TqQ_js(g)  | g ∈ G
         in_type = FieldType(gspace, [rep_Q_js, rep_TqQ_js])
 
-        # Rep for center of mass momentum y := [l, k] ∈ R3 x R3  =>    ρ_R3(g) ⊕ ρ_R3pseudo(g)  | g ∈ G
-        out_type = FieldType(gspace, [rep_R3, rep_R3_pseudo])
+        if self.kin_energy:
+            out_type = FieldType(gspace, [G.trivial_representation])
+        else:  # CoM momentum
+            # Rep for center of mass momentum y := [l, k] ∈ R3 x R3  =>    ρ_R3(g) ⊕ ρ_R3pseudo(g)  | g ∈ G
+            out_type = FieldType(gspace, [rep_R3, rep_R3_pseudo])
 
         # TODO: handle subgroup cases.
         # if robot_cfg.gens_ids is not None and self.dataset_type in ["test", "val"]:

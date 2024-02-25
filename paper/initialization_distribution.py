@@ -15,7 +15,7 @@ from torch.utils.data import DataLoader
 from groups.SemiDirectProduct import SparseRep
 from utils.robot_utils import get_robot_params
 from morpho_symm.nn import EMLP, MLP, BasisLinear, EquivariantBlock, LinearBlock
-from morpho_symm.datasets.com_momentum.com_momentum import COMMomentum
+from morpho_symm.datasets.com_momentum.com_momentum import ProprioceptiveDataset
 from utils.algebra_utils import cm2inch
 
 
@@ -195,7 +195,7 @@ def main(cfg: DictConfig):
             else:
                 raise NotImplementedError(model_type)
 
-            dataset = COMMomentum(robot, rep_in=Gin, rep_out=Gout, type='train', samples=1000)
+            dataset = ProprioceptiveDataset(robot, rep_in=Gin, rep_out=Gout, type='train', samples=1000)
             data_loader = DataLoader(dataset, batch_size=512, collate_fn=lambda x: dataset.collate_fn(x))
 
             for i, init_mode in enumerate(init_modes):

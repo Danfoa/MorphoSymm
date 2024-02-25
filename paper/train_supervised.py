@@ -12,7 +12,7 @@ from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint
 from torch.utils.data import DataLoader
 from torch.utils.data.sampler import WeightedRandomSampler
 
-from morpho_symm.datasets.com_momentum.com_momentum import COMMomentum
+from morpho_symm.datasets.com_momentum.com_momentum import ProprioceptiveDataset
 from morpho_symm.nn.LightningModel import LightningModel
 
 try:
@@ -116,20 +116,22 @@ def get_datasets(cfg, device, root_path):
         path_to_pkg = pathlib.Path(morpho_symm.__file__).parent
         data_path = path_to_pkg / f"datasets/com_momentum/{cfg.robot.name.lower()}"
         # Training only sees the model symmetries
-        train_dataset = COMMomentum(robot_cfg=cfg.robot, type='train', samples=cfg.dataset.samples,
-                                    train_ratio=cfg.dataset.train_ratio, angular_momentum=cfg.dataset.angular_momentum,
-                                    standarizer=cfg.dataset.standarize, augment=cfg.dataset.augment,
-                                    data_path=data_path, dtype=torch.float32, device=device)
+        train_dataset = ProprioceptiveDataset(robot_cfg=cfg.robot, type='train', samples=cfg.dataset.samples,
+                                              train_ratio=cfg.dataset.train_ratio, angular_momentum=cfg.dataset.angular_momentum,
+                                              standarizer=cfg.dataset.standarize, augment=cfg.dataset.augment,
+                                              kinetic_energy=cfg.dataset.kinetic_energy,
+                                              data_path=data_path, dtype=torch.float32, device=device)
         # Test and validation use theoretical symmetry group, and training set standarization
-        test_dataset = COMMomentum(robot_cfg=cfg.robot, type='test', samples=cfg.dataset.samples,
-                                   train_ratio=cfg.dataset.train_ratio, angular_momentum=cfg.dataset.angular_momentum,
-                                   data_path=data_path,
-                                   augment='hard', dtype=torch.float32, device=device,
-                                   standarizer=train_dataset.standarizer)
-        val_dataset = COMMomentum(robot_cfg=cfg.robot, type='val', samples=cfg.dataset.samples,
-                                  train_ratio=cfg.dataset.train_ratio, angular_momentum=cfg.dataset.angular_momentum,
-                                  data_path=data_path, augment=True, dtype=torch.float32, device=device,
-                                  standarizer=train_dataset.standarizer)
+        test_dataset = ProprioceptiveDataset(robot_cfg=cfg.robot, type='test', samples=cfg.dataset.samples,
+                                             train_ratio=cfg.dataset.train_ratio, angular_momentum=cfg.dataset.angular_momentum,
+                                             data_path=data_path, dtype=torch.float32, device=device,
+                                             kinetic_energy=cfg.dataset.kinetic_energy,
+                                             standarizer=train_dataset.standarizer)
+        val_dataset = ProprioceptiveDataset(robot_cfg=cfg.robot, type='val', samples=cfg.dataset.samples,
+                                            train_ratio=cfg.dataset.train_ratio, angular_momentum=cfg.dataset.angular_momentum,
+                                            data_path=data_path, augment=True, dtype=torch.float32, device=device,
+                                            kinetic_energy=cfg.dataset.kinetic_energy,
+                                            standarizer=train_dataset.standarizer)
 
         train_dataloader = DataLoader(train_dataset, batch_size=cfg.dataset.batch_size, num_workers=cfg.num_workers,
                                       shuffle=True, collate_fn=lambda x: train_dataset.collate_fn(x))
