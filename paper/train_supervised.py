@@ -164,7 +164,7 @@ def get_ckpt_storage_path(log_path, use_volatile=True):
 @hydra.main(config_path='../morpho_symm/cfg', config_name='config', version_base='1.3')
 def main(cfg: DictConfig):
     log.info("\n\n NEW RUN \n\n")
-    device = torch.device("cuda" if torch.cuda.is_available() and cfg.device != "cpu" else "cpu")
+    device = torch.device(f"cuda:{cfg.device}" if torch.cuda.is_available() and cfg.device != "cpu" else "cpu")
     cfg.seed = cfg.seed if cfg.seed >= 0 else np.random.randint(0, 1000)
     cfg['debug'] = cfg.get('debug', False)
     cfg['debug_loops'] = cfg.get('debug_loops', False)
@@ -203,7 +203,7 @@ def main(cfg: DictConfig):
                                   )
         pl_model.set_model(model)
 
-        original_dataset_samples = int(0.7 * len(train_dataset) / cfg.dataset.train_ratio)
+        original_dataset_samples = int(len(train_dataset) / cfg.dataset.train_ratio)
         batches_per_original_epoch = original_dataset_samples // cfg.dataset.batch_size
         epochs = cfg.dataset.max_epochs * batches_per_original_epoch // (len(train_dataset) // cfg.dataset.batch_size)
 

@@ -108,7 +108,6 @@ class EMLP(EquivariantModule):
         self.net_head = None
         if self.invariant_fn:
             self.net_head = torch.nn.Sequential()
-            # TODO: Make the G-invariant pooling with Isotypic Basis a stand alone module.
             # Module describing the change of basis to an Isotypic Basis required for efficient G-invariant pooling
             self.change2isotypic_basis = IsotypicBasis(hidden_type)
             # Number of G-invariant features from net output equals the number of G-stable subspaces.

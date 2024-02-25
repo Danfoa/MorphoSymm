@@ -14,6 +14,7 @@ output/
 *.DS_Store
 .ipynb_checkpoints/
 *.log
+.vscode/
 
 morpho_symm/robot_harmonic_decomposition.py
 /morpho_symm/experiments/
