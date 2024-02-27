@@ -8,18 +8,17 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 from escnn import gspaces
-from escnn.group import Group, Representation
+from escnn.group import Group, Representation, directsum
 from escnn.nn import FieldType
 from omegaconf import DictConfig
+from pinocchio import pinocchio_pywrap as pin
 from torch.utils.data import Dataset
 from torch.utils.data._utils.collate import default_collate
 
 import morpho_symm.utils.pybullet_visual_utils
 from morpho_symm.robots.PinBulletWrapper import PinBulletWrapper
-
 # from morpho_symm.utils.algebra_utils import dense
 from morpho_symm.utils.robot_utils import load_symmetric_system
-from pinocchio import pinocchio_pywrap as pin
 
 log = logging.getLogger(__name__)
 
@@ -382,6 +381,11 @@ class ProprioceptiveDataset(Dataset):
             q_min = np.maximum(q_min, -np.pi)
             q_max = np.minimum(q_max, np.pi)
 
+            rep_R3 = self.G.representations["Rd"]
+            rep_R3_pseudo = self.G.representations["Rd_pseudo"]
+            # Rep for center of mass momentum y := [l, k] ∈ R3 x R3  =>    ρ_R3(g) ⊕ ρ_R3pseudo(g)  | g ∈ G
+            com_rep = directsum([rep_R3, rep_R3_pseudo])
+
             x = np.zeros((self._samples, self.robot.nq + self.robot.nv - 7 - 6))
             y = np.zeros((self._samples, 6))
             kinE = np.zeros((self._samples, 1))
@@ -398,19 +402,32 @@ class ProprioceptiveDataset(Dataset):
             # Pinnochio introduces small but considerable equivariance numerical error, even when the robot kinematics
             # and dynamics are completely equivariant. So we make the gt the avg of the augmented predictions.
             ys_pin = [y]
+            G_kinE = [kinE]
             for g in self.G.elements[1:]:
                 gx = np.squeeze(self.in_type.representation(g) @ x.T).T
                 # gy = np.squeeze(y @ g_out)
                 gy_pin = np.zeros((self._samples, 6))
+                g_kinE = np.zeros((self._samples, 1))
                 # Generate random configuration samples.
                 for i, x_sample in enumerate(gx):
-                    gy_pin[i, :] = self.get_hg(x_sample[:self.robot.nq - 7], x_sample[self.robot.nq - 7:])
+                    qj, vj = x_sample[:self.robot.nq - 7], x_sample[self.robot.nq - 7:]
+                    q[7:] = qj
+                    dq[6:] = vj
+                    hg = self.robot.pinocchio_robot.centroidalMomentum(q, dq)
+                    kin_energy = pin.computeKineticEnergy(self.robot.pinocchio_robot.model,
+                                                          self.robot.pinocchio_robot.data, q, dq)
+                    gy_pin[i, :] = hg.np
+                    g_kinE[i, :] = kin_energy
+
                 # Inverse is not needed for the groups we use (C2, V4).
-                ys_pin.append((self.out_type.representation(~g) @ gy_pin.T).T)
+                ys_pin.append((com_rep(~g) @ gy_pin.T).T)
+                G_kinE.append(g_kinE)
 
             y_pin_avg = np.mean(ys_pin, axis=0)
             y = y_pin_avg  # To mitigate numerical error
-
+            mean_kinE = np.mean(G_kinE, axis=0)
+            max_err = np.max(np.abs(kinE - mean_kinE))
+            kinE = mean_kinE
             # From the augmented dataset take the desired samples.
             X, Y, KinE = x, y, kinE
             np.savez_compressed(str(self.dataset_path), X=X, Y=Y, KinE=KinE)

@@ -124,7 +124,8 @@ def get_datasets(cfg, device, root_path):
         # Test and validation use theoretical symmetry group, and training set standarization
         test_dataset = ProprioceptiveDataset(robot_cfg=cfg.robot, type='test', samples=cfg.dataset.samples,
                                              train_ratio=cfg.dataset.train_ratio, angular_momentum=cfg.dataset.angular_momentum,
-                                             data_path=data_path, dtype=torch.float32, device=device,
+                                             data_path=data_path,
+                                             dtype=torch.float32, device=device,
                                              kinetic_energy=cfg.dataset.kinetic_energy,
                                              standarizer=train_dataset.standarizer)
         val_dataset = ProprioceptiveDataset(robot_cfg=cfg.robot, type='val', samples=cfg.dataset.samples,
@@ -218,7 +219,7 @@ def main(cfg: DictConfig):
                                    name=run_name,
                                    group=f'{cfg.exp_name}',
                                    job_type='debug' if (cfg.debug or cfg.debug_loops) else None)
-        wandb_logger.watch(pl_model)
+        wandb_logger.watch(pl_model, log='all', log_freq=100)
 
         log.info("\n\nInitiating Training\n\n")
         trainer = Trainer(accelerator='cuda' if torch.cuda.is_available() and cfg.device != 'cpu' else 'cpu',
