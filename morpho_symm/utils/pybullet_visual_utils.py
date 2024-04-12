@@ -309,7 +309,7 @@ def display_robots_and_vectors(pb, robot, group, base_confs, orbit_q_js, orbit_v
     """Plot side by side robots with different configurations, CoM momentums and expected CoM after an action g."""
     # pb.resetSimulation()
     G = group
-    rep_Ed = G.representations["Ed"]
+    rep_Ed = G.representations["E3"]
     # Optional: Display origin.
     draw_vector(pb, np.zeros(3), np.asarray([.1, 0, 0]), v_color=[1, 0, 0, 1])
     draw_vector(pb, np.zeros(3), np.asarray([0, .1, 0]), v_color=[0, 1, 0, 1])

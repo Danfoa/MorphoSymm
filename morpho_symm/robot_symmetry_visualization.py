@@ -34,9 +34,9 @@ def main(cfg: DictConfig):
     # Get the group representations of joint-state space, and Euclidean space.
     rep_QJ = G.representations['Q_js']  # rep_QJ(g) is a permutation matrix ∈ R^nqj
     rep_TqQJ = G.representations['TqQ_js']  # rep_TqQJ(g) is a permutation matrix ∈ R^nvj
-    rep_Ed = G.representations['Ed']  # rep_Ed(g) is a homogenous transformation matrix ∈ R^(d+1)x(d+1)
-    rep_Rd = G.representations['Rd']  # rep_Rd(g) is an orthogonal matrix ∈ R^dxd
-    rep_Rd_pseudo = G.representations['Rd_pseudo']  # rep_Rd_pseudo(g) is an orthogonal matrix ∈ R^dxd
+    rep_Ed = G.representations['E3']  # rep_Ed(g) is a homogenous transformation matrix ∈ R^(3+1)x(3+1)
+    rep_Rd = G.representations['R3']  # rep_Rd(g) is an orthogonal matrix ∈ R^3x3
+    rep_Rd_pseudo = G.representations['R3_pseudo']  # rep_Rd_pseudo(g) is an orthogonal matrix ∈ R^3x3
 
     # Configuration of the 3D visualization -------------------------------------------------------------------------
     # Not really relevant to understand.

@@ -122,7 +122,7 @@ pip install -e .
 The following is a non-exhaustive and expanding list of dynamical systems with Discrete Morphological Symmetries. Each example can be
 reproduced in a 3D interactive environment running:
 ```python
-python morpho_symm.robot_symmetry_visualization.py robot=<robot> gui=True 
+python morpho_symm/robot_symmetry_visualization.py robot=<robot> gui=True 
 ```
 This script functions as an introductory tutorial showing how we define the representations of Discrete Morphological Symmetries in order to perform symmetry transformations on the robot state, and proprioceptive and exteroceptive observations.
 ### $\mathbb{G}=\mathbb{C}_2$: Reflection Symmetry
