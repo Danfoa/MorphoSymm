@@ -114,6 +114,13 @@ def load_symmetric_system(
     # Select the field for the representations.
     rep_field = float if robot_cfg.rep_fields.lower() != 'complex' else complex
 
+    if 'permutation_Q_js' not in robot_cfg:
+        raise AttributeError(f"Configuration file for {robot_name} must define the field `permutation_Q_js`, "
+                             f"describing the joint space permutation per each non-trivial group's generator.")
+    if 'permutation_TqQ_js' not in robot_cfg:
+        raise AttributeError(f"Configuration file for {robot_name} must define the field `permutation_TqQ_js`, "
+                             f"describing the tangent joint-space permutation per each non-trivial group's generator.")
+
     reps_in_cfg = [k.split('permutation_')[1] for k in robot_cfg if "permutation" in k]
     for rep_name in reps_in_cfg:
         perm_list = list(robot_cfg[f'permutation_{rep_name}'])

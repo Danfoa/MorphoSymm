@@ -1,0 +1,12 @@
+defaults:
+  - base_robot
+
+name: a1
+
+hip_height: 0.4
+
+group_label: C2
+# QJ: Joint Space symmetries____________________________________
+permutation_Q_js: [[3, 4, 5, 0, 1, 2, 9, 10, 11, 6, 7, 8]]
+# Reflections are determined by joint frame predefined orientation.
+reflection_Q_js: [[-1, 1, 1, -1, 1, 1, -1, 1, 1, -1, 1, 1]]

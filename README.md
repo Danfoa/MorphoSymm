@@ -137,6 +137,7 @@ This script functions as an introductory tutorial showing how we define the repr
     <th align="center"> Baxter </th>
     <th align="center"> Solo </th>
     <th align="center"> A1 </th>
+    <th align="center"> Aliengo </th>
     <th align="center"> HyQ </th>
     <th align="center"> Anymal-C </th>
     <th align="center"> Anymal-B </th>
@@ -174,6 +175,10 @@ This script functions as an introductory tutorial showing how we define the repr
     </td>
     <td align="center">
       <img src="docs/static/animations/solo-C2-symmetries_anim_static.gif" alt="Morphological symmetries solo bipedal robot, State symmetry, Discrete Symmetry Group"
+          width="200" height="200"/>
+    </td>
+    <td align="center">
+      <img src="docs/static/animations/a1-C2-symmetries_anim_static.gif" alt="Morphological symmetries a1 bipedal robot, State symmetry, Discrete Symmetry Group"
           width="200" height="200"/>
     </td>
     <td align="center">
