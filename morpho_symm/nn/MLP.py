@@ -102,7 +102,7 @@ class MLP(torch.nn.Module):
                 try:
                     torch.nn.init.kaiming_uniform_(tensor, mode=self.init_mode, nonlinearity=activation.lower())
                 except ValueError as e:
-                    log.warning(f"Could not initialize {module.__class__.__name__} with {self.init_mode} mode. "
+                    log.debug(f"Could not initialize {module.__class__.__name__} with {self.init_mode} mode. "
                                 f"Using default Pytorch initialization")
             elif 'normal' in self.init_mode.lower():
                 split = self.init_mode.split('l')

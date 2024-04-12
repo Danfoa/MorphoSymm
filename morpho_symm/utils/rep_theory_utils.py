@@ -16,7 +16,7 @@ def generate_cyclic_rep(G: CyclicGroup, rep):
     """Generate cylic froup form a representation of its generator."""
     h = G.generators[0]
     # Check the given matrix representations comply with group axioms
-    assert not np.allclose(rep[h], rep[G.identity]), "Invalid generator: h=e"
+    # assert not np.allclose(rep[h], rep[G.identity]), "Invalid generator: h=e"
     assert np.allclose(np.linalg.matrix_power(rep[h], G.order()), rep[G.identity]), \
         f"Invalid rotation generator h_ref^{G.order()} != I"
 

@@ -20,18 +20,18 @@ class DynamicsRecording:
     """Data structure to store recordings of a Markov Dynamics."""
 
     description: Optional[str] = None
-    info: Dict[str, object] = field(default_factory=dict)
-    dynamics_parameters: Dict = field(default_factory=lambda: {'dt': None})
+    info: dict[str, object] = field(default_factory=dict)
+    dynamics_parameters: dict = field(default_factory=lambda: {'dt': None})
 
     # Ordered list of observations composing to the state and action space of the Markov Process.
-    state_obs: Tuple[str] = field(default_factory=list)
-    action_obs: Tuple[str] = field(default_factory=list)
+    state_obs: tuple[str, ...] = field(default_factory=list)
+    action_obs: tuple[str, ...] = field(default_factory=list)
 
     # Map from observation name to the observation representation name. This name should be in `group_representations`.
-    obs_representations: Dict[str, Representation] = field(default_factory=dict)
-    recordings: Dict[str, Iterable] = field(default_factory=dict)
+    obs_representations: dict[str, Representation] = field(default_factory=dict)
+    recordings: dict[str, Iterable] = field(default_factory=dict)
     # Map from observation name to the observation moments (mean, var) of the recordings.
-    obs_moments: Dict[str, tuple] = field(default_factory=dict)
+    obs_moments: dict[str, tuple] = field(default_factory=dict)
 
     @property
     def obs_dims(self):

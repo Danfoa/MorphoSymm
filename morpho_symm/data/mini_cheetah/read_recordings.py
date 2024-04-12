@@ -26,7 +26,7 @@ def get_kinematic_three_rep(G: Group):
 
 
 def get_ground_reaction_forces_rep(G: Group, rep_kin_three: Representation):
-    rep_R3 = G.representations['Rd']
+    rep_R3 = G.representations['R3']
     rep_F = {G.identity: np.eye(12, dtype=int)}
     gens = [np.kron(rep_kin_three(g), rep_R3(g)) for g in G.generators]
     for h, rep_h in zip(G.generators, gens):
@@ -70,14 +70,16 @@ def convert_mini_cheetah_raysim_recordings(data_path: Path):
     robot, G = load_symmetric_system(robot_name='mini_cheetah')
     rep_Q_js = G.representations['Q_js']  # Representation on joint space position coordinates
     rep_TqQ_js = G.representations['TqQ_js']  # Representation on joint space velocity coordinates
-    rep_Rd = G.representations['Rd']  # Representation on vectors in R^d
-    rep_Rd_pseudo = G.representations['Rd_pseudo']  # Representation on pseudo vectors in R^d
+    rep_Rd = G.representations['R3']  # Representation on vectors in R^d
+    rep_Rd_pseudo = G.representations['R3_pseudo']  # Representation on pseudo vectors in R^d
+    rep_euler_xyz = G.representations['euler_xyz']  # Representation on Euler angles
+    rep_z = group_rep_from_gens(G, rep_H={h: rep_Rd(h)[2,2].reshape((1,1)) for h in G.elements if h != G.identity})
 
     # Define observation variables and their group representations z
     base_pos, base_pos_rep = state[:, :3], rep_Rd
-    base_z, base_z_rep = state[:, [2]], G.trivial_representation
+    base_z, base_z_rep = state[:, [2]], rep_z
     base_vel, base_vel_rep = state[:, 3:6], rep_Rd
-    base_ori, base_ori_rep = state[:, 6:9], rep_Rd
+    base_ori, base_ori_rep = state[:, 6:9], rep_euler_xyz
     base_ang_vel, base_ang_vel_rep = state[:, 9:12], rep_Rd_pseudo  # Pseudo vector
     feet_pos, feet_pos_rep = state[:, 12:24], directsum([rep_Rd] * 4, name='Rd^4')
     joint_vel, joint_vel_rep = state[:, 36:48], rep_TqQ_js
@@ -148,9 +150,6 @@ def convert_mini_cheetah_raysim_recordings(data_path: Path):
     base_vel_error = base_vel_error[::dt_subsample]
     base_ang_vel_error = base_ang_vel_error[::dt_subsample]
 
-
-
-
     data_recording = DynamicsRecording(
         description=f"Mini Cheetah {data_path.parent.parent.stem}",
         info=dict(num_traj=1,
@@ -175,7 +174,7 @@ def convert_mini_cheetah_raysim_recordings(data_path: Path):
                         base_vel_error=base_vel_error[None, ...].astype(np.float32),
                         base_ang_vel_error=base_ang_vel_error[None, ...].astype(np.float32),
                         ),
-        state_obs=('joint_pos', 'joint_vel', 'base_ori_R_flat' ,'base_z_error', 'base_vel_error', 'base_ang_vel_error'),
+        state_obs=('joint_pos', 'joint_vel', 'base_ori_R_flat', 'base_z_error', 'base_vel_error', 'base_ang_vel_error'),
         action_obs=('joint_torques',),
         obs_representations=dict(base_pos=base_pos_rep,
                                  base_z=G.trivial_representation,
@@ -236,6 +235,8 @@ def convert_mini_cheetah_raysim_recordings(data_path: Path):
     # file_path = data_path.parent.parent / "recording"
     # data_recording.save_to_file(file_path)
     print(f"Dynamics Recording saved to")
+
+
 #
 
 if __name__ == "__main__":

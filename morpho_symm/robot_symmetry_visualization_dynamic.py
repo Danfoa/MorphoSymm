@@ -57,7 +57,7 @@ def get_kinematic_three_rep(G: Group):
 
 def get_ground_reaction_forces_rep(G: Group, rep_kin_three: Representation):
 
-    rep_R3 = G.representations['Rd']
+    rep_R3 = G.representations['R3']
     rep_F = {G.identity: np.eye(12, dtype=int)}
     gens = [np.kron(rep_kin_three(g), rep_R3(g)) for g in G.generators]
     for h, rep_h in zip(G.generators, gens):
@@ -173,7 +173,7 @@ def main(cfg: DictConfig):
     rep_Q_js = G.representations['Q_js']
     # rep_TqJ = G.representations['TqQ_js']
     rep_E3 = G.representations['Ed']
-    rep_R3 = G.representations['Rd']
+    rep_R3 = G.representations['R3']
 
     offset = max(0.2, 1.8 * robot.hip_height)
     base_pos = np.array([-offset if G.order() != 2 else 0, -offset] + [robot.hip_height * 5.5])

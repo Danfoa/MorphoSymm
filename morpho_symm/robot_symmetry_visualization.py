@@ -111,6 +111,7 @@ def main(cfg: DictConfig):
         # Apply transformations to the terrain elevation estimations/measurements
         orbit_Rf1[g] = rep_Rd(g) @ Rf1 @ rep_Rd(g).T
         orbit_Rf2[g] = rep_Rd(g) @ Rf2 @ rep_Rd(g).T
+
     # =============================================================================================================
 
     # Visualization of orbits of robot states and of data ==========================================================

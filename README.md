@@ -35,8 +35,13 @@ As depicted above, each symmetry transformation, represented by a group element 
 
 ```python
 from morpho_symm.utils.robot_utils import load_symmetric_system
+from morpho_symm.utils.pybullet_visual_utils import configure_bullet_simulation
 
 robot, G = load_symmetric_system(robot_name='mini_cheetah')
+
+bullet_client = configure_bullet_simulation(gui=True)         # Start pybullet simulation
+robot.configure_bullet_simulation(bullet_client, world=None)  # Load robot in pybullet environment
+
 # Get joint space position and velocity coordinates  (q_js, v_js) | q_js ∈ Qjs, dq_js ∈ TqQjs
 _, v_js = robot.get_joint_space_state()
 
@@ -310,11 +315,17 @@ The function returns:
   
 ### Getting and resetting the state of the system
 
-The system state is defined as $(\mathbf{q}, \mathbf{v}) | \mathbf{q} \in \mathcal{Q},  \mathbf{v} \in T_{q}\mathcal{Q}$, being $\mathcal{Q}$ the space of generalized position coordinates, and $\mathcal{T}_ {q}\mathcal{Q}$ the space of generalized velocity coordinates. Recall from the [paper convention](https://arxiv.org/abs/2302.10433) that the state configuration can be separated into base configuration and joint space configuration $\mathcal{Q} := \mathbb{E}_ d \times \mathcal{Q}_ {js}$. Where, $\mathbb{E}_ d$ is the Euclidean space in which the system evolves, and $\mathcal{Q}_ {js}$ is the joint space position coordinates. This enables to express every system state as $\mathbf{q} := \[\mathbf{X}_ B,  \mathbf{q}_ {js}\]^ T$, where $\mathbf{X}_ B \in  \mathbb{E}_ d$ and $\mathbf{q}_ {js} \in \mathcal{Q}_ {js}$. To access these quantities in code we do:
+The system state is defined as $(\mathbf{q}, \mathbf{v}) | \mathbf{q} \in \mathcal{Q},  \mathbf{v} \in T_{q}\mathcal{Q}$, being $\mathcal{Q}$ the space of generalized position coordinates, and $\mathcal{T}_ {q}\mathcal{Q}$ the space of generalized velocity coordinates. Recall from the [paper convention](https://arxiv.org/abs/2302.10433) that the state configuration can be separated into base configuration and joint space configuration $\mathcal{Q} := \mathbb{E}_ 3 \times \mathcal{Q}_ {js}$. Where, $\mathbb{E}_ 3$ is the Euclidean space in which the system evolves, and $\mathcal{Q}_ {js}$ is the joint space position coordinates. This enables to express every system state as $\mathbf{q} := \[\mathbf{X}_ B,  \mathbf{q}_ {js}\]^ T$, where $\mathbf{X}_ B \in  \mathbb{E}_ 3$ and $\mathbf{q}_ {js} \in \mathcal{Q}_ {js}$. To access these quantities in code we do:
 ```python 
+from morpho_symm.utils.pybullet_visual_utils import configure_bullet_simulation
+
+# Load robot to pybullet simulation environment. Robot state will be the simulation state. 
+bullet_client = configure_bullet_simulation(gui=True)         # Start pybullet simulation
+robot.configure_bullet_simulation(bullet_client, world=None)  # Load robot in pybullet environment
+
 # Get the state of the system
 q, v = robot.get_state()  #  q ∈ Q, v ∈ TqQ
-# Get the robot's base configuration XB ∈ Ed as a homogenous transformation matrix.
+# Get the robot's base configuration XB ∈ E3 as a homogenous transformation matrix.
 XB = robot.get_base_configuration()
 # Get joint space position and velocity coordinates  (q_js, v_js) | q_js ∈ Qjs, dq_js ∈ TqQjs
 q_js, v_js = robot.get_joint_space_state()
@@ -358,20 +369,20 @@ Any observation from this robot has a symmetric equivalent observation. In this 
 
 #### Observations evolving in the Euclidean group of $d$ dimensions $\mathbb{E}_d$.
   
-The homogenous matrix describing the configuration of any rigid body, including the system's base configuration $\mathbf{X}_ B$ is an observation evolving in $\mathbb{E}_ d$. To obtain the set of symmetric base configurations, i.e. the observation group orbit: $\mathbb{G} \cdot \mathbf{X}_ B = \\{g \cdot \mathbf{X}_ B := \rho_ {\mathbb{E}_ d}(g) \\; \mathbf{X}_ B \\; \rho_ {\mathbb{E}_ d}(g)^{-1} | \forall \\; g \in \mathbb{G}\\}$ [(1)](https://danfoa.github.io/MorphoSymm/), you can do the following:
+The homogenous matrix describing the configuration of any rigid body, including the system's base configuration $\mathbf{X}_ B$ is an observation evolving in $\mathbb{E}_ 3$. To obtain the set of symmetric base configurations, i.e. the observation group orbit: $\mathbb{G} \cdot \mathbf{X}_ B = \\{g \cdot \mathbf{X}_ B := \rho_ {\mathbb{E}_ 3}(g) \\; \mathbf{X}_ B \\; \rho_ {\mathbb{E}_ 3}(g)^{-1} | \forall \\; g \in \mathbb{G}\\}$ [(1)](https://danfoa.github.io/MorphoSymm/), you can do the following:
 
 ```python 
-rep_Ed = G.representations['Ed']  # rep_Ed(g) ∈ R^(d+1)x(d+1) is a homogenous transformation matrix 
-# The orbit of the base configuration XB is a map from group elements g ∈ G to base configurations g·XB ∈ Ed
-orbit_X_B = {g: rep_Ed(g) @ XB @ rep_Ed(g).T for g in G.elements()} 
+rep_E3 = G.representations['E3']  # rep_E3(g) ∈ R^(3+1)x(3+1) is a homogenous transformation matrix 
+# The orbit of the base configuration XB is a map from group elements g ∈ G to base configurations g·XB ∈ E3
+orbit_X_B = {g: rep_E3(g) @ XB @ rep_E3(g).T for g in G.elements()} 
 ```
 
-Another example of an observation transfromed by $\rho_ {\mathbb{E}_ d}$ are **points** in $\mathbb{R}^d$. These can represent contact locations, object/body positions, etc. To obtain the point orbit, $\mathbb{G} \cdot \mathbf{r} = \\{g \cdot \mathbf{r} := \rho_ {\mathbb{E}_ d}(g) \\; \mathbf{r} | \forall \\; g \in \mathbb{G} \\}$, you can do:
+Another example of an observation transfromed by $\rho_ {\mathbb{E}_ 3}$ are **points** in $\mathbb{R}^d$. These can represent contact locations, object/body positions, etc. To obtain the point orbit, $\mathbb{G} \cdot \mathbf{r} = \\{g \cdot \mathbf{r} := \rho_ {\mathbb{E}_ 3}(g) \\; \mathbf{r} | \forall \\; g \in \mathbb{G} \\}$, you can do:
 ```python
-r = np.random.rand(3)   # Example point in Ed, assuming d=3.
-r_hom = np.concatenate((r, np.ones(1)))  # Use homogenous coordinates to represent a point in Ed
+r = np.random.rand(3)   # Example point in E3, assuming d=3.
+r_hom = np.concatenate((r, np.ones(1)))  # Use homogenous coordinates to represent a point in E3
 # The orbit of the point is a map from group elements g ∈ G to the set of symmetric points g·r ∈ R^d
-orbit_r = {g: (rep_Ed(g) @ r_hom)[:3] for g in G.elements}
+orbit_r = {g: (rep_E3(g) @ r_hom)[:3] for g in G.elements}
 ```
 
 #### Observations evolving in Joint Space (e.g. joint positions, velocity, torques). 
@@ -387,19 +398,19 @@ q_js, v_js = robot.get_joint_space_state()
 orbit_js_state = {g: (rep_Qjs(g) @ q_js, rep_TqQjs(g) @ v_js) for g in G.elements}
 ```
 
-#### Obervations evolving $\mathbb{R}_ d$ (e.g. vectors, pseudo-vectors).
+#### Obervations evolving $\mathbb{R}_ 3$ (e.g. vectors, pseudo-vectors).
 
-Observations evolving in $\mathbb{R}_ d$ include contact and ground reaction forces, linear and angular velocity of rigid bodies, distance vectors to target positons/locations, etc. To tranform vectors we use the representation $\rho_ {\mathbb{R}_ {d}}$. While to transform [pseudo-vectors](https://en.wikipedia.org/wiki/Pseudovector#:~:text=In%20physics%20and%20mathematics%2C%20a,of%20the%20space%20is%20changed) (or axial-vectors) we use the representation $\rho_ {\mathbb{R}_ {d,pseudo}}$ (these can represent angular velocities, angular accelerations, etc.). To obtain the orbit of these observations you can do:
+Observations evolving in $\mathbb{R}_ 3$ include contact and ground reaction forces, linear and angular velocity of rigid bodies, distance vectors to target positons/locations, etc. To tranform vectors we use the representation $\rho_ {\mathbb{R}_ {3}}$. While to transform [pseudo-vectors](https://en.wikipedia.org/wiki/Pseudovector#:~:text=In%20physics%20and%20mathematics%2C%20a,of%20the%20space%20is%20changed) (or axial-vectors) we use the representation $\rho_ {\mathbb{R}_ {3,pseudo}}$ (these can represent angular velocities, angular accelerations, etc.). To obtain the orbit of these observations you can do:
 ```python
-rep_Rd = G.representations['Rd'] # rep_Rd(g) is an orthogonal matrix ∈ R^dxd
-rep_Rd_pseudo = G.representations['Rd_pseudo'] 
+rep_R3 = G.representations['R3'] # rep_R3(g) is an orthogonal matrix ∈ R^dxd
+rep_R3_pseudo = G.representations['R3_pseudo'] 
 
 v = np.random.rand(3)  # Example vector in R3, E.g. linear velocity of the base frame.
-w = np.random.rand(3)  # Example pseudo-vector in Ed, assuming d=3. E.g. angular velocity of the base frame.
+w = np.random.rand(3)  # Example pseudo-vector in E3, assuming d=3. E.g. angular velocity of the base frame.
 # The orbit of the vector is a map from group elements g ∈ G to the set of symmetric vectors g·v ∈ R^d
-orbit_v = {g: rep_Rd(g) @ v for g in G.elements}
+orbit_v = {g: rep_R3(g) @ v for g in G.elements}
 # The orbit of the pseudo-vector is a map from group elements g ∈ G to the set of symmetric pseudo-vectors g·w ∈ R^d
-orbit_w = {g: rep_Rd_pseudo(g) @ w for g in G.elements}
+orbit_w = {g: rep_R3_pseudo(g) @ w for g in G.elements}
 ```
 
 ### Equivariant/Invariant Neural Networks
@@ -445,8 +456,8 @@ gspace = escnn.gspaces.no_base_space(G)
 # Get the relevant group representations.
 rep_Qjs = G.representations["Q_js"]  # Used to transform joint space position coordinates q_js ∈ Q_js
 rep_TqQjs = G.representations["TqQ_js"]  # Used to transform joint space velocity coordinates v_js ∈ TqQ_js
-rep_R3 = G.representations["Rd"]  # Used to transform the linear momentum l ∈ R3
-rep_R3_pseudo = G.representations["Rd_pseudo"]  # Used to transform the angular momentum k ∈ R3
+rep_R3 = G.representations["R3"]  # Used to transform the linear momentum l ∈ R3
+rep_R3_pseudo = G.representations["R3_pseudo"]  # Used to transform the angular momentum k ∈ R3
 
 # Define the input and output FieldTypes using the representations of each geometric object.
 # Representation of x := [q_js, v_js] ∈ Q_js x TqQ_js =>  ρ_X_js(g) := ρ_Q_js(g) ⊕ ρ_TqQ_js(g)  | g ∈ G
