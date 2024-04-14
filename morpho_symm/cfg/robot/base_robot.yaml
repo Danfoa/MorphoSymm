@@ -20,3 +20,7 @@ endeff_names: null
 init_q: null
 q_zero: null                # Zero vector of the generalized positions. Can be different from the Zero defined in URDF.
 angle_sweep: 0.43
+
+# Transformation for Euler angles in 'xyz' convention
+permutation_euler_xyz: [[0, 1, 2], [0, 1, 2], [0, 1, 2]]
+reflection_euler_xyz: [[-1, 1, -1], [1, -1, -1], [-1, -1, 1]]

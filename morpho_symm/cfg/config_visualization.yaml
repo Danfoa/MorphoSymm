@@ -6,6 +6,7 @@ defaults:
 
 # TODO: Make distinctions between. Trainer Args, Model Psecific Args, Program Args
 debug: False
+debug_joints: False
 make_gif: False
 make_imgs: False
 gui: True
@@ -19,6 +20,8 @@ hydra:
       dir: .  # disable hydra run directory
   job:
     chdir: False
+    env_set:
+      HYDRA_FULL_ERROR: '1'
   job_logging:
     version: 1
     colorlog: True

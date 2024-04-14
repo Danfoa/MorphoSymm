@@ -21,8 +21,14 @@ State = Tuple[np.ndarray, np.ndarray]
 
 class PinSimWrapper(ABC):
 
-    def __init__(self, robot_name: str, endeff_names: Optional[NameList] = None, fixed_base=False,
-                 reference_robot: Optional['PinSimWrapper'] = None, hip_height=1.0, init_q=None, q_zero=None):
+    def __init__(self,
+                 robot_name: str,
+                 endeff_names: Optional[NameList] = None,
+                 fixed_base=False,
+                 reference_robot: Optional['PinSimWrapper'] = None,
+                 hip_height=1.0,
+                 init_q=None,
+                 q_zero=None):
         """Initializes the wrapper.
 
         Args:
@@ -34,7 +40,7 @@ class PinSimWrapper(ABC):
             init_q (List[float]): Initial configuration of the robot of length nq.
             q_zero (List[float]): Zero configuration. This can be different from the Zero config defined in the URDF.
         """
-        self.robot_name = str.lower(robot_name)
+        self.name = str.lower(robot_name)
         self.fixed_base = fixed_base
         self._endeff_names = endeff_names
         self.hip_height = hip_height
@@ -62,7 +68,6 @@ class PinSimWrapper(ABC):
             if joint.idx_q == -1: continue  # Ignore universe
             if joint.nq == 7: continue  # Ignore floating-base
             pin_joint_type = joint.shortname()
-            log.debug(f"[{pin_joint_type}]:{joint_name} - DoF(nq):{joint.nq}, idx_q:{joint.idx_q}, idx_v:{joint.idx_v}")
 
             self.joint_space_names.append(joint_name)
             low_lim = self.pinocchio_robot.model.lowerPositionLimit[joint.idx_q:joint.idx_q + joint.nq]
@@ -79,11 +84,7 @@ class PinSimWrapper(ABC):
             self._diff_neutral_conf = diff_neutral_conf
 
         self.joint_space_names = sorted(self.joint_space_names, key=lambda x: self.pin_joint_space[x].idx_q)
-
-        # TODO: ensure joint state is within configuration space.
-
         self.joint_space = {}
-        log.debug(f"Robot loaded {self}")
 
     def get_state(self) -> State:
         """Fetch state of the system from a physics simulator and return pinocchio convention (q, dq).
@@ -286,7 +287,15 @@ class PinSimWrapper(ABC):
             pin_robot.data = copy.copy(reference_robot.pinocchio_robot.data)
             assert sys.getrefcount(pin_robot.data) <= 2
         else:
-            pin_robot = pin_load_robot_description(f"{self.robot_name}_description", root_joint=JointModelFreeFlyer())
+            pin_robot = pin_load_robot_description(f"{self.name}_description", root_joint=JointModelFreeFlyer())
+            log.debug(f"Loaded pinocchio robot model for {self.name}. The robot's joints are:")
+            n_pin_joints = len(pin_robot.model.joints)
+            for idx, joint, joint_name in zip(range(n_pin_joints), pin_robot.model.joints,  pin_robot.model.names):
+                pin_joint_type = joint.shortname()
+                log.debug("\t -{:<3} {:<20} joint_type: {:<20} nq:{:<3} nv:{:<3} idx_q:{:<3} idx_v:{:<3}".format(
+                    idx, joint_name, pin_joint_type, joint.nq, joint.nv, joint.idx_q, joint.idx_v)
+                    )
+
         self._mass = float(np.sum([i.mass for i in pin_robot.model.inertias]))  # [kg]
         self._pinocchio_robot = pin_robot
 
@@ -407,7 +416,7 @@ class PinSimWrapper(ABC):
 
     def __repr__(self):
         """."""
-        return f"{self.robot_name}-nq:{self.nq}-nv:{self.nv}"
+        return f"{self.name}-nq:{self.nq}-nv:{self.nv}"
 
 
 class JointWrapper:

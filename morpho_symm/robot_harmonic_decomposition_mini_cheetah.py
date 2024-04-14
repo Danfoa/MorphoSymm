@@ -40,7 +40,7 @@ listener.start()
 
 def generate_dof_motions(robot: PinBulletWrapper, angle_sweep=0.5, recording_name = 'forest'):
     """TODO: In construction."""
-    if robot.robot_name == 'mini_cheetah':
+    if robot.name == 'mini_cheetah':
         # / home / danfoa / Projects / MorphoSymm / morpho_symm / data / contact_dataset / training_splitted / mat_test / forest.mat
         recordings_path = Path(morpho_symm.__file__).parent / 'data/contact_dataset/training_splitted/mat_test'
         recordings = load_mini_cheetah_trajs(recordings_path)

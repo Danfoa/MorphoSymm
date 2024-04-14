@@ -126,7 +126,6 @@ def escnn_representation_form_mapping(
     else:
         rep = representation
 
-    rep(G.sample()).shape[0]  # Size of the representation
     # Find Q such that `iso_cplx(g) = Q @ rep(g) @ Q^-1` is block diagonal with blocks being complex irreps.
     cplx_irreps, Q = cplx_isotypic_decomposition(G, rep)
     # Get the size and location of each cplx irrep in `iso_cplx(g)`

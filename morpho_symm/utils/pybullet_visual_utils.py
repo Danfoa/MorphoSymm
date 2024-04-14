@@ -291,10 +291,10 @@ def spawn_robot_instances(
     assert n_instances == len(base_orientations), "Need to provide a base position and orientation per robot instance"
 
     # TODO: Copy error from Pinocchio. To be checked
-    # robots = [PinBulletWrapper.from_instance(robot) for _ in range(n_instances)]
-    kwargs = dict(robot_name=robot.robot_name, init_q=robot._init_q, hip_height=robot.hip_height,
-                  endeff_names=robot.endeff_names, q_zero=robot._q0)
-    robots = [PinBulletWrapper(**kwargs) for _ in range(n_instances)]
+    robots = [PinBulletWrapper.from_instance(robot) for _ in range(n_instances)]
+    # kwargs = dict(robot_name=robot.robot_name, init_q=robot._init_q, hip_height=robot.hip_height,
+    #               endeff_names=robot.endeff_names, q_zero=robot._q0)
+    # robots = [PinBulletWrapper(**kwargs) for _ in range(n_instances)]
     world = robot.world
     for r, pos, ori in zip(robots, base_positions, base_orientations):
         r.configure_bullet_simulation(bullet_client=bullet_client, world=world, base_pos=pos, base_ori=ori)
@@ -395,7 +395,7 @@ def get_mock_ground_reaction_forces(pb, robot, robot_cfg):
     rf2_w, quatf2_w = (np.array(x) for x in pb.getLinkState(robot.robot_id, end_effectors[1])[0:2])
     Rf1_w, Rf2_w = quat_xyzw_to_SO3(quatf1_w), quat_xyzw_to_SO3(quatf2_w)
 
-    if not np.any([s in robot.robot_name for s in ["atlas"]]):  # Ignore
+    if not np.any([s in robot.name for s in ["atlas"]]):  # Ignore
         Rf1_w, Rf2_w = np.eye(3), np.eye(3)
     rf1_w -= Rf1_w @ np.array([0, 0, 0.03])
     rf2_w -= Rf2_w @ np.array([0, 0, 0.03])

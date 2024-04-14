@@ -187,7 +187,7 @@ This script functions as an introductory tutorial showing how we define the repr
           width="200" height="200"/>
     </td>
     <td align="center">
-      <img src="docs/static/animations/a1-C2-symmetries_anim_static.gif" alt="Morphological symmetries a1 bipedal robot, State symmetry, Discrete Symmetry Group"
+      <img src="docs/static/animations/aliengo-C2-symmetries_anim_static.gif" alt="Morphological symmetries a1 bipedal robot, State symmetry, Discrete Symmetry Group"
           width="200" height="200"/>
     </td>
     <td align="center">
