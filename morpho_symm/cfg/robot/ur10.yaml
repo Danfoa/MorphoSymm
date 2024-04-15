@@ -1,0 +1,7 @@
+defaults:
+  - ur5
+  - _self_
+
+name: ur10
+
+hip_height: 0.5

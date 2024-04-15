@@ -1,0 +1,21 @@
+defaults:
+  - base_robot
+name: baxter
+
+init_q: [ 0., 0., 0.0, 0.0, 0, 0.0, 1.0, 0.1, 0.3, 0., -0.3, -0.1, 0.1, 0.4, -1.0, 0.1, -0.3, 0., 0.3, 0.1, 0.1, -0.4,]
+endeff_names: ['left_endpoint', 'right_endpoint']
+
+group_label: C2
+
+# QJ: Joint Space symmetries____________________________________
+#         HEAD|__________LEFT__________|_______RIGHT_________|
+permutation_Q_js: [[ 0, 8, 9, 10, 11, 12, 13, 14, 1, 2, 3, 4, 5, 6, 7]]
+# Reflections are determined by joint frame predefined orientation.
+reflection_Q_js: [[-1, -1, 1, -1, 1, -1,  1, -1, -1, 1, -1, 1, -1,  1, -1]]
+
+# Auxiliary variables__________________________________________
+hip_height: 1.0
+angle_sweep: 0.6
+fix_base: True
+tint_bodies: False
+seed: 12

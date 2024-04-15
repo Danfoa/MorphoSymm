@@ -1,0 +1,32 @@
+defaults:
+  - base_robot
+
+name: aliengo
+
+hip_height: 0.4
+
+group_label: C2
+
+# QJ: Joint Space symmetries____________________________________
+#  Each leg is parameterized by a:
+#    Hip joint (1,): 1DoF revolute joint with position constraints
+#    Thigh joint (2,): 1DoF revolute joint with NO position constraints, thus modeled as a point in the unit circle
+#    Calf joint (1,): 1DoF revolute joint with position constraints
+# The action of the reflection is defined by the permutation of the configurations of the legs, such that:
+#    FL <---g---> FR and  HL <---g---> HR.
+#        ____FL_______|_____FR______|_________HL______|____HR____________|
+# q    = [ 0, (1,2), 3,  4, (5,6), 7,  8,  (9,10),  11, 12, (13, 14), 15]
+# g·q  = [ 4, (5,6), 7, 0, (1,2), 3, 12, (13,14), 15, 8, (9,10), 11]
+# QJ: Joint Space symmetries____________________________________
+permutation_Q_js: [[4, 5, 6, 7,     0, 1, 2, 3,      12, 13, 14, 15,  8, 9, 10, 11]]
+# Reflections are determined by joint frame predefined orientation.
+reflection_Q_js: [[-1, 1, 1, 1,     -1, 1,1, 1,      -1, 1, 1, 1,      -1, 1, 1, 1,]]
+
+# The tangent space of a unit circle is a 1D line:
+#        ____FL______|_______FR_____|__________HL_________|_______HR__________|
+# v    = [   0, 1,  2,   3,  4,    5,     6,     7,      8,     9,    10,    11]
+# g·v  = [   3, 4,  5,   0,  1,    2,     9,    10,    11,     6,     7,     8]
+permutation_TqQ_js: [[3, 4, 5, 0, 1, 2, 9, 10, 11, 6, 7, 8]]
+# Reflections are determined by joint frame predefined orientation.
+reflection_TqQ_js: [[-1, 1, 1, -1, 1, 1, -1, 1, 1, -1, 1, 1]]
+

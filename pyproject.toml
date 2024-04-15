@@ -1,0 +1,86 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+[tool.hatch.metadata]
+allow-direct-references = true   # We use custom branch of escnn with some developments usefull for this repo
+
+[project]
+name = "morpho_symm"
+version = "0.1.3"
+keywords = ["morphological symmetry", "locomotion", "dynamical systems", "robot symmetries", "symmetry"]
+description = "Tools for the identification, study, and exploitation of morphological symmetries in locomoting dynamical systems"
+readme = "README.md"
+requires-python = ">=3.7"
+authors = [
+  { name="Daniel Ordoñez-Apraez", email="daniels.ordonez@gmail.com" },
+]
+maintainers = [
+  { name="Daniel Ordoñez-Apraez", email="daniels.ordonez@gmail.com" },
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "hydra-core",
+    "numpy",
+    "scipy",
+    "matplotlib",
+    "pytransform3d",
+    "robot_descriptions",
+    "urllib3>=1.26.6",
+    "escnn@git+https://github.com/Danfoa/escnn.git#egg=devel",
+    "lie_learn@git+https://github.com/AMLab-Amsterdam/lie_learn.git",
+    "networkx",
+    "pin",
+    "pybullet",
+]
+[project.scripts]
+    view = "morpho_symm:robot_symmetry_visualization"
+
+[project.optional-dependencies]
+#robotics = [
+#    #
+#]
+learning = [
+    "pytorch-lightning>=1.7.7",
+    "torch>=1.12.1",
+]
+
+[project.urls]
+"Homepage" = "https://github.com/Danfoa/MorphoSymm"
+"Bug Tracker" = "https://github.com/Danfoa/MorphoSymm/issues"
+
+[tool.ruff]
+line-length = 120
+select = [
+    # pyflakes
+    "F",
+    # pycodestyle
+    "E",
+    "W",
+    # isort
+    "I001",
+    # pydocstyle
+    "D"
+]
+ignore = [
+    "D401",  # good for methods but not for class docstrings
+    "D405",  # British-style section names are also "proper"!
+    "E701",  # short single-line statements are fine
+    "D100",
+]
+
+exclude = [
+    ".git",
+    ".idea",
+    ".venv",
+]
+
+#fixable = ["A", "B", "C", "D", "E", "F", "G", "I", "N", "Q", "S", "T", "W", "ANN", "ARG", "BLE", "COM", "DJ", "DTZ", "EM", "ERA", "EXE", "FBT", "ICN", "INP", "ISC", "NPY", "PD", "PGH", "PIE", "PL", "PT", "PTH", "PYI", "RET", "RSE", "RUF", "SIM", "SLF", "TCH", "TID", "TRY", "UP", "YTT"]
+
+[tool.ruff.pydocstyle]
+convention = "google"
+

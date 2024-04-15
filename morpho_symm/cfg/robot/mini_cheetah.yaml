@@ -1,0 +1,46 @@
+defaults:
+  - base_robot
+  - _self_
+
+name: mini_cheetah
+angle_sweep: 0.7
+hip_height: 0.35
+seed: 50
+endeff_names: [ 'thigh_fr_to_knee_fr_j', 'thigh_fl_to_knee_fl_j', 'thigh_hr_to_knee_hr_j', 'thigh_hl_to_knee_hl_j' ]
+# ______|Base Pos|_Base Ori__|       torso                         abduct                              tight           |       torso                              abduct                          tight          |       torso                        abduct                               tight          |       torso                          abduct                              tight           |
+init_q: [ 0, 0, 0, 0, 0, 0, 1, np.cos(0),np.sin(0) ,  np.cos(np.pi/3), np.sin(np.pi/3) ,  np.cos(1.0),np.sin(1.0) ,  np.cos(0),np.sin(0) ,  np.cos(np.pi/3), np.sin(np.pi/3) ,  np.cos(1.0),np.sin(1.0), np.cos(0),np.sin(0) ,  np.cos(-np.pi/3), np.sin(-np.pi/3) ,  np.cos(-1.0),np.sin(-1.0), np.cos(0),np.sin(0) ,  np.cos(-np.pi/3), np.sin(-np.pi/3) ,  np.cos(-1.0),np.sin(-1.0) ]
+
+
+group_label: DH2
+
+# Each joint-space DoF of mini-cheetah is parameterized by an element on the unit circle.
+# Therefore, the zero vector in this configuration is `0:=cos(theta_0), sin(theta_0)` being `theta_0` angle in radians`
+# ______|Base Pos|_Base Ori__|       torso                         abduct                     tight          |       torso                                   abduct                tight          |       torso                        abduct                    tight          |       torso                     abduct                         tight          |
+q_zero: [ 0, 0, 0, 0, 0, 0, 0, np.cos(0),np.sin(0) ,  np.cos(np.pi/2), np.sin(np.pi/2) ,  np.cos(0),np.sin(0) ,  np.cos(0),np.sin(0) ,  np.cos(np.pi/2),np.sin(np.pi/2) ,  np.cos(0),np.sin(0), np.cos(0),np.sin(0) ,  np.cos(-np.pi/2),np.sin(-np.pi/2) ,  np.cos(0),np.sin(0), np.cos(0),np.sin(0) ,  np.cos(-np.pi/2),np.sin(-np.pi/2) ,  np.cos(0),np.sin(0) ]
+
+# QJ: Joint Space symmetries____________________________________
+# Mini cheetah has unbounded/continuous revolute joints. Thus, each joint is parameterized by an element on the unit
+#  circle q_i = [cos(theta), sin(theta)].
+#        ____FL______|_______FR_____|__________HL_________|_______HR__________|
+# q    = [   0, 1,  2,   3,  4,    5,     6,     7,      8,     9,    10,    11]
+# q    = [0-1,2-3,4-5, 6-7,8-9,10-11, 12-13, 14-15,  16-17, 18-19, 20-21, 22-23]
+# Configure qj (joint-space) group actions
+#                                    Sagittal Symmetry                                                              Transversal symmetry                                                                                Frontal Symmetry
+#                    |________FR______|_______FL______|_______HR_____________|______HL__________|   |_____HL_____________|_______HR__________|_______FL______|______FR__________|       |_____HL____________|_______HR______|_______FL____________|____________FR__________|
+#permutation_Q_js:  [ [   3,   4,     5,   0,   1,    2,     9,    10,    11,     6,     7,     8],  [    6,     7,     8,     9,    10,    11,   0,   1,    2,    3,   4,     5]]
+permutation_Q_js:   [ [ 6,7, 8,9, 10,11, 0,1, 2,3,  4,5, 18,19, 20,21, 22,23, 12,13, 14,15, 16,17 ], [ 12,13, 14,15, 16,17, 18,19, 20,21, 22,23, 0,1,   2,3,  4,5,  6,7, 8,9, 10,11 ] , [ 0,1,  2,3,   4,5,   6,7, 8,9, 10,11,  12,13, 14,15, 16,17,  18,19, 20,21, 22,23 ] ]
+# Reflections are determined by joint frame predefined orientation.
+reflection_Q_js: [ [ 1,-1, 1,1, 1,1, 1,-1, 1,1,  1,1,  1,-1,   1,1,   1,1,  1,-1,   1,1,   1,1 ], [ 1,1,   1,-1,  1,-1,  1,1,   1,-1,  1,-1, 1,1, 1,-1, 1,-1,  1,1,  1,-1,  1,-1 ] , [1,-1, 1,-1, 1,-1,  1,-1, 1,-1, 1,-1,     1,-1, 1,-1, 1,-1,      1,-1, 1,-1, 1,-1 ] ]
+
+# Since for continuous joints the dimensions of the position and velocity coordinates differ, we need to define the representation for the velocity coordinates.
+# TODO: This should be automated.
+permutation_TqQ_js: [[3, 4, 5, 0, 1, 2, 9, 10, 11, 6, 7, 8],   [6, 7, 8, 9, 10, 11, 0, 1, 2, 3, 4, 5], [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]]
+reflection_TqQ_js:  [[-1, 1, 1, -1, 1, 1, -1, 1, 1, -1, 1, 1], [1, -1, -1, 1, -1, -1, 1, -1, -1, 1, -1, -1], [-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1]]
+
+# 4D-Representation permuting the set of elements, associated with the legs kinematic chains
+permutation_kin_chain: [[1, 0, 3, 2], [2, 3, 0, 1], [0, 1, 2, 3]]
+reflection_kin_chain:  [[1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1]]
+
+# Transformation for Euler angles in 'xyz' convention
+permutation_euler_xyz: [[0, 1, 2], [0, 1, 2], [0, 1, 2]]
+reflection_euler_xyz: [[-1, 1, -1], [1, -1, -1], [-1, -1, 1]]

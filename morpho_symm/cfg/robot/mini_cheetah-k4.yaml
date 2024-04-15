@@ -1,0 +1,6 @@
+
+defaults:
+  - mini_cheetah
+  - _self_
+
+group_label: K4

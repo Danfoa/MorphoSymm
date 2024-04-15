@@ -1,0 +1,7 @@
+defaults:
+  - anymal_b
+  - _self_
+
+name: anymal_b
+
+group_label: C2

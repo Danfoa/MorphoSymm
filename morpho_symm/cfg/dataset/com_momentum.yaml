@@ -1,0 +1,21 @@
+#
+job_name: ${exp_name}_${robot.name}/model=${model.model_type}_train_ratio=${dataset.train_ratio}_ly=${model.num_layers}_hc=${model.num_channels}
+
+name: 'com_momentum'
+
+data_folder: "dataset/com_momentum"
+
+augment: False
+angular_momentum: True
+
+standarize: True
+
+batch_size: 256
+max_epochs: 300
+log_every_n_epochs: 0.5
+
+#samples: 100000     # Dataset size.
+samples: 100000     # Dataset size.
+train_ratio: 0.7
+test_ratio: 0.15
+val_ratio: 0.15

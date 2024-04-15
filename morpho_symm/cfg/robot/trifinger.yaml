@@ -1,0 +1,23 @@
+
+defaults:
+  - base_robot
+
+name: trifinger_edu
+
+group_label: C3
+group_plane_axis: [0, 0, 1]
+
+# E3: Euclidean Group symmetries____________________________________
+# Dihedral and Cyclic groups are 2D rotations/reflections, this axis determines in which plane in 3D are these
+# isometries acting on. That is this is the plane normal to the 2D space in which the isometries act.
+# QJ: Joint Space symmetries____________________________________
+#   3Dof per finger in the order : [Shoulder abduction, shoulder flexion, elbow] * 3
+permutation_Q_js: [[3, 4, 5, 6, 7, 8, 0, 1, 2]]
+# No reflection needed, no reflected bodies/frames.
+reflection_Q_js: [[1, 1, 1, 1, 1, 1, 1, 1, 1]]
+
+# Visualization aux variables
+hip_height: 0.25
+fix_base: True
+angle_sweep: 0.8
+seed: 708

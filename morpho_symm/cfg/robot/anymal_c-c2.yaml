@@ -1,0 +1,5 @@
+defaults:
+  - anymal_c
+  - _self_
+
+group_label: C2

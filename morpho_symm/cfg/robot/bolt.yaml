@@ -1,0 +1,16 @@
+defaults:
+  - base_robot
+
+name: bolt
+group_label: C2
+
+hip_height: 0.35
+# ______|___Base Pos___|___Base Ori__|______________________________QJ____________________________|
+init_q: [0.0, 0.0, 0.35, 0, 0, 0 , 1 , -0.2, 0.78539816, -1.57079633, 0.2, 0.78539816, -1.57079633]
+
+# QJ: Joint Space symmetries____________________________________
+#        |___ R _______|____ L ____|
+# q    = [ q0, q1, q2,  q3, q4, q5]
+permutation_Q_js: [[3, 4, 5, 0, 1, 2]]
+# Reflections are determined by joint frame predefined orientation.
+reflection_Q_js: [[-1, 1, 1, -1, 1, 1]]

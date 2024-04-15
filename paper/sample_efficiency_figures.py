@@ -8,7 +8,7 @@ import pandas as pd
 import numpy as np
 import re
 
-from utils.utils import cm2inch
+from utils.algebra_utils import cm2inch
 
 import re
 

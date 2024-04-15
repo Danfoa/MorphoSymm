@@ -1,0 +1,5 @@
+defaults:
+  - ur5
+  - _self_
+
+name: ur3

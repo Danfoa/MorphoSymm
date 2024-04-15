@@ -1,0 +1,30 @@
+
+defaults:
+  - _self_
+  - robot: 'solo'
+  - override hydra/hydra_logging: disabled
+
+# TODO: Make distinctions between. Trainer Args, Model Psecific Args, Program Args
+debug: False
+debug_joints: False
+make_gif: False
+make_imgs: False
+gui: True
+
+recording_name: 'concrete_galloping'
+hydra:
+#  hydra_logging: null
+  output_subdir: null  # disable hydra output directory
+  verbose: ${debug}
+  run:
+      dir: .  # disable hydra run directory
+  job:
+    chdir: False
+    env_set:
+      HYDRA_FULL_ERROR: '1'
+  job_logging:
+    version: 1
+    colorlog: True
+    formatters:
+      simple:
+        format: '[%(levelname)s][%(name)s] %(message)s'

@@ -1,0 +1,23 @@
+defaults:
+  - base_robot
+
+name: iiwa
+
+hip_height: 0.3
+fix_base: True
+tint_bodies: False
+angle_sweep: 1.5
+seed: 135
+
+
+endeff_names: ['iiwa_base_joint', 'tool0_joint']
+
+q_zero: [0,0,0, 0,0,0,1, np.pi/2, 0, 0, 0, 0, 0, 0]
+
+#init_q: [0,0,0, 0,0,0,1, -np.pi/2, 0, 0, -np.pi/2, 0, 0]
+
+group_label: C2
+# QJ: Joint Space symmetries____________________________________
+permutation_Q_js: [[0, 1, 2, 3, 4, 5, 6]]
+# Reflections are determined by joint frame predefined orientation.
+reflection_Q_js: [[-1, -1, -1, -1, -1, -1, -1]]
