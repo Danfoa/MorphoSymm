@@ -395,7 +395,7 @@ def get_mock_ground_reaction_forces(pb, robot, robot_cfg):
     rf2_w, quatf2_w = (np.array(x) for x in pb.getLinkState(robot.robot_id, end_effectors[1])[0:2])
     Rf1_w, Rf2_w = quat_xyzw_to_SO3(quatf1_w), quat_xyzw_to_SO3(quatf2_w)
 
-    if not np.any([s in robot.robot_name for s in ["atlas"]]):  # Ignore
+    if not np.any([s in robot.name for s in ["atlas"]]):  # Ignore
         Rf1_w, Rf2_w = np.eye(3), np.eye(3)
     rf1_w -= Rf1_w @ np.array([0, 0, 0.03])
     rf2_w -= Rf2_w @ np.array([0, 0, 0.03])

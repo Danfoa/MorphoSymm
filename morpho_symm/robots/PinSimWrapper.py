@@ -283,7 +283,7 @@ class PinSimWrapper(ABC):
         if reference_robot is not None:
             import sys
             pin_robot = copy.copy(reference_robot.pinocchio_robot)
-            pin_robot.data = copy.copy(reference_robot.pinocchio_robot.data)
+            pin_robot.data = copy.deepcopy(reference_robot.pinocchio_robot.data)
             assert sys.getrefcount(pin_robot.data) <= 2
         else:
             pin_robot = pin_load_robot_description(f"{self.robot_name}_description", root_joint=JointModelFreeFlyer())

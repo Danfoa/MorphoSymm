@@ -98,17 +98,15 @@ class MLP(torch.nn.Module):
             else:
                 raise NotImplementedError(module.__class__.__name__)
 
-            if "fan_in" == self.init_mode or "fan_out" == self.init_mode:
+            if activation.lower() == "relu" or activation.lower() == "leakyrelu":
+                torch.nn.init.kaiming_uniform_(tensor, mode=self.init_mode, nonlinearity=activation.lower())
+            elif activation.lower() == "selu":
+                torch.nn.init.kaiming_normal_(tensor, mode=self.init_mode, nonlinearity='linear')
+            else:
                 try:
                     torch.nn.init.kaiming_uniform_(tensor, mode=self.init_mode, nonlinearity=activation.lower())
                 except ValueError as e:
-                    log.debug(f"Could not initialize {module.__class__.__name__} with {self.init_mode} mode. "
-                                f"Using default Pytorch initialization")
-            elif 'normal' in self.init_mode.lower():
-                split = self.init_mode.split('l')
-                std = 0.1 if len(split) == 1 else float(split[1])
-                torch.nn.init.normal_(tensor, 0, std)
-            else:
-                raise NotImplementedError(self.init_mode)
+                    log.info(f"Could not initialize {module.__class__.__name__} with {self.init_mode} mode. "
+                              f"Using default Pytorch initialization")
 
         log.info(f"MLP initialized with mode: {self.init_mode}")

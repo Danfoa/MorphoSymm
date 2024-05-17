@@ -369,7 +369,7 @@ class PinBulletWrapper(PinSimWrapper):
             robot_name=other.robot_name,
             endeff_names=other.endeff_names,
             fixed_base=other.fixed_base,
-            reference_robot=other,
+            # reference_robot=other,
             init_q=other._init_q,
             hip_height=other.hip_height,
             )
