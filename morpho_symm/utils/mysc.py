@@ -28,3 +28,8 @@ class TemporaryNumpySeed:
 
     def __exit__(self, *args):
         np.random.set_state(self.state)
+
+class ConfigException(Exception):
+    """Exception raised for errors in the configuration."""
+    def __init__(self, message):
+        super().__init__(message)

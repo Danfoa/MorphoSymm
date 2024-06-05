@@ -6,6 +6,8 @@ import hydra
 import numpy as np
 import scipy
 from omegaconf import DictConfig
+from scipy.spatial.transform import Rotation
+
 from utils.pybullet_visual_utils import (
     change_robot_appearance,
     display_robots_and_vectors,
@@ -30,7 +32,7 @@ def main(cfg: DictConfig):
     np.random.seed(cfg.robot.seed)
     # Get robot instance, along with representations of the symmetry group on the Euclidean space (in which the robot
     # base B evolves in) and Joint Space (in which the internal configuration of the robot evolves in).
-    robot, G = load_symmetric_system(robot_cfg=cfg.robot, debug=cfg.debug)
+    robot, G = load_symmetric_system(robot_cfg=cfg.robot, debug=cfg.debug_joints)
 
     # Get the group representations of joint-state space, and Euclidean space.
     rep_QJ = G.representations['Q_js']  # rep_QJ(g) is a permutation matrix ∈ R^nqj
@@ -38,11 +40,12 @@ def main(cfg: DictConfig):
     rep_Ed = G.representations['E3']  # rep_Ed(g) is a homogenous transformation matrix ∈ R^(3+1)x(3+1)
     rep_Rd = G.representations['R3']  # rep_Rd(g) is an orthogonal matrix ∈ R^3x3
     rep_Rd_pseudo = G.representations['R3_pseudo']  # rep_Rd_pseudo(g) is an orthogonal matrix ∈ R^3x3
+    rep_euler_xyz = G.representations['euler_xyz']  # rep_euler_xyz(g) is an euler angle vector ∈ R^3
 
     # Configuration of the 3D visualization -------------------------------------------------------------------------
     # Not really relevant to understand.
     offset = max(0.2, 1.8 * robot.hip_height)  # Offset between robot base and reflection planes.
-    pb = configure_bullet_simulation(gui=cfg.gui, debug=cfg.debug)  # Load pybullet environment
+    pb = configure_bullet_simulation(gui=cfg.gui, debug=cfg.debug_joints)  # Load pybullet environment
     robot.configure_bullet_simulation(pb, world=None)  # Load robot in pybullet environment
     change_robot_appearance(pb, robot, change_color=cfg.robot.tint_bodies)  # Add color and style to boring grey robots
 
@@ -67,6 +70,8 @@ def main(cfg: DictConfig):
 
     # Get the robot's base configuration XB ∈ Ed as a homogenous transformation matrix.
     XB = robot.get_base_configuration()
+    base_ori_euler_xyz = Rotation.from_matrix(XB[:3, :3]).as_euler("xyz", degrees=True)
+
     # Get joint space position and velocity coordinates  (q_js, v_js) | q_js ∈ QJ, dq_js ∈ TqQJ
     q_js, v_js = robot.get_joint_space_state()
 
@@ -89,7 +94,7 @@ def main(cfg: DictConfig):
     orbit_hg_B, orbit_XB_w = {e: hg_B}, {e: XB}
     orbit_f1, orbit_f2, orbit_rf1, orbit_rf2 = {e: f1}, {e: f2}, {e: rf1}, {e: rf2},
     orbit_Rf1, orbit_Rf2 = {e: Rf1}, {e: Rf2}
-
+    orbit_ori_euler_xyz = {e: base_ori_euler_xyz}
     # For each symmetry action g ∈ G, we get the representations of the action in the relevant vector spaces to
     # compute the symmetric states of robot configuration and measurements.
     for g in G.elements[1:]:
@@ -102,9 +107,15 @@ def main(cfg: DictConfig):
         # gXB_w = rep_Ed(g) @ RB_w @ np.linalg.inv(rep_Ed(g))
         gXB = rep_Ed(g) @ XB @ rep_Ed(g).T
         orbit_XB_w[g] = gXB  # Add new robot base configuration (homogenous matrix) to the orbit of base configs.
+        orbit_ori_euler_xyz[g] = Rotation.from_matrix(gXB[:3, :3]).as_euler("xyz", degrees=True)
+        # If people use euler xyz angles to represent the orientation of the robot base, we can also compute the
+        # symmetric states of the robot base orientation:
+        g_euler_xyz = rep_euler_xyz(g) @ base_ori_euler_xyz
+        # Check the analytic transformation to elements of SO(3) is equivalent to the transformation in euler xyz angles
+        g_euler_xyz_true = Rotation.from_matrix(gXB[:3, :3]).as_euler("xyz", degrees=True)
+        assert np.allclose(g_euler_xyz, g_euler_xyz_true, rtol=1e-6, atol=1e-6)
 
         # Use symmetry representations to get symmetric versions of Euclidean vectors, representing measurements of data
-        # We could also add some pseudo-vectors e.g. torque, and augment them as we did with `k`
         orbit_f1[g], orbit_f2[g] = rep_Rd(g) @ f1, rep_Rd(g) @ f2
         orbit_rf1[g] = (rep_Ed(g) @ np.concatenate((rf1, np.ones(1))))[:3]  # using homogenous coordinates
         orbit_rf2[g] = (rep_Ed(g) @ np.concatenate((rf2, np.ones(1))))[:3]
@@ -113,7 +124,9 @@ def main(cfg: DictConfig):
         orbit_Rf1[g] = rep_Rd(g) @ Rf1 @ rep_Rd(g).T
         orbit_Rf2[g] = rep_Rd(g) @ Rf2 @ rep_Rd(g).T
 
-    # =============================================================================================================
+    for g in G.elements:
+        print(f"Element: {g} euler_xyz(g): \n{rep_euler_xyz(g)}")
+        print(f"Element: {g} Rd_pseudo(g): \n{rep_Rd_pseudo(g)}")
 
     # Visualization of orbits of robot states and of data ==========================================================
     # Use Ctrl and mouse-click+drag to rotate the 3D environment.
@@ -129,7 +142,7 @@ def main(cfg: DictConfig):
         # this params seem to work mostly ok for all.
         cam_distance = offset * 5
         cam_target_pose = [0, 0, 0]
-        save_path = root_path / "paper/animations"
+        save_path = root_path / "docs/static/animations"
         save_path.mkdir(exist_ok=True)
         render_orbiting_animation(pb, cam_target_pose=cam_target_pose, cam_distance=cam_distance,
                                   save_path=save_path, anim_time=10, fps=15, periods=1,

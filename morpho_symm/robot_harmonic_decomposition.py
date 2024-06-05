@@ -43,7 +43,7 @@ listener.start()
 def get_motion_trajectory(robot: PinBulletWrapper, recording_name=None, angle_sweep=0.5):
     # Load a trajectory of motion and measurements from the mini-cheetah robot
     recordings_path = Path(
-        morpho_symm.__file__).parent / f'data/{robot.robot_name}/raysim_recordings/flat/forward_minus_0_4/n_trajs=1-frames=7771-train.pkl'
+        morpho_symm.__file__).parent / f'data/{robot.name}/raysim_recordings/flat/forward_minus_0_4/n_trajs=1-frames=7771-train.pkl'
     dyn_recordings = DynamicsRecording.load_from_file(recordings_path)
     return dyn_recordings
     #

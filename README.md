@@ -6,7 +6,7 @@ The Morphological Symmetries (MorphoSymm) repository offers a comprehensive tool
   <img src="docs/static/dynamic_animations/mini-cheetah-dynamic_symmetries_forces.gif" width="40%" />
 </p>
 
-These symmetries carry significant implications. Notably, they offer a valuable geometric bias, since by modeling and controlling the dynamics of one state, we can effectively identify and control the dynamics of all its symmetric counterparts (see [our paper](https://danfoa.github.io/MorphoSymm/) for details).
+These symmetries carry significant implications. Notably, they offer a valuable geometric bias, since by modeling and controlling the dynamics of one state, we can effectively identify and control the dynamics of all its symmetric counterparts (see [our RSS-2023 paper](https://danfoa.github.io/MorphoSymm/) and [IJRR-2024 Journal](https://arxiv.org/abs/2402.15552) for details).
 
 
 <p align="center">
@@ -187,7 +187,7 @@ This script functions as an introductory tutorial showing how we define the repr
           width="200" height="200"/>
     </td>
     <td align="center">
-      <img src="docs/static/animations/a1-C2-symmetries_anim_static.gif" alt="Morphological symmetries a1 bipedal robot, State symmetry, Discrete Symmetry Group"
+      <img src="docs/static/animations/aliengo-C2-symmetries_anim_static.gif" alt="Morphological symmetries a1 bipedal robot, State symmetry, Discrete Symmetry Group"
           width="200" height="200"/>
     </td>
     <td align="center">
@@ -480,7 +480,18 @@ print(f"Here is your equivariant MLP \n {model}")
 ## How to cite us?
 If you find this repository or any our our papers relevant please cite us as:
 
-### [On discrete symmetries of robotics systems: A group-theoretic and data-driven analysis](https://danfoa.github.io/MorphoSymm/)
+### [Morphological symmetries in robotics](https://arxiv.org/abs/2402.15552)
+
+```
+  @article{ordonez2024morphological,
+    title={Morphological Symmetries in Robotics},
+    author={Ordo{\~n}ez-Apraez, Daniel and Turrisi, Giulio and Kostic, Vladimir and Martin, Mario and Agudo, Antonio and Moreno-Noguer, Francesc and Pontil, Massimiliano and Semini, Claudio and Mastalli, Carlos},
+    journal={arXiv preprint arXiv:2402.15552},
+    year={2024}
+  }
+```
+
+### [On discrete symmetries of robotics systems: A group-theoretic and data-driven analysis (RSS-2023)](https://danfoa.github.io/MorphoSymm/)
 ```
 @INPROCEEDINGS{Ordonez-Apraez-RSS-23,
     AUTHOR    = {Daniel F Ordo{\~n}ez-Apraez AND Martin, Mario AND Antonio Agudo AND Francesc Moreno},
@@ -492,7 +503,7 @@ If you find this repository or any our our papers relevant please cite us as:
     DOI       = {10.15607/RSS.2023.XIX.053}
 }
 ```
-### [Dynamics Harmonic Analysis of Robotic Systems: Application in Data-Driven Koopman Modeling](https://danfoa.github.io/DynamicsHarmonicsAnalysis/)
+### [Dynamics Harmonic Analysis of Robotic Systems: Application in Data-Driven Koopman Modeling (L4DC-2024)](https://danfoa.github.io/DynamicsHarmonicsAnalysis/)
 
 ```
 @article{ordonez2023dynamics,

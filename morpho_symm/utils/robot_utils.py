@@ -3,7 +3,7 @@
 # @Time    : 11/3/22
 # @Author  : Daniel Ordonez
 # @email   : daniels.ordonez@gmail.com
-
+import logging
 import re
 from pathlib import Path
 from typing import Optional
@@ -12,6 +12,7 @@ import escnn
 import escnn.group
 import numpy as np
 from escnn.group import CyclicGroup, DihedralGroup, DirectProductGroup, Group, Representation
+from morpho_symm.utils.mysc import ConfigException
 from omegaconf import DictConfig, OmegaConf
 
 import morpho_symm
@@ -23,7 +24,9 @@ from morpho_symm.utils.pybullet_visual_utils import (
     configure_bullet_simulation,
     listen_update_robot_sliders,
     setup_debug_sliders,
-)
+    )
+
+log = logging.getLogger("MorphoSymm")
 
 
 def get_escnn_group(cfg: DictConfig):
@@ -114,42 +117,54 @@ def load_symmetric_system(
     # Select the field for the representations.
     rep_field = float if robot_cfg.rep_fields.lower() != 'complex' else complex
 
+    # Assert the required representations are present in the robot configuration.
     if 'permutation_Q_js' not in robot_cfg:
-        raise AttributeError(f"Configuration file for {robot_name} must define the field `permutation_Q_js`, "
-                             f"describing the joint space permutation per each non-trivial group's generator.")
+        raise ConfigException(f"Configuration file for {robot_name} must define the field `permutation_Q_js`, "
+                              f"describing the joint space permutation per each non-trivial group's generator.")
     if 'permutation_TqQ_js' not in robot_cfg:
-        raise AttributeError(f"Configuration file for {robot_name} must define the field `permutation_TqQ_js`, "
-                             f"describing the tangent joint-space permutation per each non-trivial group's generator.")
+        raise ConfigException(f"Configuration file for {robot_name} must define the field `permutation_TqQ_js`, "
+                              f"describing the tangent joint-space permutation per each non-trivial group's generator.")
 
     reps_in_cfg = [k.split('permutation_')[1] for k in robot_cfg if "permutation" in k]
+
     for rep_name in reps_in_cfg:
-        perm_list = list(robot_cfg[f'permutation_{rep_name}'])
-        rep_dim = len(perm_list[0])
-        reflex_list = list(robot_cfg[f'reflection_{rep_name}'])
-        assert len(perm_list) == len(reflex_list), \
-            f"Found different number of permutations and reflections for {rep_name}"
-        assert len(perm_list) >= len(G.generators), \
-            f"Found {len(perm_list)} element reps for {rep_name}, Expected {len(G.generators)} generators for {G}"
-        # Generate ESCNN representation of generators
-        gen_rep = {}
-        for h, perm, refx in zip(G.generators, perm_list, reflex_list):
-            assert len(perm) == len(refx) == rep_dim
-            refx = np.array(refx, dtype=rep_field)
-            gen_rep[h] = gen_permutation_matrix(oneline_notation=perm, reflections=refx)
-        # Generate the entire group
-        rep = group_rep_from_gens(G, rep_H=gen_rep)
-        rep.name = rep_name
-        G.representations.update({rep_name: rep})
+        try:
+            perm_list = list(robot_cfg[f'permutation_{rep_name}'])
+            rep_dim = len(perm_list[0])
+            reflex_list = list(robot_cfg[f'reflection_{rep_name}'])
+            assert len(perm_list) == len(reflex_list), \
+                f"Found different number of permutations and reflections for {rep_name}"
+            assert len(perm_list) >= len(G.generators), \
+                f"Found {len(perm_list)} element reps for {rep_name}, Expected {len(G.generators)} generators for {G}"
+            # Generate ESCNN representation of generators
+            gen_rep = {}
+            for h, perm, refx in zip(G.generators, perm_list, reflex_list):
+                assert len(perm) == len(refx) == rep_dim
+                refx = np.array(refx, dtype=rep_field)
+                gen_rep[h] = gen_permutation_matrix(oneline_notation=perm, reflections=refx)
+            # Generate the entire group
+            rep = group_rep_from_gens(G, rep_H=gen_rep)
+            rep.name = rep_name
+            G.representations.update({rep_name: rep})
+        except Exception as e:
+            raise ConfigException(f"Error in the definition of the representation {rep_name}") from e
 
     rep_Q_js = G.representations['Q_js']
     rep_TqQ_js = G.representations.get('TqQ_js', None)
     rep_TqQ_js = rep_Q_js if rep_TqQ_js is None else rep_TqQ_js
     dimQ_js, dimTqQ_js = robot.nq - 7, robot.nv - 6
-    assert dimQ_js == rep_Q_js.size
-    assert dimTqQ_js == rep_TqQ_js.size
+    if dimQ_js != rep_Q_js.size:
+        raise ConfigException(
+            f"{robot_name}'s Pinocchio joint-space dimension {dimQ_js} does not match the joint-space representation"
+            f"`Q_js` dimension {rep_Q_js.size}")
+    if dimTqQ_js != rep_TqQ_js.size:
+        raise ConfigException(
+            f"{robot_name}'s Pinocchio joint-space tangent dimension {dimTqQ_js} does not match the joint-space "
+            f"tangent representation `TqQ_js` dimension {rep_TqQ_js.size}")
 
     # Create the representation of isometries on the Euclidean Space in d dimensions.
-    rep_R3, rep_E3, rep_R3pseudo, rep_E3pseudo = generate_euclidean_space_representations(G)  # This adds `O3` and `E3` representations to the group.
+    # This adds `O3` and `E3` representations to the group.
+    rep_R3, rep_E3, rep_R3pseudo, rep_E3pseudo = generate_euclidean_space_representations(G)
 
     # Define the representation of the rotation matrix R that transforms the base orientation.
     rep_rot_flat = {}
@@ -167,10 +182,13 @@ def load_symmetric_system(
                              E3_pseudo=rep_E3pseudo,
                              SO3_flat=rep_rot_flat)
 
+    log.info(f"Loaded robot {robot_name}, with defined group representations:")
+    for name, rep in G.representations.items():
+        log.info(f"\t {name}: dimension: {rep.size}")
     return robot, G
 
 
-def generate_euclidean_space_representations(G: Group) -> tuple[Representation]:
+def generate_euclidean_space_representations(G: Group) -> tuple[Representation, ...]:
     """Generate the E3 representation of the group G.
 
     This representation is used to transform all members of the Euclidean Space in 3D.

@@ -57,8 +57,12 @@ class PinBulletWrapper(PinSimWrapper):
         self.bullet_endeff_ids = {}
         self.bullet_ids_allowed_floor_contacts = []
 
-    def configure_bullet_simulation(self, bullet_client: BulletClient, world=None,
-                                    base_pos=(0, 0, 0), base_ori=(0, 0, 0, 1)):
+    def configure_bullet_simulation(self,
+                                    bullet_client: BulletClient,
+                                    world=None,
+                                    base_pos=(0, 0, 0),
+                                    base_ori=(0, 0, 0, 1)
+                                    ):
         """Configures the bullet simulation and loads this robot URDF description."""
         # Load robot to simulation
         self._pb = bullet_client
@@ -66,7 +70,7 @@ class PinBulletWrapper(PinSimWrapper):
         self.robot_id = self.load_bullet_robot(base_pos, base_ori)
         assert self.robot_id is not None
 
-        log.debug("Configuring Bullet Robot")
+        log.debug(f"Configuring Bullet Robot for {self.name}")
         bullet_joint_map = {}  # Key: joint name - Value: joint id
 
         auto_end_eff = False
@@ -74,7 +78,8 @@ class PinBulletWrapper(PinSimWrapper):
             auto_end_eff = True
             self._endeff_names = []
 
-        for bullet_joint_id in range(self.bullet_client.getNumJoints(self.robot_id)):
+        n_bullet_joints = self.bullet_client.getNumJoints(self.robot_id)
+        for bullet_joint_id in range(n_bullet_joints):
             joint_info = self.bullet_client.getJointInfo(self.robot_id, bullet_joint_id)
             joint_name = joint_info[1].decode("UTF-8")
             bullet_joint_map[joint_name] = bullet_joint_id
@@ -105,7 +110,7 @@ class PinBulletWrapper(PinSimWrapper):
                 self.joint_space[joint_name] = pb_pin_joint
 
             elif auto_end_eff:
-                if not np.any([s in joint_name for s in ["base", "imu", "hip", "camera", "accelero"]]):
+                if not np.any([s in joint_name for s in ["base", "imu", "hip", "camera", "accelero", "rotor"]]):
                     log.debug(f"Adding end-effector {joint_name}")
                     self._endeff_names.append(joint_name)
             else:
@@ -302,7 +307,7 @@ class PinBulletWrapper(PinSimWrapper):
         Returns:
             int: Bullet robot body id.
         """
-        self.robot_id = pb_load_robot_description(f"{self.robot_name}_description",
+        self.robot_id = pb_load_robot_description(f"{self.name}_description",
                                                   basePosition=base_pos, baseOrientation=base_ori,
                                                   flags=self.bullet_client.URDF_USE_INERTIA_FROM_FILE |
                                                         self.bullet_client.URDF_USE_SELF_COLLISION,
@@ -350,7 +355,7 @@ class PinBulletWrapper(PinSimWrapper):
     def __repr__(self):
         """."""
         bullet_id = f"({self.robot_id})" if hasattr(self, 'robot_id') else ""
-        return f"{self.robot_name}{bullet_id}-nq:{self.nq}-nv:{self.nv}"
+        return f"{self.name}{bullet_id}-nq:{self.nq}-nv:{self.nv}"
 
     @staticmethod
     def from_instance(other: 'PinBulletWrapper') -> 'PinBulletWrapper':
@@ -366,7 +371,7 @@ class PinBulletWrapper(PinSimWrapper):
             PinBulletWrapper: A new instance of this robot wrapper
         """
         return PinBulletWrapper(
-            robot_name=other.robot_name,
+            robot_name=other.name,
             endeff_names=other.endeff_names,
             fixed_base=other.fixed_base,
             # reference_robot=other,
