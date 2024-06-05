@@ -4,6 +4,7 @@ import time
 
 import hydra
 import numpy as np
+import scipy
 from omegaconf import DictConfig
 from utils.pybullet_visual_utils import (
     change_robot_appearance,
@@ -134,7 +135,7 @@ def main(cfg: DictConfig):
                                   save_path=save_path, anim_time=10, fps=15, periods=1,
                                   init_roll_pitch_yaw=(0, 35, 0), invert_roll="dh" in cfg.robot.group_label.lower(),
                                   pitch_sin_amplitude=20,
-                                  file_name=f"{robot.robot_name}-{G.name}-symmetries_anim_static",
+                                  file_name=f"{robot.name}-{G.name}-symmetries_anim_static",
                                   gen_gif=True, gen_imgs=False)
         print("Done enjoy your gif :). I hope you learned something new")
     elif cfg.make_imgs:

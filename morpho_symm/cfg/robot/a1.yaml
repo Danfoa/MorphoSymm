@@ -1,5 +1,6 @@
 defaults:
   - base_robot
+  - _self_
 
 name: a1
 
@@ -12,3 +13,4 @@ group_label: C2
 permutation_Q_js: [[3, 4, 5, 0, 1, 2, 9, 10, 11, 6, 7, 8]]
 # Reflections are determined by joint frame predefined orientation.
 reflection_Q_js: [[-1, 1, 1, -1, 1, 1, -1, 1, 1, -1, 1, 1]]
+
