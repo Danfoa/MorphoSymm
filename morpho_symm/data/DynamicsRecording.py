@@ -33,10 +33,35 @@ class DynamicsRecording:
     # Map from observation name to the observation moments (mean, var) of the recordings.
     obs_moments: dict[str, tuple] = field(default_factory=dict)
 
+    def __post_init__(self):
+        # Check provided state observables are in the recordings
+        for obs in self.state_obs:
+            assert obs in self.recordings.keys(), \
+                f"State observable {obs} not in the provided recordings: {self.recordings.keys()}"
+
     @property
     def obs_dims(self):
         """Dictionary providing the map between observation name and observation dimension."""
         return {k: v.shape[-1] for k, v in self.recordings.items()}
+
+    @property
+    def state_dim(self):
+        """Return the dimension of the state vector."""
+        return sum([self.obs_dims[obs] for obs in self.state_obs])
+
+    _obs_idx = None
+    def obs_idx_in_state(self, obs_name) -> tuple[int]:
+        """returns a tuple of indices of each observation in the state vector."""
+        assert obs_name in self.state_obs, f"Observation {obs_name} not in state observations"
+        if self._obs_idx is None:
+            self._obs_idx = {}
+            # Iterate over all state observables in order and store the indices of each observation given its dimension
+            curr_dim = 0
+            for obs in self.state_obs:
+                obs_dim = self.obs_dims[obs]
+                self._obs_idx[obs] = tuple(range(curr_dim, curr_dim + obs_dim))
+                curr_dim += obs_dim
+        return self._obs_idx[obs_name]
 
     def state_representations(self) -> list[Representation]:
         """Return the ordered list of representations of the state vector."""
@@ -127,8 +152,10 @@ class DynamicsRecording:
         else:
             mean = np.mean(np.asarray(self.recordings[obs_name]), axis=(0, 1))
             var = np.var(np.asarray(self.recordings[obs_name]), axis=(0, 1))
-        assert mean.shape == (self.obs_dims[obs_name],), f"mean shape ({mean.shape},)!= ({self.obs_dims[obs_name]},)"
-        assert var.shape == (self.obs_dims[obs_name],), f"var shape ({var.shape},)!= ({self.obs_dims[obs_name]},)"
+        assert mean.shape == (self.obs_dims[obs_name],), \
+            f"Obs {obs_name} dim ({self.obs_dims[obs_name]},) diff from estimated mean dim ({mean.shape},)!= "
+        assert var.shape == (self.obs_dims[obs_name],), \
+            f"Obs {obs_name} dim ({self.obs_dims[obs_name]},) diff from estimated var dim ({var.shape},)!= "
 
         self.obs_moments[obs_name] = mean, var
 
@@ -202,7 +229,9 @@ class DynamicsRecording:
                     irreps_ids = data._obs_rep_irreps[obs_name]
                     rep_name = data._obs_rep_names[obs_name]
                     rep_Q = data._obs_rep_Q[obs_name]
-                    if rep_name in group.representations:
+                    if rep_name is None:
+                        data.obs_representations[obs_name] = None
+                    elif rep_name in group.representations:
                         data.obs_representations[obs_name] = group.representations[rep_name]
                     else:
                         data.obs_representations[obs_name] = Representation(group, name=rep_name,
@@ -406,15 +435,15 @@ def reduce_dataset_size(recordings: Iterable[DynamicsRecording], train_ratio: fl
 def split_train_val_test(
         dyn_recording: DynamicsRecording,
         partition_sizes=(0.70, 0.15, 0.15),
-        split_time: bool = True
+        split_dimension: str = 'auto' # 'time' or 'trajectory' 
         ) -> [DynamicsRecording, DynamicsRecording, DynamicsRecording]:
     """Split the recordings into training, validation and test sets.
 
     Args:
         dyn_recording: (DynamicsRecording): The recordings to split.
         partition_sizes: (tuple): The sizes of the training, validation and test sets.
-        split_time: (bool): If True, the split is done along the time dimension. Otherwise, the split is done along the
-                trajectory dimension.
+        split_dimension: (str): The dimension to split the data. Can be 'time' or 'trajectory' or 'auto'. In the case
+         of auto, the function will decide the best way to split the data based on the shape of the data.
     Returns:
         (DynamicsRecording, DynamicsRecording, DynamicsRecording): The training, validation and test sets.
     """

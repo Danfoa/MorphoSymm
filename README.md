@@ -147,6 +147,7 @@ This script functions as an introductory tutorial showing how we define the repr
     <th align="center"> Anymal-C </th>
     <th align="center"> Anymal-B </th>
     <th align="center"> Go1 </th>
+    <th align="center"> Go2 </th>
     <th align="center"> B1 </th>
     <th align="center"> UR-3 </th>
     <th align="center"> UR-5 </th>
@@ -204,6 +205,10 @@ This script functions as an introductory tutorial showing how we define the repr
     </td>
     <td align="center">
       <img src="docs/static/animations/go1-C2-symmetries_anim_static.gif" alt="Morphological symmetries go1 quadruped robot, State symmetry, Discrete Symmetry Group"
+          width="200" height="200"/>
+    </td>
+    <td align="center">
+      <img src="docs/static/animations/go2-C2-symmetries_anim_static.gif" alt="Morphological symmetries go2 quadruped robot, State symmetry, Discrete Symmetry Group"
           width="200" height="200"/>
     </td>
     <td align="center">
