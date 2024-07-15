@@ -35,9 +35,20 @@ class DynamicsRecording:
 
     def __post_init__(self):
         # Check provided state observables are in the recordings
-        for obs in self.state_obs:
-            assert obs in self.recordings.keys(), \
-                f"State observable {obs} not in the provided recordings: {self.recordings.keys()}"
+        for obs_name in self.state_obs:
+            assert obs_name in self.recordings.keys(), \
+                f"State observable {obs_name} not in the provided recordings: {self.recordings.keys()}"
+        for obs_name in self.recordings.keys():
+            # Scalar observations should have shape (traj, time, 1)
+            obs_shape = self.recordings[obs_name].shape
+            if len(obs_shape) == 2:
+                self.recordings[obs_name] = self.recordings[obs_name][..., None]
+            # If group representation of observation is provided, check the representation has the same dimension
+            if obs_name in self.obs_representations.keys():
+                rep = self.obs_representations[obs_name]
+                assert rep.size == self.obs_dims[obs_name], \
+                    (f"Invalid dimension of representation {rep.name} {(rep.size, rep.size)} associated to "
+                     f"the observation {obs_name} ({self.obs_dims[obs_name]},)")
 
     @property
     def obs_dims(self):
@@ -78,7 +89,7 @@ class DynamicsRecording:
             var.append(obs_var)
         mean, var = np.concatenate(mean), np.concatenate(var)
         return mean, var
-
+    
     def compute_obs_moments(self, obs_name: str) -> [np.ndarray, np.ndarray]:
         """Compute the mean and standard deviation of observations."""
         assert obs_name in self.recordings.keys(), f"Observation {obs_name} not found in recordings"
@@ -178,6 +189,27 @@ class DynamicsRecording:
 
         return state_trajs
 
+    def get_state_dim_names(self):
+        dim_names = []
+        for obs_name in self.state_obs:
+            obs_dim = self.obs_dims[obs_name]
+            dim_names += [f"{obs_name}:{i}" for i in range(obs_dim)]
+        return dim_names
+    
+    def get_obs_from_vector(self, vector: np.ndarray, obs_names: tuple[str,...] = None) -> dict[str, np.ndarray]:
+        """ Extract the observation values from a vector given the ordered observation names."""
+        if obs_names is None:
+            obs_names = self.state_obs
+        else:
+            for name in obs_names:
+                assert name in self.recordings.keys(), f"Observation {name} not in recordings {self.recordings.keys()}"
+        obs_dims = [self.obs_dims[obs] for obs in obs_names]
+        assert vector.shape[-1] == sum(obs_dims), \
+            f"Vector dim {vector.shape[-1]} differs from expected dimension {sum(obs_dims)}"
+        obs_idx = [0] + [sum(obs_dims[:i]) for i in range(1, len(obs_dims))]
+        obs_values = {obs_name: vector[...,obs_idx[i]:obs_idx[i] + obs_dims[i]] for i, obs_name in enumerate(obs_names)}
+        return obs_values
+
     def save_to_file(self, file_path: Path):
         # Store representations and groups without serializing
         if len(self.obs_representations) > 0:
@@ -200,7 +232,19 @@ class DynamicsRecording:
 
     @staticmethod
     def load_from_file(file_path: Path, only_metadata=False,
-                       obs_names: Optional[Iterable[str]] = None) -> 'DynamicsRecording':
+                       obs_names: Optional[Iterable[str]] = None,
+                       ignore_other_obs: bool = True) -> 'DynamicsRecording':
+        """ Load a DynamicsRecording object from a file.
+
+        Args:
+            file_path: Path to the file containing the DynamicsRecording object.
+            only_metadata: If True, the recordings are not loaded, only the metadata.
+            obs_names: List of observation names to load. If None, all observations are loaded.
+            ignore_other_obs: If True, observations not in `obs_names` are ignored.
+
+        Returns:
+            A DynamicsRecording object containing the loaded data.
+        """
         with file_path.with_suffix(".pkl").open('rb') as file:
             data = pickle.load(file)
             if only_metadata:
@@ -209,9 +253,10 @@ class DynamicsRecording:
                 data_obs_names = list(data.recordings.keys())
                 if obs_names is not None:
                     data.state_obs = tuple(obs_names)
-                    irrelevant_obs = [k for k in data_obs_names if k not in obs_names and obs_names is not None]
-                    for k in irrelevant_obs:
-                        del data.recordings[k]
+                    if ignore_other_obs:
+                        irrelevant_obs = [k for k in data_obs_names if k not in obs_names and obs_names is not None]
+                        for k in irrelevant_obs:
+                            del data.recordings[k]
 
             if hasattr(data, '_group_name'):
                 group = groups_dict[data._group_name]._generator(**data._group_keys)  # Instanciate symmetry group
@@ -229,6 +274,7 @@ class DynamicsRecording:
                         data.obs_representations[obs_name] = Representation(group, name=rep_name,
                                                                             irreps=irreps_ids, change_of_basis=rep_Q)
                     group.representations[rep_name] = data.obs_representations[obs_name]
+        data.__post_init__()
         return data
 
     @staticmethod
@@ -442,23 +488,23 @@ def split_train_val_test(
 
     assert np.isclose(np.sum(partition_sizes), 1.0), f"Invalid partition sizes {partition_sizes}"
     partitions_names = ["train", "val", "test"]
-
+    
+    
     log.info(f"Partitioning {dyn_recording.description} into train/val/test of sizes {partition_sizes}[%]")
     # Ensure all training seeds use the same training data partitions
     from morpho_symm.utils.mysc import TemporaryNumpySeed
     with TemporaryNumpySeed(10):  # Ensure deterministic behavior
         # Decide to keep a ratio of the original trajectories
-        num_trajs = int(dyn_recording.info['num_traj'])
+        state_traj = dyn_recording.get_state_trajs()
+        assert state_traj.ndim == 3, f"Expectec (traj, time, state_dim) but got {state_traj.shape}"
+        num_trajs, time_horizon, state_dim = state_traj.shape
+        
+        if split_dimension == 'auto':
+            split_time = time_horizon > num_trajs
+        else:
+            split_time = split_dimension == 'time'
+            
         if split_time:  # Do not discard entire trajectories, but rather parts of the trajectories
-            # Take the time horizon from the first observation
-            sample_obs = dyn_recording.recordings[dyn_recording.state_obs[0]]
-            if len(sample_obs.shape) == 3:  # [traj, time, obs_dim]
-                time_horizon = sample_obs.shape[1]
-            elif len(sample_obs.shape) == 2:  # [traj, obs_dim]
-                time_horizon = sample_obs.shape[0]
-            else:
-                raise RuntimeError(f"Invalid shape {sample_obs.shape} of {dyn_recording.state_obs[0]}")
-
             num_samples = time_horizon
             min_idx = 0
             partitions_sample_idx = {partition: None for partition in partitions_names}

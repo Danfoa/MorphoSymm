@@ -6,7 +6,7 @@ allow-direct-references = true   # We use custom branch of escnn with some devel
 
 [project]
 name = "morpho_symm"
-version = "0.1.3"
+version = "0.1.4"
 keywords = ["morphological symmetry", "locomotion", "dynamical systems", "robot symmetries", "symmetry"]
 description = "Tools for the identification, study, and exploitation of morphological symmetries in locomoting dynamical systems"
 readme = "README.md"
@@ -30,9 +30,8 @@ dependencies = [
     "matplotlib",
     "pytransform3d",
     "robot_descriptions",
-    "urllib3>=1.26.6",
-    "escnn@git+https://github.com/Danfoa/escnn.git#egg=devel",
-    "lie_learn@git+https://github.com/AMLab-Amsterdam/lie_learn.git",
+    "urllib3",
+    "escnn",
     "networkx",
     "pin",
     "pybullet",

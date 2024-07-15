@@ -6,9 +6,9 @@ seed: -1
 group_label: null
 rep_fields: 'real'
 permutation_Q_js: null      # Symmetry permutation of joint-space position coordinates Q_js
-permutation_TqQ_js: ${robot.permutation_Q_js}    # Symmetry permutations of joint-space tangent space (velocity coordinates) TqQ_js
+permutation_TqQ_js: ${.permutation_Q_js}    # Symmetry permutations of joint-space tangent space (velocity coordinates) TqQ_js
 reflection_Q_js: null      # Symmetry reflections of joint-space position coordinates Q_js
-reflection_TqQ_js: ${robot.reflection_Q_js}    # Symmetry reflections of joint-space tangent space (velocity coordinates) TqQ_js
+reflection_TqQ_js: ${.reflection_Q_js}    # Symmetry reflections of joint-space tangent space (velocity coordinates) TqQ_js
 
 fix_base: False
 

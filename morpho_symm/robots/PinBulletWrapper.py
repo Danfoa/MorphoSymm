@@ -14,7 +14,6 @@ from typing import Iterable, Optional
 
 import numpy as np
 import pinocchio
-from pinocchio.utils import zero
 from pybullet_utils.bullet_client import BulletClient
 from robot_descriptions.loaders.pybullet import load_robot_description as pb_load_robot_description
 
@@ -192,8 +191,8 @@ class PinBulletWrapper(PinSimWrapper):
             q (ndarray): Generalized position coordinates of shape in bullet convention.
             v (ndarray): Generalized velocity coordinates of shape in bullet convention.
         """
-        q_sim = zero(self.pb_nq)
-        v_sim = zero(self.pb_nv)
+        q_sim = np.zeros(self.pb_nq)
+        v_sim = np.zeros(self.pb_nv)
 
         if not self.fixed_base:
             base_inertia_pos, base_inertia_quat = self.bullet_client.getBasePositionAndOrientation(self.robot_id)

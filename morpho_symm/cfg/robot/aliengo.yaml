@@ -30,3 +30,10 @@ permutation_TqQ_js: [[3, 4, 5, 0, 1, 2, 9, 10, 11, 6, 7, 8]]
 # Reflections are determined by joint frame predefined orientation.
 reflection_TqQ_js: [[-1, 1, 1, -1, 1, 1, -1, 1, 1, -1, 1, 1]]
 
+# 4D-Representation permuting the set of elements, associated with the legs kinematic chains
+permutation_kin_chain: [[1, 0, 3, 2],]
+reflection_kin_chain:  [[1, 1, 1, 1],]
+
+# Transformation for Euler angles in 'xyz' convention
+permutation_euler_xyz: [[0, 1, 2]]
+reflection_euler_xyz: [[-1, 1, -1]]
