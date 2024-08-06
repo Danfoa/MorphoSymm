@@ -2,4 +2,4 @@ pytorch-lightning==1.9.3
 torch
 hydra-core
 emlp
-sympy
+scipy==1.9.0   # Version for which sparse matrix API works with the current basis expansion code

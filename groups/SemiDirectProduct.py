@@ -147,13 +147,13 @@ class SparseRep(BaseRep):
         orbits = [idx]
         # First action is identity e
         for i, h in enumerate(self.G.discrete_actions[1:]):
-            orbits.append((h @ orbits[0]).tocoo().astype(np.int))
+            orbits.append((h @ orbits[0]).tocoo().astype(int))
 
         # cols_itr = np.asarray([m.col for m in orbits]).T
         rows_itr = np.asarray([m.row for m in orbits]).T
         data_itr = np.asarray([m.data for m in orbits]).T
 
-        pending_dims = np.ones((n,), dtype=np.bool)
+        pending_dims = np.ones((n,), dtype=bool)
 
         pbar = tqdm(total=len(pending_dims), disable=False, dynamic_ncols=True, maxinterval=20, position=0, leave=True,
                     file=sys.stdout)
