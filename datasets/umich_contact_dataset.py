@@ -24,11 +24,11 @@ from tqdm import tqdm
 
 from groups.SymmetricGroups import C2
 from utils.utils import reflex_matrix, coo2torch_coo
-import deep_contact_estimator
-
+import os
 
 class UmichContactDataset(contact_dataset):
-    dataset_path = pathlib.Path(deep_contact_estimator.__file__).parents[1].joinpath('dataset')
+
+    dataset_path = pathlib.Path(os.path.dirname(os.path.realpath(__file__))) / 'com_momentum'
     leg_names = ["RF", "LF", "RH", "LH"]
     states_names = ['-', 'LH', 'RH', 'RH-LH', 'LF', 'LF-LH', 'LF-RH', 'LF-RH-LH', 'RF', 'RF-LH', 'RF-RH', 'RF-RH-LH',
                     'RF-LF', 'RF-LF-LH', 'RF-LF-RH', 'RF-LF-RH-LH']
@@ -234,8 +234,8 @@ class UmichContactDataset(contact_dataset):
         # IMU acceleration and angular velocity
         na = np.array([0, 1, 0])  # Normal vector to reflection/symmetry plane.
         Rr = reflex_matrix(na)  # Reflection matrix
-        refx_a_IMU = np.squeeze(Rr @ np.ones((3, 1))).astype(np.int).tolist()
-        refx_w_IMU = np.squeeze((-Rr) @ np.ones((3, 1))).astype(np.int).tolist()
+        refx_a_IMU = np.squeeze(Rr @ np.ones((3, 1))).astype(int).tolist()
+        refx_w_IMU = np.squeeze((-Rr) @ np.ones((3, 1))).astype(int).tolist()
         perm_a_IMU, perm_w_IMU = [24, 25, 26], [27, 28, 29]
 
         # Foot relative positions and velocities
@@ -244,8 +244,8 @@ class UmichContactDataset(contact_dataset):
         perm_foots = [3, 4, 5, 0, 1, 2, 9, 10, 11, 6, 7, 8]
         refx_foots = scipy.linalg.block_diag(*[Rr] * 4) @ np.ones((12, 1))  # Hips and IMU frames xz planes are coplanar
         refx_foots = np.squeeze(refx_foots).tolist()
-        perm_foots = np.concatenate((perm_foots, np.array(perm_foots) + len(perm_foots))).astype(np.int)
-        refx_foots = np.concatenate((refx_foots, refx_foots)).astype(np.int)
+        perm_foots = np.concatenate((perm_foots, np.array(perm_foots) + len(perm_foots))).astype(int)
+        refx_foots = np.concatenate((refx_foots, refx_foots)).astype(int)
 
         # Final permutation and reflections
         perm = perm_q + perm_a_IMU + perm_w_IMU

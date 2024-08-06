@@ -1,2 +1,5 @@
-pytorch-lightning torch hydra-core emlp
+pytorch-lightning==1.9.3
+torch
+hydra-core
+emlp
 sympy

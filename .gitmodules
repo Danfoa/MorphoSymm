@@ -1,0 +1,3 @@
+[submodule "deep_contact_estimator"]
+	path = deep_contact_estimator
+	url = https://github.com/UMich-CURLY/deep-contact-estimator.git
