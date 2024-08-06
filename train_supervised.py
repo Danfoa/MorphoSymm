@@ -1,6 +1,7 @@
 import copy
 import os
 
+import pandas as pd
 import torch
 from torch.utils.data.sampler import WeightedRandomSampler
 
@@ -175,16 +176,16 @@ def fine_tune_model(cfg, best_ckpt_path: pathlib.Path, pl_model, batches_per_ori
                            limit_val_batches=1.0 if not cfg.debug_loops else 0.005,
                            )
     log_path = pathlib.Path(fine_tb_logger.log_dir)
-    # test_model(path=log_path, trainer=fine_trainer, model=pl_model,
-    #            train_dataloader=train_dataloader, test_dataloader=test_dataloader, val_dataloader=val_dataloader)
+    get_test_set_metrics(path=log_path, trainer=fine_trainer, model=pl_model,
+                         train_dataloader=train_dataloader, test_dataloader=test_dataloader, val_dataloader=val_dataloader)
 
 
-# def test_model(path, trainer, model, train_dataloader, test_dataloader, val_dataloader):
-#     test_metrics = trainer.test(model=model, dataloaders=test_dataloader)[0]
-#     df = pd.DataFrame.from_dict({k: [v] for k, v in test_metrics.items()})
-#     path.mkdir(exist_ok=True, parents=True)
-#     # noinspection PyTypeChecker
-#     df.to_csv(str(path.joinpath("test_metrics.csv").absolute()))
+def get_test_set_metrics(path, trainer, model, train_dataloader, test_dataloader, val_dataloader):
+    test_metrics = trainer.test(model=model, dataloaders=test_dataloader)[0]
+    df = pd.DataFrame.from_dict({k: [v] for k, v in test_metrics.items()})
+    path.mkdir(exist_ok=True, parents=True)
+    # noinspection PyTypeChecker
+    df.to_csv(str(path.joinpath("test_metrics.csv").absolute()))
 
 def get_ckpt_storage_path(log_path, use_volatile=True):
     if not use_volatile: return log_path
@@ -289,10 +290,10 @@ def main(cfg: DictConfig):
 
             # Test model
             log.info("\n\nInitiating Testing\n\n")
-            # log_path = pathlib.Path(tb_logger.log_dir)
-            # test_model(path=log_path, trainer=trainer, model=pl_model,
-            #            train_dataloader=train_dataloader, test_dataloader=test_dataloader,
-            #            val_dataloader=val_dataloader)
+            log_path = pathlib.Path(tb_logger.log_dir)
+            get_test_set_metrics(path=log_path, trainer=trainer, model=pl_model,
+                                 train_dataloader=train_dataloader, test_dataloader=test_dataloader,
+                                 val_dataloader=val_dataloader)
 
         if not finetune_done:
             log.info("\n\nInitiating Fine-tuning\n\n")
