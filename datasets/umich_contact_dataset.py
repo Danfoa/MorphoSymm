@@ -17,10 +17,11 @@ import torch
 import torch.nn.functional as F
 from deep_contact_estimator.utils.data_handler import contact_dataset
 from pytorch_lightning import Trainer
-from sklearn.metrics import confusion_matrix
+from sklearn.metrics import confusion_matrix, recall_score, precision_score
 from tensorboardX import SummaryWriter
 from torch.utils.data._utils.collate import default_collate
 from tqdm import tqdm
+
 
 from groups.SymmetricGroups import C2
 from utils.utils import reflex_matrix, coo2torch_coo
@@ -116,6 +117,31 @@ class UmichContactDataset(contact_dataset):
         metrics = {'contact_state/acc': acc, 'legs_avg/acc': acc_per_leg_avg}
         metrics.update(acc_dir)
         return metrics
+    
+    def calculate_f1_score_of_legs(self, y_pred, y_gt):
+        """
+        This method calculates the Binary F1-Score per leg for use 
+        in metric evaluation.
+        """
+
+        # Convert 16 class values into binary predictions and labels
+        _, prediction = torch.max(y_pred, dim=-1)
+        bin_pred_arr = self.decimal2binary(prediction).detach().cpu().numpy()
+        bin_gt_arr = self.decimal2binary(y_gt).detach().cpu().numpy()
+
+        # Compute the precision
+        precision_of_legs = []
+        for i in range(4):
+            precision_of_legs.append(precision_score(bin_gt_arr[:,i],bin_pred_arr[:,i]))
+
+        # Compute the recall
+        recall_of_legs = []
+        for i in range(4):
+            recall_of_legs.append(recall_score(bin_gt_arr[:,i],bin_pred_arr[:,i]))
+
+        # Calculate F1-Score
+        f1score_of_legs = [2*(p * r)/(r + p) for p, r in zip(precision_of_legs, recall_of_legs)]
+        return np.nan_to_num(f1score_of_legs)
 
     def test_metrics(self, y_pred, y_gt, trainer: Trainer, model, log_imgs=False, prefix="test_"):
         from deep_contact_estimator.src.test import compute_precision, compute_jaccard
@@ -144,7 +170,7 @@ class UmichContactDataset(contact_dataset):
 
         balanced_acc_of_legs = [(tpr + tnr)/2 for tpr, tnr in zip(TPR, TNR)]
         recall_of_legs = [rates[f'{k}/TP']/(rates[f'{k}/TP'] + rates[f'{k}/FP']) for k in self.leg_names]
-        f1score_of_legs = [2*(p * r)/(r + p) for p, r in zip(precision_of_legs, recall_of_legs)]
+        f1score_of_legs = self.calculate_f1_score_of_legs(y_pred, y_gt)
         pred_pos_cond_rate_of_legs = [(rates[f'{k}/TP'] + rates[f'{k}/FP']) /
                                        (rates[f'{k}/TP'] + rates[f'{k}/FP'] + rates[f'{k}/TN'] + rates[f'{k}/FN']) for k in self.leg_names]
 
