@@ -8,12 +8,9 @@ import seaborn as sns
 import pandas as pd
 import numpy as np
 import re
-from datasets.umich_contact_dataset import UmichContactDataset
 
-from utils.utils import cm2inch
-
-import re
-
+def cm2inch(cm):
+    return cm / 2.54
 
 def atoi(text):
     return int(text) if text.isdigit() else text
@@ -123,7 +120,7 @@ def split_run_name(run_name):
 if __name__ == "__main__":
     print(sys.argv, len(sys.argv))
 
-    experiments_path = 'experiments/contact_sample_eff_splitted_shuffled_mini-cheetah'
+    experiments_path = 'experiments/contact_sample_eff_splitted_mini-cheetah'
     # experiments_path = 'experiments/com_sample_eff_Solo-K4-C2'
     ignore_hps = [#['model=ECNN', 'augment=False'],
                   #['model=CNN', 'augment=True'],
