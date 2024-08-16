@@ -29,7 +29,7 @@ import os
 
 class UmichContactDataset(contact_dataset):
 
-    dataset_path = pathlib.Path(os.path.dirname(os.path.realpath(__file__))) / 'com_momentum'
+    dataset_path = pathlib.Path(os.path.dirname(os.path.realpath(__file__))) / 'umich_concat'
     leg_names = ["RF", "LF", "RH", "LH"]
     states_names = ['-', 'LH', 'RH', 'RH-LH', 'LF', 'LF-LH', 'LF-RH', 'LF-RH-LH', 'RF', 'RF-LH', 'RF-RH', 'RF-RH-LH',
                     'RF-LF', 'RF-LF-LH', 'RF-LF-RH', 'RF-LF-RH-LH']
