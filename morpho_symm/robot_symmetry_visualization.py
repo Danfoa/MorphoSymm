@@ -4,6 +4,7 @@ import time
 
 import hydra
 import numpy as np
+import scipy
 from omegaconf import DictConfig
 from scipy.spatial.transform import Rotation
 

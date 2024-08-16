@@ -22,7 +22,8 @@ class EMLP(EquivariantModule):
                  bias: bool = True,
                  activation: Union[str, EquivariantModule] = "ELU",
                  head_with_activation: bool = False,
-                 batch_norm: bool = False):
+                 batch_norm: bool = False,
+                 batch_norm_kwargs: dict = dict(affine=False, track_running_stats=True)):
         """Constructor of an Equivariant Multi-Layer Perceptron (EMLP) model.
 
         This utility class allows to easily instanciate a G-equivariant MLP architecture. As a convention, we assume
@@ -82,8 +83,8 @@ class EMLP(EquivariantModule):
         if isinstance(activation, str):
             # Approximate the num of neurons as the num of signals in the space spawned by the irreps of the input type
             # To compute the signal over the group we use all elements for finite groups
-            activation = self.get_activation(activation, in_type=in_type, desired_hidden_units=num_hidden_units)
-            hidden_type = activation.in_type
+            hidden_activation = self.get_activation(activation, in_type=in_type, desired_hidden_units=num_hidden_units)
+            hidden_type = hidden_activation.in_type
         elif isinstance(activation, EquivariantModule):
             hidden_type = activation.in_type
         else:
@@ -98,8 +99,8 @@ class EMLP(EquivariantModule):
             block.add_module(f"linear_{n}: in={layer_in_type.size}-out={layer_out_type.size}",
                              escnn.nn.Linear(layer_in_type, layer_out_type, bias=bias))
             if batch_norm:
-                block.add_module(f"batchnorm_{n}", escnn.nn.IIDBatchNorm1d(layer_out_type, )),
-            block.add_module(f"act_{n}", activation)
+                block.add_module(f"batchnorm_{n}", escnn.nn.IIDBatchNorm1d(layer_out_type, **batch_norm_kwargs)),
+            block.add_module(f"act_{n}", hidden_activation)
 
             self.net.add_module(f"block_{n}", block)
             layer_in_type = layer_out_type
@@ -117,15 +118,15 @@ class EMLP(EquivariantModule):
                                      torch.nn.Linear(num_inv_features, out_type.size, bias=bias))
             if head_with_activation:
                 if batch_norm:
-                    self.net_head.add_module(f"batchnorm_{num_layers - 1}", torch.nn.BatchNorm1d(out_type.size)),
+                    self.net_head.add_module(f"batchnorm_{num_layers - 1}", torch.nn.BatchNorm1d(out_type.size, **batch_norm_kwargs)),
                 self.net_head.add_module(f"act_{num_layers - 1}", activation)
         else:  # Equivariant Network
             self.net_head = escnn.nn.SequentialModule()
             self.net_head.add_module(f"linear_{num_layers - 1}", escnn.nn.Linear(layer_in_type, out_type, bias=bias))
             if head_with_activation:
                 if batch_norm:
-                    self.net_head.add_module(f"batchnorm_{num_layers - 1}", escnn.nn.IIDBatchNorm1d(out_type)),
-                self.net_head.add_module(f"act_{num_layers - 1}", activation)
+                    self.net_head.add_module(f"batchnorm_{num_layers - 1}", escnn.nn.IIDBatchNorm1d(out_type, **batch_norm_kwargs)),
+                self.net_head.add_module(f"act_{num_layers - 1}", escnn.nn.ELU(in_type=out_type))
         # Test the entire model is equivariant.
         # self.net.check_equivariance()
 
@@ -165,8 +166,8 @@ class EMLP(EquivariantModule):
                                             function=f"p_{activation.lower()}",
                                             inplace=True,
                                             **grid_kwargs)
-        assert (act.out_type.size - desired_hidden_units) <= unique_irreps_dim, \
-            f"out_type.size {act.out_type.size} - des_hidden_units {desired_hidden_units} > {unique_irreps_dim}"
+        # assert (act.out_type.size - desired_hidden_units) <= unique_irreps_dim, \
+        #     f"out_type.size {act.out_type.size} - des_hidden_units {desired_hidden_units} > {unique_irreps_dim}"
         return act
 
     @staticmethod

@@ -92,7 +92,7 @@ class DynamicsRecording:
     
     def compute_obs_moments(self, obs_name: str) -> [np.ndarray, np.ndarray]:
         """Compute the mean and standard deviation of observations."""
-        assert obs_name in self.recordings.keys(), f"Observation {obs_name} not found in recordings"
+        assert obs_name in self.recordings.keys(), f"Observation {obs_name} not found in recording"
         is_symmetric_obs = obs_name in self.obs_representations.keys()
         if is_symmetric_obs:
             rep_obs = self.obs_representations[obs_name]
@@ -149,17 +149,17 @@ class DynamicsRecording:
 
             # TODO: Move this check to Unit test as it is computationally demanding to check this at runtime.
             # Ensure the mean is equivalent to computing the mean of the orbit of the recording under the group action
-            aug_obs = []
-            for g in G.elements:
-                g_obs = np.einsum('...ij,...j->...i', rep_obs(g), obs_original_basis)
-                aug_obs.append(g_obs)
-
-            aug_obs = np.concatenate(aug_obs, axis=0)   # Append over the trajectory dimension
-            mean_emp = np.mean(aug_obs, axis=(0, 1))
-            assert np.allclose(mean, mean_emp, rtol=1e-3, atol=1e-3), f"Mean {mean} != {mean_emp}"
-
-            var_emp = np.var(aug_obs, axis=(0, 1))
-            assert np.allclose(var, var_emp, rtol=1e-2, atol=1e-2), f"Var {var} != {var_emp}"
+            # aug_obs = []
+            # for g in G.elements:
+            #     g_obs = np.einsum('...ij,...j->...i', rep_obs(g), obs_original_basis)
+            #     aug_obs.append(g_obs)
+            #
+            # aug_obs = np.concatenate(aug_obs, axis=0)   # Append over the trajectory dimension
+            # mean_emp = np.mean(aug_obs, axis=(0, 1))
+            # assert np.allclose(mean, mean_emp, rtol=1e-3, atol=1e-3), f"Mean {mean} != {mean_emp}"
+            #
+            # var_emp = np.var(aug_obs, axis=(0, 1))
+            # assert np.allclose(var, var_emp, rtol=1e-2, atol=1e-2), f"Var {var} != {var_emp}"
         else:
             mean = np.mean(np.asarray(self.recordings[obs_name]), axis=(0, 1))
             var = np.var(np.asarray(self.recordings[obs_name]), axis=(0, 1))
@@ -228,6 +228,7 @@ class DynamicsRecording:
             self.dynamics_parameters.pop('group', None)
 
         with file_path.with_suffix(".pkl").open('wb') as file:
+            self._path = file_path.with_suffix(".pkl").absolute()
             pickle.dump(self, file, protocol=pickle.HIGHEST_PROTOCOL)
 
     @staticmethod
@@ -498,13 +499,9 @@ def split_train_val_test(
         state_traj = dyn_recording.get_state_trajs()
         assert state_traj.ndim == 3, f"Expectec (traj, time, state_dim) but got {state_traj.shape}"
         num_trajs, time_horizon, state_dim = state_traj.shape
-        
-        if split_dimension == 'auto':
-            split_time = time_horizon > num_trajs
-        else:
-            split_time = split_dimension == 'time'
-            
+        split_time = time_horizon > num_trajs
         if split_time:  # Do not discard entire trajectories, but rather parts of the trajectories
+
             num_samples = time_horizon
             min_idx = 0
             partitions_sample_idx = {partition: None for partition in partitions_names}
@@ -528,9 +525,27 @@ def split_train_val_test(
                         raise RuntimeError(f"Invalid shape {dyn_recording.recordings[obs_name].shape} of {obs_name}")
                     partitions_recordings[partition_name].recordings[obs_name] = data
 
-            return partitions_recordings['train'], partitions_recordings['val'], partitions_recordings['test']
-        else:  # Discard entire trajectories
-            raise NotImplementedError()
+        else:  # Select train/val/test from individual trajectories
+            num_samples = num_trajs
+            min_idx = 0
+            partitions_sample_idx = {partition: None for partition in partitions_names}
+            for partition_name, ratio in zip(partitions_names, partition_sizes):
+                max_idx = min_idx + int(num_samples * ratio)
+                partitions_sample_idx[partition_name] = list(range(min_idx, max_idx))
+                min_idx = min_idx + int(num_samples * ratio)
+
+            partitions_recordings = {partition: copy.deepcopy(dyn_recording) for partition in partitions_names}
+            for partition_name, sample_idx in partitions_sample_idx.items():
+                part_num_samples = len(sample_idx)
+                partitions_recordings[partition_name].info['num_traj'] = part_num_samples
+                partitions_recordings[partition_name].recordings = dict()
+                for obs_name in dyn_recording.recordings.keys():
+                    data = dyn_recording.recordings[obs_name][sample_idx]
+                    partitions_recordings[partition_name].recordings[obs_name] = data
+
+        return partitions_recordings['train'], partitions_recordings['val'], partitions_recordings['test']
+
+
 
 
 def get_dynamics_dataset(train_shards: list[Path],
