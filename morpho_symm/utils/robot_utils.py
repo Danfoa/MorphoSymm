@@ -3,6 +3,7 @@
 # @Time    : 11/3/22
 # @Author  : Daniel Ordonez
 # @email   : daniels.ordonez@gmail.com
+from __future__ import annotations
 import logging
 import re
 from pathlib import Path
@@ -65,7 +66,8 @@ def get_escnn_group(cfg: DictConfig):
 def load_symmetric_system(
         robot_cfg: Optional[DictConfig] = None,
         robot_name: Optional[str] = None,
-        debug=False
+        debug=False,
+        return_robot=True,
         ) -> [PinBulletWrapper, escnn.group.Group]:
     """Utility function to get the symmetry group and representations of a robotic system defined in config.
 
@@ -97,18 +99,6 @@ def load_symmetric_system(
             robot_cfg = compose(config_name=robot_name)
 
     robot_name = str.lower(robot_cfg.name)
-    # We allow symbolic expressions (e.g. `np.pi/2`) in the `q_zero` and `init_q`.
-    q_zero = np.array([eval(str(s)) for s in robot_cfg.q_zero], dtype=float) if robot_cfg.q_zero is not None else None
-    init_q = np.array([eval(str(s)) for s in robot_cfg.init_q], dtype=float) if robot_cfg.init_q is not None else None
-    robot = PinBulletWrapper(robot_name=robot_name, init_q=init_q, q_zero=q_zero,
-                             hip_height=robot_cfg.hip_height, endeff_names=robot_cfg.endeff_names)
-
-    if debug:
-        pb = configure_bullet_simulation(gui=True, debug=debug)
-        robot.configure_bullet_simulation(pb, world=None)
-        change_robot_appearance(pb, robot)
-        setup_debug_sliders(pb, robot)
-        listen_update_robot_sliders(pb, robot)
 
     symmetry_space = get_escnn_group(robot_cfg)
 
@@ -152,15 +142,6 @@ def load_symmetric_system(
     rep_Q_js = G.representations['Q_js']
     rep_TqQ_js = G.representations.get('TqQ_js', None)
     rep_TqQ_js = rep_Q_js if rep_TqQ_js is None else rep_TqQ_js
-    dimQ_js, dimTqQ_js = robot.nq - 7, robot.nv - 6
-    if dimQ_js != rep_Q_js.size:
-        raise ConfigException(
-            f"{robot_name}'s Pinocchio joint-space dimension {dimQ_js} does not match the joint-space representation"
-            f"`Q_js` dimension {rep_Q_js.size}")
-    if dimTqQ_js != rep_TqQ_js.size:
-        raise ConfigException(
-            f"{robot_name}'s Pinocchio joint-space tangent dimension {dimTqQ_js} does not match the joint-space "
-            f"tangent representation `TqQ_js` dimension {rep_TqQ_js.size}")
 
     # Create the representation of isometries on the Euclidean Space in d dimensions.
     # This adds `O3` and `E3` representations to the group.
@@ -185,7 +166,33 @@ def load_symmetric_system(
     log.info(f"Loaded robot {robot_name}, with defined group representations:")
     for name, rep in G.representations.items():
         log.info(f"\t {name}: dimension: {rep.size}")
-    return robot, G
+
+    if return_robot:
+        # We allow symbolic expressions (e.g. `np.pi/2`) in the `q_zero` and `init_q`.
+        q_zero = np.array([eval(str(s)) for s in robot_cfg.q_zero], dtype=float) if robot_cfg.q_zero is not None else None
+        init_q = np.array([eval(str(s)) for s in robot_cfg.init_q], dtype=float) if robot_cfg.init_q is not None else None
+        robot = PinBulletWrapper(robot_name=robot_name, init_q=init_q, q_zero=q_zero,
+                                 hip_height=robot_cfg.hip_height, endeff_names=robot_cfg.endeff_names)
+
+        dimQ_js, dimTqQ_js = robot.nq - 7, robot.nv - 6
+        if dimQ_js != rep_Q_js.size:
+            raise ConfigException(
+                f"{robot_name}'s Pinocchio joint-space dimension {dimQ_js} does not match the joint-space representation"
+                f"`Q_js` dimension {rep_Q_js.size}")
+        if dimTqQ_js != rep_TqQ_js.size:
+            raise ConfigException(
+                f"{robot_name}'s Pinocchio joint-space tangent dimension {dimTqQ_js} does not match the joint-space "
+                f"tangent representation `TqQ_js` dimension {rep_TqQ_js.size}")
+
+        if debug:
+            pb = configure_bullet_simulation(gui=True, debug=debug)
+            robot.configure_bullet_simulation(pb, world=None)
+            change_robot_appearance(pb, robot)
+            setup_debug_sliders(pb, robot)
+            listen_update_robot_sliders(pb, robot)
+        return robot, G
+
+    return G
 
 
 def generate_euclidean_space_representations(G: Group) -> tuple[Representation, ...]:

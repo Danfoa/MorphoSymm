@@ -1,3 +1,4 @@
+from __future__ import annotations  # Support new typing structure in 3.8 and 3.9
 import copy
 import logging
 import math
@@ -499,7 +500,16 @@ def split_train_val_test(
         state_traj = dyn_recording.get_state_trajs()
         assert state_traj.ndim == 3, f"Expectec (traj, time, state_dim) but got {state_traj.shape}"
         num_trajs, time_horizon, state_dim = state_traj.shape
-        split_time = time_horizon > num_trajs
+
+        if split_dimension == 'auto':
+            split_time = time_horizon > num_trajs
+        elif split_dimension == 'time':
+            split_time = True
+        elif split_dimension == 'trajectory':
+            split_time = False
+        else:
+            raise ValueError(f"Invalid split dimension {split_dimension} expected 'time', 'trajectory' or 'auto'")
+
         if split_time:  # Do not discard entire trajectories, but rather parts of the trajectories
 
             num_samples = time_horizon

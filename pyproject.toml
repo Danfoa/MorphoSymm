@@ -32,7 +32,7 @@ dependencies = [
     "robot_descriptions",
     "urllib3",
     "escnn",
-    "networkx",
+    "networkx>=2.5",
     "pin",
     "pybullet",
 ]

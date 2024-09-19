@@ -1,11 +1,9 @@
 import itertools
 from typing import Callable, Dict, List, Union
 
-import networkx as nx
 import numpy as np
 from escnn.group import CyclicGroup, DihedralGroup, DirectProductGroup, Group, GroupElement
 from escnn.group.representation import Representation
-from networkx import Graph
 from scipy.linalg import block_diag
 
 from morpho_symm.utils.algebra_utils import permutation_matrix
@@ -252,6 +250,9 @@ def decompose_representation(
 
     Such that `Q @ rep[g] @ Q^H = block_diag(rep_1[g], ..., rep_m[g])` for all `g` in `G`.
     """
+    import networkx as nx
+    from networkx import Graph
+
     eps = 1e-12
     if isinstance(representation, dict):
         def rep(g):
