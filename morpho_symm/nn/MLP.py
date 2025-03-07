@@ -9,16 +9,18 @@ log = logging.getLogger(__name__)
 class MLP(torch.nn.Module):
     """Standard baseline MLP. Representations and group are used for shapes only."""
 
-    def __init__(self,
-                 in_dim: int,
-                 out_dim: int,
-                 num_hidden_units: int = 64,
-                 num_layers: int = 3,
-                 bias: bool = True,
-                 batch_norm: bool = False,
-                 head_with_activation: bool = False,
-                 activation: Union[torch.nn.Module, List[torch.nn.Module]] = torch.nn.ReLU,
-                 init_mode="fan_in"):
+    def __init__(
+        self,
+        in_dim: int,
+        out_dim: int,
+        num_hidden_units: int = 64,
+        num_layers: int = 3,
+        bias: bool = True,
+        batch_norm: bool = False,
+        head_with_activation: bool = False,
+        activation: Union[torch.nn.Module, List[torch.nn.Module]] = torch.nn.ReLU,
+        init_mode="fan_in",
+    ):
         """Constructor of a Multi-Layer Perceptron (MLP) model.
 
         This utility class allows to easily instanciate a G-equivariant MLP architecture.
@@ -64,7 +66,9 @@ class MLP(torch.nn.Module):
 
         # Add last layer
         head_block = torch.nn.Sequential()
-        head_block.add_module(f"linear_{num_layers - 1}", torch.nn.Linear(in_features=dim_out, out_features=self.out_dim, bias=bias))
+        head_block.add_module(
+            f"linear_{num_layers - 1}", torch.nn.Linear(in_features=dim_out, out_features=self.out_dim, bias=bias)
+        )
         if head_with_activation:
             if batch_norm:
                 head_block.add_module(f"batchnorm_{num_layers - 1}", torch.nn.BatchNorm1d(dim_out))
@@ -80,9 +84,7 @@ class MLP(torch.nn.Module):
         return output
 
     def get_hparams(self):
-        return {'num_layers': self.num_layers,
-                'hidden_ch':  self.hidden_channels,
-                'init_mode':  self.init_mode}
+        return {"num_layers": self.num_layers, "hidden_ch": self.hidden_channels, "init_mode": self.init_mode}
 
     def reset_parameters(self, init_mode=None):
         assert init_mode is not None or self.init_mode is not None
@@ -101,12 +103,14 @@ class MLP(torch.nn.Module):
             if activation.lower() == "relu" or activation.lower() == "leakyrelu":
                 torch.nn.init.kaiming_uniform_(tensor, mode=self.init_mode, nonlinearity=activation.lower())
             elif activation.lower() == "selu":
-                torch.nn.init.kaiming_normal_(tensor, mode=self.init_mode, nonlinearity='linear')
+                torch.nn.init.kaiming_normal_(tensor, mode=self.init_mode, nonlinearity="linear")
             else:
                 try:
                     torch.nn.init.kaiming_uniform_(tensor, mode=self.init_mode, nonlinearity=activation.lower())
-                except ValueError as e:
-                    log.info(f"Could not initialize {module.__class__.__name__} with {self.init_mode} mode. "
-                              f"Using default Pytorch initialization")
+                except ValueError:
+                    log.info(
+                        f"Could not initialize {module.__class__.__name__} with {self.init_mode} mode. "
+                        f"Using default Pytorch initialization"
+                    )
 
         log.info(f"MLP initialized with mode: {self.init_mode}")

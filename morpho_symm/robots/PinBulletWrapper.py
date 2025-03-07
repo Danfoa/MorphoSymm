@@ -9,11 +9,11 @@ Copyright (C) 2018-2019, New York University , Max Planck Gesellschaft
 Copyright note valid unless otherwise stated in individual files.
 All rights reserved.
 """
+
 import logging
 from typing import Iterable, Optional
 
 import numpy as np
-import pinocchio
 from pybullet_utils.bullet_client import BulletClient
 from robot_descriptions.loaders.pybullet import load_robot_description as pb_load_robot_description
 
@@ -35,8 +35,16 @@ class PinBulletWrapper(PinSimWrapper):
         fixed_base (bool): Determines if the robot base if fixed.
     """
 
-    def __init__(self, robot_name: str, endeff_names: Optional[Iterable] = None, fixed_base=False,
-                 reference_robot: Optional['PinBulletWrapper'] = None, hip_height=1.0, init_q=None, q_zero=None):
+    def __init__(
+        self,
+        robot_name: str,
+        endeff_names: Optional[Iterable] = None,
+        fixed_base=False,
+        reference_robot: Optional["PinBulletWrapper"] = None,
+        hip_height=1.0,
+        init_q=None,
+        q_zero=None,
+    ):
         """Initializes the wrapper.
 
         Args:
@@ -56,12 +64,9 @@ class PinBulletWrapper(PinSimWrapper):
         self.bullet_endeff_ids = {}
         self.bullet_ids_allowed_floor_contacts = []
 
-    def configure_bullet_simulation(self,
-                                    bullet_client: BulletClient,
-                                    world=None,
-                                    base_pos=(0, 0, 0),
-                                    base_ori=(0, 0, 0, 1)
-                                    ):
+    def configure_bullet_simulation(
+        self, bullet_client: BulletClient, world=None, base_pos=(0, 0, 0), base_ori=(0, 0, 0, 1)
+    ):
         """Configures the bullet simulation and loads this robot URDF description."""
         # Load robot to simulation
         self._pb = bullet_client
@@ -96,15 +101,31 @@ class PinBulletWrapper(PinSimWrapper):
                     nq, nv = 2, 2
                 else:
                     raise NotImplementedError(f"Joint type {bullet_joint_type} not handled")
-                bullet_joint = JointWrapper(type=bullet_joint_type, idx_q=joint_info[3], idx_v=joint_info[4],
-                                            nq=nq, nv=nv, pos_limit_low=joint_info[8], pos_limit_high=joint_info[9])
+                bullet_joint = JointWrapper(
+                    type=bullet_joint_type,
+                    idx_q=joint_info[3],
+                    idx_v=joint_info[4],
+                    nq=nq,
+                    nv=nv,
+                    pos_limit_low=joint_info[8],
+                    pos_limit_high=joint_info[9],
+                )
                 # Integrate the two convention in a utility class handling the conversions accordingly
-                pb_pin_joint = BulletJointWrapper(pin_joint=pin_joint, bullet_joint=bullet_joint,
-                                                  bullet_idx=joint_info[0], bullet_client=self.bullet_client,
-                                                  damping=joint_info[6], friction=joint_info[7],
-                                                  max_force=joint_info[10], max_vel=joint_info[11], axis=joint_info[13],
-                                                  link_name=joint_info[12], parent_frame_pos=joint_info[14],
-                                                  parent_frame_ori=joint_info[15], parent_link_idx=joint_info[16])
+                pb_pin_joint = BulletJointWrapper(
+                    pin_joint=pin_joint,
+                    bullet_joint=bullet_joint,
+                    bullet_idx=joint_info[0],
+                    bullet_client=self.bullet_client,
+                    damping=joint_info[6],
+                    friction=joint_info[7],
+                    max_force=joint_info[10],
+                    max_vel=joint_info[11],
+                    axis=joint_info[13],
+                    link_name=joint_info[12],
+                    parent_frame_pos=joint_info[14],
+                    parent_frame_ori=joint_info[15],
+                    parent_link_idx=joint_info[16],
+                )
                 # Store the SimPinJointWrapper for all joint-space joints.
                 self.joint_space[joint_name] = pb_pin_joint
 
@@ -173,9 +194,11 @@ class PinBulletWrapper(PinSimWrapper):
             active_bullet_link_id.append(robot_link_in_contact)
 
             force = np.zeros(6)
-            force[:3] = (normal_force * np.array(contact_normal)
-                         + lateral_friction_force_1 * np.array(lateral_friction_direction_1)
-                         + lateral_friction_force_2 * np.array(lateral_friction_direction_2))
+            force[:3] = (
+                normal_force * np.array(contact_normal)
+                + lateral_friction_force_1 * np.array(lateral_friction_direction_1)
+                + lateral_friction_force_2 * np.array(lateral_friction_direction_2)
+            )
 
             contact_forces.append(force)
 
@@ -198,10 +221,12 @@ class PinBulletWrapper(PinSimWrapper):
             base_inertia_pos, base_inertia_quat = self.bullet_client.getBasePositionAndOrientation(self.robot_id)
             # Get transform between inertial frame and link frame in base
             base_stat = self.bullet_client.getDynamicsInfo(self.robot_id, -1)
-            base_inertia_link_pos, base_inertia_link_quat = self.bullet_client.invertTransform(base_stat[3],
-                                                                                               base_stat[4])
-            pos, orn = self.bullet_client.multiplyTransforms(base_inertia_pos, base_inertia_quat,
-                                                             base_inertia_link_pos, base_inertia_link_quat)
+            base_inertia_link_pos, base_inertia_link_quat = self.bullet_client.invertTransform(
+                base_stat[3], base_stat[4]
+            )
+            pos, orn = self.bullet_client.multiplyTransforms(
+                base_inertia_pos, base_inertia_quat, base_inertia_link_pos, base_inertia_link_quat
+            )
 
             q_sim[:3] = pos
             q_sim[3:7] = orn
@@ -216,28 +241,27 @@ class PinBulletWrapper(PinSimWrapper):
             v_sim[3:6] = rot_base2world.T.dot(v_sim[3:6])
 
         # Fetch joint state from bullet
-        joint_states = self.bullet_client.getJointStates(self.robot_id,
-                                                         [self.joint_space[m].bullet_idx for m in
-                                                          self.joint_space_names])
+        joint_states = self.bullet_client.getJointStates(
+            self.robot_id, [self.joint_space[m].bullet_idx for m in self.joint_space_names]
+        )
         for joint_name, joint_state in zip(self.joint_space_names, joint_states):
             joint = self.joint_space[joint_name]
-            q_sim[joint.sim_joint.idx_q: joint.sim_joint.idx_q + joint.sim_joint.nq] = joint_state[0]
-            v_sim[joint.sim_joint.idx_q: joint.sim_joint.idx_q + joint.sim_joint.nq] = joint_state[1]
+            q_sim[joint.sim_joint.idx_q : joint.sim_joint.idx_q + joint.sim_joint.nq] = joint_state[0]
+            v_sim[joint.sim_joint.idx_q : joint.sim_joint.idx_q + joint.sim_joint.nq] = joint_state[1]
 
         return q_sim, v_sim
 
     def pin2sim(self, q, v) -> State:
-
         pb_q = np.zeros(self.pb_nq)
         pb_v = np.zeros(self.pb_nv)
 
         for joint_name, joint in self.joint_space.items():
-            q_joint = q[joint.pin_joint.idx_q: joint.pin_joint.idx_q + joint.pin_joint.nq]
-            dq_joint = v[joint.pin_joint.idx_v: joint.pin_joint.idx_v + joint.pin_joint.nv]
+            q_joint = q[joint.pin_joint.idx_q : joint.pin_joint.idx_q + joint.pin_joint.nq]
+            dq_joint = v[joint.pin_joint.idx_v : joint.pin_joint.idx_v + joint.pin_joint.nv]
             pb_q_joint, pb_v_joint = joint.pin2sim(q_joint, dq_joint)
             # Place value in simulator joint index
-            pb_q[joint.sim_joint.idx_q: joint.sim_joint.idx_q + joint.sim_joint.nq] = pb_q_joint
-            pb_v[joint.sim_joint.idx_v: joint.sim_joint.idx_v + joint.sim_joint.nv] = pb_v_joint
+            pb_q[joint.sim_joint.idx_q : joint.sim_joint.idx_q + joint.sim_joint.nq] = pb_q_joint
+            pb_v[joint.sim_joint.idx_v : joint.sim_joint.idx_v + joint.sim_joint.nv] = pb_v_joint
 
         # Base configuration
         pb_q[:7] = q[:7]
@@ -246,18 +270,17 @@ class PinBulletWrapper(PinSimWrapper):
         return pb_q, pb_v
 
     def sim2pin(self, pb_q, pb_v) -> State:
-
         q = np.zeros(self.nq)
         v = np.zeros(self.nv)
         for joint_name, joint in self.joint_space.items():
             # Extract position and velocity coordinates from simulator
-            pb_q_joint = pb_q[joint.sim_joint.idx_q: joint.sim_joint.idx_q + joint.sim_joint.nq]
-            pb_v_joint = pb_v[joint.sim_joint.idx_v: joint.sim_joint.idx_v + joint.sim_joint.nv]
+            pb_q_joint = pb_q[joint.sim_joint.idx_q : joint.sim_joint.idx_q + joint.sim_joint.nq]
+            pb_v_joint = pb_v[joint.sim_joint.idx_v : joint.sim_joint.idx_v + joint.sim_joint.nv]
             # Convert position and velocity coordinates to pinocchio convention
             q_joint, v_joint = joint.sim2pin(pb_q_joint, pb_v_joint)
             # Place values in Pinocchio joint index ordering
-            q[joint.pin_joint.idx_q: joint.pin_joint.idx_q + joint.pin_joint.nq] = q_joint
-            v[joint.pin_joint.idx_v: joint.pin_joint.idx_v + joint.pin_joint.nv] = v_joint
+            q[joint.pin_joint.idx_q : joint.pin_joint.idx_q + joint.pin_joint.nq] = q_joint
+            v[joint.pin_joint.idx_v : joint.pin_joint.idx_v + joint.pin_joint.nv] = v_joint
 
         # Base configuration
         q[:7] = pb_q[:7]
@@ -284,21 +307,21 @@ class PinBulletWrapper(PinSimWrapper):
             self.bullet_client.resetJointState(
                 self.robot_id,
                 joint.bullet_idx,
-                q[joint.sim_joint.idx_q: joint.sim_joint.idx_q + joint.sim_joint.nq],
-                v[joint.sim_joint.idx_v: joint.sim_joint.idx_v + joint.sim_joint.nv],
-                )
+                q[joint.sim_joint.idx_q : joint.sim_joint.idx_q + joint.sim_joint.nq],
+                v[joint.sim_joint.idx_v : joint.sim_joint.idx_v + joint.sim_joint.nv],
+            )
 
         if not self.fixed_base:
             # Get transform between inertial frame and link frame in base
             base_stat = self.bullet_client.getDynamicsInfo(self.robot_id, -1)
-            base_pos, base_quat = self.bullet_client.multiplyTransforms(vec2list(q[:3]), vec2list(q[3:7]),
-                                                                        base_stat[3], base_stat[4])
+            base_pos, base_quat = self.bullet_client.multiplyTransforms(
+                vec2list(q[:3]), vec2list(q[3:7]), base_stat[3], base_stat[4]
+            )
             self.bullet_client.resetBasePositionAndOrientation(self.robot_id, base_pos, base_quat)
 
             # Pybullet assumes the base velocity to be aligned with the world frame.
             rot = np.array(self.bullet_client.getMatrixFromQuaternion(q[3:7])).reshape((3, 3))
-            self.bullet_client.resetBaseVelocity(self.robot_id, vec2list(rot.dot(v[:3])),
-                                                 vec2list(rot.dot(v[3:6])))
+            self.bullet_client.resetBaseVelocity(self.robot_id, vec2list(rot.dot(v[:3])), vec2list(rot.dot(v[3:6])))
 
     def load_bullet_robot(self, base_pos=None, base_ori=None) -> int:
         """Function to load and configure the pinocchio instance of your robot.
@@ -306,11 +329,13 @@ class PinBulletWrapper(PinSimWrapper):
         Returns:
             int: Bullet robot body id.
         """
-        self.robot_id = pb_load_robot_description(f"{self.name}_description",
-                                                  basePosition=base_pos, baseOrientation=base_ori,
-                                                  flags=self.bullet_client.URDF_USE_INERTIA_FROM_FILE |
-                                                        self.bullet_client.URDF_USE_SELF_COLLISION,
-                                                  useFixedBase=self.fixed_base)
+        self.robot_id = pb_load_robot_description(
+            f"{self.name}_description",
+            basePosition=base_pos,
+            baseOrientation=base_ori,
+            flags=self.bullet_client.URDF_USE_INERTIA_FROM_FILE | self.bullet_client.URDF_USE_SELF_COLLISION,
+            useFixedBase=self.fixed_base,
+        )
         return self.robot_id
 
     @property
@@ -353,11 +378,11 @@ class PinBulletWrapper(PinSimWrapper):
 
     def __repr__(self):
         """."""
-        bullet_id = f"({self.robot_id})" if hasattr(self, 'robot_id') else ""
+        bullet_id = f"({self.robot_id})" if hasattr(self, "robot_id") else ""
         return f"{self.name}{bullet_id}-nq:{self.nq}-nv:{self.nv}"
 
     @staticmethod
-    def from_instance(other: 'PinBulletWrapper') -> 'PinBulletWrapper':
+    def from_instance(other: "PinBulletWrapper") -> "PinBulletWrapper":
         """Creates another instance of this robot wrapper without duplicating the model or data from pinocchio robot.
 
         This is usefull when we want to spawn multiple instances of the same robot on the physics simulator.
@@ -376,16 +401,28 @@ class PinBulletWrapper(PinSimWrapper):
             # reference_robot=other,
             init_q=other._init_q,
             hip_height=other.hip_height,
-            )
+        )
 
 
 class BulletJointWrapper(SimPinJointWrapper):
     """Auxiliary class to integrate Bullet and Pinocchio Joint models."""
 
-    def __init__(self, pin_joint: JointWrapper, bullet_joint: JointWrapper, bullet_client: BulletClient,
-                 bullet_idx: int,
-                 damping: float, friction: float, max_force: float, max_vel: float, link_name: str, axis: np.ndarray,
-                 parent_frame_pos: np.ndarray, parent_frame_ori: np.ndarray, parent_link_idx: int):
+    def __init__(
+        self,
+        pin_joint: JointWrapper,
+        bullet_joint: JointWrapper,
+        bullet_client: BulletClient,
+        bullet_idx: int,
+        damping: float,
+        friction: float,
+        max_force: float,
+        max_vel: float,
+        link_name: str,
+        axis: np.ndarray,
+        parent_frame_pos: np.ndarray,
+        parent_frame_ori: np.ndarray,
+        parent_link_idx: int,
+    ):
         self.pin_joint = pin_joint
         self.sim_joint = bullet_joint
         self.bullet_client = bullet_client

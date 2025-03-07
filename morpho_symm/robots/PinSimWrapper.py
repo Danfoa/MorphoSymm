@@ -1,4 +1,3 @@
-import copy
 import logging
 from abc import ABC, abstractmethod
 from typing import Collection, List, Optional, Tuple, Union
@@ -20,15 +19,16 @@ State = Tuple[np.ndarray, np.ndarray]
 
 
 class PinSimWrapper(ABC):
-
-    def __init__(self,
-                 robot_name: str,
-                 endeff_names: Optional[NameList] = None,
-                 fixed_base=False,
-                 reference_robot: Optional['PinSimWrapper'] = None,
-                 hip_height=1.0,
-                 init_q=None,
-                 q_zero=None):
+    def __init__(
+        self,
+        robot_name: str,
+        endeff_names: Optional[NameList] = None,
+        fixed_base=False,
+        reference_robot: Optional["PinSimWrapper"] = None,
+        hip_height=1.0,
+        init_q=None,
+        q_zero=None,
+    ):
         """Initializes the wrapper.
 
         Args:
@@ -65,17 +65,24 @@ class PinSimWrapper(ABC):
         self.pin_joint_space = {}
         self.joint_space_names = []
         for joint, joint_name in zip(self.pinocchio_robot.model.joints, self.pinocchio_robot.model.names):
-            if joint.idx_q == -1: continue  # Ignore universe
-            if joint.nq == 7: continue  # Ignore floating-base
+            if joint.idx_q == -1:
+                continue  # Ignore universe
+            if joint.nq == 7:
+                continue  # Ignore floating-base
             pin_joint_type = joint.shortname()
 
             self.joint_space_names.append(joint_name)
-            low_lim = self.pinocchio_robot.model.lowerPositionLimit[joint.idx_q:joint.idx_q + joint.nq]
-            high_lim = self.pinocchio_robot.model.upperPositionLimit[joint.idx_q:joint.idx_q + joint.nq]
-            self.pin_joint_space[joint_name] = JointWrapper(type=pin_joint_type,
-                                                            nq=joint.nq, nv=joint.nv,
-                                                            idx_q=joint.idx_q, idx_v=joint.idx_v,
-                                                            pos_limit_low=low_lim, pos_limit_high=high_lim)
+            low_lim = self.pinocchio_robot.model.lowerPositionLimit[joint.idx_q : joint.idx_q + joint.nq]
+            high_lim = self.pinocchio_robot.model.upperPositionLimit[joint.idx_q : joint.idx_q + joint.nq]
+            self.pin_joint_space[joint_name] = JointWrapper(
+                type=pin_joint_type,
+                nq=joint.nq,
+                nv=joint.nv,
+                idx_q=joint.idx_q,
+                idx_v=joint.idx_v,
+                pos_limit_low=low_lim,
+                pos_limit_high=high_lim,
+            )
             # Handle initial configurations.
             default_q0 = pin.neutral(self.pinocchio_robot.model)
             # Compute tangent vector between the default and new neutral configuration.
@@ -242,7 +249,7 @@ class PinSimWrapper(ABC):
         if not self._new_neutral:
             return q
         q_diff = pin.difference(self.pinocchio_robot.model, self.pinocchio_robot.q0, q)
-        q_new_diff = - q_diff + self._diff_neutral_conf
+        q_new_diff = -q_diff + self._diff_neutral_conf
         q_uncentered = pin.integrate(self.pinocchio_robot.model, self.pinocchio_robot.q0, q_new_diff)
         q_uncentered[:7] = q[:7]
         return q_uncentered
@@ -267,7 +274,7 @@ class PinSimWrapper(ABC):
         pin.computePotentialEnergy(self.pinocchio_robot.model, self.pinocchio_robot.data)
         inv(self.pinocchio_robot.data.Ig) @ self.pinocchio_robot.data.hg
 
-    def load_pinocchio_robot(self, reference_robot: Optional['PinSimWrapper'] = None):
+    def load_pinocchio_robot(self, reference_robot: Optional["PinSimWrapper"] = None):
         """Function to load and configure the pinocchio instance of your robot.
 
         Load the pinocchio robot from the URDF file and expose it for user use in the class property `pinocchio_robot`.
@@ -290,11 +297,13 @@ class PinSimWrapper(ABC):
         pin_robot = pin_load_robot_description(f"{self.name}_description", root_joint=JointModelFreeFlyer())
         log.debug(f"Loaded pinocchio robot model for {self.name}. The robot's joints are:")
         n_pin_joints = len(pin_robot.model.joints)
-        for idx, joint, joint_name in zip(range(n_pin_joints), pin_robot.model.joints,  pin_robot.model.names):
+        for idx, joint, joint_name in zip(range(n_pin_joints), pin_robot.model.joints, pin_robot.model.names):
             pin_joint_type = joint.shortname()
-            log.debug("\t -{:<3} {:<20} joint_type: {:<20} nq:{:<3} nv:{:<3} idx_q:{:<3} idx_v:{:<3}".format(
-                idx, joint_name, pin_joint_type, joint.nq, joint.nv, joint.idx_q, joint.idx_v)
+            log.debug(
+                "\t -{:<3} {:<20} joint_type: {:<20} nq:{:<3} nv:{:<3} idx_q:{:<3} idx_v:{:<3}".format(
+                    idx, joint_name, pin_joint_type, joint.nq, joint.nv, joint.idx_q, joint.idx_v
                 )
+            )
 
         self._mass = float(np.sum([i.mass for i in pin_robot.model.inertias]))  # [kg]
         self._pinocchio_robot = pin_robot
@@ -400,7 +409,7 @@ class PinSimWrapper(ABC):
         return self.pinocchio_robot.nv
 
     @classmethod
-    def from_instance(other: 'PinSimWrapper') -> 'PinSimWrapper':
+    def from_instance(other: "PinSimWrapper") -> "PinSimWrapper":
         """Creates another instance of this robot wrapper without duplicating the model or data from pinocchio robot.
 
         This is usefull when we want to spawn multiple instances of the same robot on the physics simulator.
@@ -420,10 +429,16 @@ class PinSimWrapper(ABC):
 
 
 class JointWrapper:
-
-    def __init__(self, type: Union[str, int], idx_q: int, idx_v: int, nq: int, nv: int,
-                 pos_limit_low: Union[List[float], float] = -np.inf,
-                 pos_limit_high: Union[List[float], float] = np.inf):
+    def __init__(
+        self,
+        type: Union[str, int],
+        idx_q: int,
+        idx_v: int,
+        nq: int,
+        nv: int,
+        pos_limit_low: Union[List[float], float] = -np.inf,
+        pos_limit_high: Union[List[float], float] = np.inf,
+    ):
         self.type = type
         self.idx_q = idx_q
         self.idx_v = idx_v
@@ -456,13 +471,17 @@ class JointWrapper:
             theta3 = max_range * u[2]
 
             w = np.cos(theta3 / 2) * np.sin(theta2 / 2) * np.sin(theta1 / 2) + np.sin(theta3 / 2) * np.cos(
-                theta2 / 2) * np.cos(theta1 / 2)
+                theta2 / 2
+            ) * np.cos(theta1 / 2)
             x = np.sin(theta3 / 2) * np.cos(theta2 / 2) * np.sin(theta1 / 2) - np.cos(theta3 / 2) * np.sin(
-                theta2 / 2) * np.cos(theta1 / 2)
+                theta2 / 2
+            ) * np.cos(theta1 / 2)
             y = np.cos(theta3 / 2) * np.cos(theta2 / 2) * np.sin(theta1 / 2) + np.sin(theta3 / 2) * np.sin(
-                theta2 / 2) * np.cos(theta1 / 2)
+                theta2 / 2
+            ) * np.cos(theta1 / 2)
             z = np.cos(theta3 / 2) * np.sin(theta2 / 2) * np.cos(theta1 / 2) - np.sin(theta3 / 2) * np.cos(
-                theta2 / 2) * np.sin(theta1 / 2)
+                theta2 / 2
+            ) * np.sin(theta1 / 2)
 
             return np.array([x, y, z, w]), np.array([0, 0, 0])
 
@@ -509,7 +528,6 @@ class JointWrapper:
 
 
 class SimPinJointWrapper(ABC):
-
     def __init__(self) -> object:
         self.pin_joint = None
         self.sim_joint = None
@@ -521,9 +539,11 @@ class SimPinJointWrapper(ABC):
         return q, dq
 
     def __repr__(self):
-        return f"Pin[{self.pin_joint.type}]_" \
-               f"idxq:{list(range(self.pin_joint.idx_q, self.pin_joint.idx_q + self.pin_joint.nq))}_" \
-               f"idxv:{list(range(self.pin_joint.idx_v, self.pin_joint.idx_v + self.pin_joint.nv))}-" \
-               f"Sim[{self.sim_joint.type}]_" \
-               f"idxq:{list(range(self.sim_joint.idx_q, self.sim_joint.idx_q + self.sim_joint.nq))}_" \
-               f"idxv:{list(range(self.sim_joint.idx_v, self.sim_joint.idx_v + self.sim_joint.nv))}"
+        return (
+            f"Pin[{self.pin_joint.type}]_"
+            f"idxq:{list(range(self.pin_joint.idx_q, self.pin_joint.idx_q + self.pin_joint.nq))}_"
+            f"idxv:{list(range(self.pin_joint.idx_v, self.pin_joint.idx_v + self.pin_joint.nv))}-"
+            f"Sim[{self.sim_joint.type}]_"
+            f"idxq:{list(range(self.sim_joint.idx_q, self.sim_joint.idx_q + self.sim_joint.nq))}_"
+            f"idxv:{list(range(self.sim_joint.idx_v, self.sim_joint.idx_v + self.sim_joint.nv))}"
+        )

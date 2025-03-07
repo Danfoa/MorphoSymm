@@ -8,7 +8,7 @@ import pathlib
 import numpy as np
 import scipy.sparse
 import torch
-from pytransform3d import rotations as rt
+from scipy.spatial.transform import Rotation
 
 
 def check_if_resume_experiment(ckpt_call):
@@ -79,13 +79,14 @@ def slugify(value, allow_unicode=False):
     """
     import re
     import unicodedata
+
     value = str(value)
     if allow_unicode:
-        value = unicodedata.normalize('NFKC', value)
+        value = unicodedata.normalize("NFKC", value)
     else:
-        value = unicodedata.normalize('NFKD', value).encode('ascii', 'ignore').decode('ascii')
-    value = re.sub(r'[^\w\s-]', '', value.lower())
-    return re.sub(r'[-\s]+', '-', value).strip('-_')
+        value = unicodedata.normalize("NFKD", value).encode("ascii", "ignore").decode("ascii")
+    value = re.sub(r"[^\w\s-]", "", value.lower())
+    return re.sub(r"[-\s]+", "-", value).strip("-_")
 
 
 # def reflection_matrix(plane_norm_vector):
@@ -114,14 +115,12 @@ def slugify(value, allow_unicode=False):
 
 def matrix_to_quat_xyzw(R):
     """SO(3) rotation to xyzw quaternion representation."""
-    assert R.shape == (3, 3), R.shape
-    return rt.quaternion_xyzw_from_wxyz(rt.quaternion_from_matrix(R))
+    return Rotation.from_matrix(R).as_quat(scalar_first=False)
 
 
 def quat_xyzw_to_SO3(q):
     """Xyzw quaternion representation to SO(3) representation."""
-    assert q.shape == (4,)
-    return rt.matrix_from_quaternion(rt.quaternion_wxyz_from_xyzw(q))
+    return Rotation.from_quat(q, scalar_first=False).as_matrix()
 
 
 def SE3_2_gen_coordinates(X):

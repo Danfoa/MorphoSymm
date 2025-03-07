@@ -4,18 +4,18 @@ import numpy as np
 import scipy
 from emlp.reps.linear_operators import LazyKron
 from emlp.reps.representation import Vector
-# from utils.algebra_utils import dense
 
+# from utils.algebra_utils import dense
 from .SparseRepresentation import SparseRep
 from .SymmetryGroups import C2, Sym
 
 log = logging.getLogger(__name__)
 
+
 class SemiDirectProduct(Sym):
     """SemiDirectProduct."""
 
     def __init__(self, Gin: Sym, Gout: Sym):
-
         assert len(Gin.discrete_generators) == len(Gout.discrete_generators)
         self.is_sparse = Gin.is_sparse and Gout.is_sparse
         self.is_orthogonal = Gin.is_orthogonal and Gout.is_orthogonal
@@ -48,19 +48,19 @@ class SemiDirectProduct(Sym):
         return actions
 
     def get_inout_generators(self):
-        return np.array(self.G1.discrete_generators, dtype=np.float32), \
-               np.array(self.G2.discrete_generators, dtype=np.float32)
+        return np.array(self.G1.discrete_generators, dtype=np.float32), np.array(
+            self.G2.discrete_generators, dtype=np.float32
+        )
 
     def __hash__(self):
         return hash(repr(self))
 
     def __repr__(self):
-        outstr = f'{repr(self.G1)} ⋊ {repr(self.G2)}'
+        outstr = f"{repr(self.G1)} ⋊ {repr(self.G2)}"
         return outstr
 
 
 if __name__ == "__main__":
-
     # robot, Gin, Gout, _, _ = get_robot_params("solo")
 
     # Gin = Klein4.canonical_group(4)
@@ -101,4 +101,3 @@ if __name__ == "__main__":
     # u, s, vh = Qf = scipy.sparse.linalg.svds(C, k=16)
     # rep.equivariant_basis()
     print()
-

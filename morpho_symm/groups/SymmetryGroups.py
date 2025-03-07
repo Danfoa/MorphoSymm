@@ -15,7 +15,6 @@ from tqdm import tqdm
 
 
 class Sym(Group):
-
     def __init__(self, generators):
         """@param generators: (n, d, d) `n` generator in matrix form `(d, d)`, where `d` is the dimension
         of the Vector Space and action representations.
@@ -32,11 +31,13 @@ class Sym(Group):
         for i, h in enumerate(generators):
             if issparse(h):
                 assert np.allclose(sparse.linalg.norm(h, axis=0), 1), f"Generator {i} is not orthogonal: \n{h}"
-                if h.min() < 0: self.is_permutation = False
+                if h.min() < 0:
+                    self.is_permutation = False
                 self.is_sparse = True
             else:
                 assert np.allclose(np.linalg.norm(h, axis=0), 1), f"Generator {i} is not orthogonal: \n{h}"
-                if np.any(h < 0): self.is_permutation = False
+                if np.any(h < 0):
+                    self.is_permutation = False
 
             self.discrete_generators.append(h)
 
@@ -70,7 +71,6 @@ class Sym(Group):
 
     @staticmethod
     def oneline2matrix(oneline_notation, reflexions: Optional[Sequence] = None):
-
         d = len(oneline_notation)
         # P = np.zeros((d, d)).astype(np.int8)
         assert d == len(np.unique(oneline_notation)), np.unique(oneline_notation, return_counts=True)
@@ -90,12 +90,11 @@ class Sym(Group):
         return np.array([h.todense() for h in self.discrete_generators])
 
     @staticmethod
-    def canonical_group(d, inv_dims: int = 0) -> 'Sym':
+    def canonical_group(d, inv_dims: int = 0) -> "Sym":
         raise NotImplementedError()
 
 
 class C2(Sym):
-
     def __init__(self, generators):
         """@param generators: (d, d) generators in matrix form, where `d` is the dimension
         of the Vector Space and action representations.
@@ -107,19 +106,21 @@ class C2(Sym):
         h = self.discrete_generators[0]
 
         is_eye = np.isclose(sum(h.diagonal()), self.d) if self.is_sparse else jnp.isclose(jnp.trace(h), self.d)
-        is_cyclic = np.isclose(sum((h @ h).diagonal()), self.d) if self.is_sparse else jnp.isclose(jnp.trace(h @ h), self.d)
+        is_cyclic = (
+            np.isclose(sum((h @ h).diagonal()), self.d) if self.is_sparse else jnp.isclose(jnp.trace(h @ h), self.d)
+        )
         assert not is_eye, f"Generator must not be the identity: \n {h}"
         assert is_cyclic, "Generator is not cyclic h @ h != I"
 
     @property
     def discrete_actions(self) -> list:
-        return [sparse.eye(self.d, format='coo'), self.discrete_generators[0]]
+        return [sparse.eye(self.d, format="coo"), self.discrete_generators[0]]
 
     def __repr__(self):
         return f"C2[d:{self.d}]" if self.n_inv_dims == 0 else f"C2[d:{self.d}|inv:{self.n_inv_dims}]"
 
     @staticmethod
-    def canonical_group(d, inv_dims: int = 0) -> 'C2':
+    def canonical_group(d, inv_dims: int = 0) -> "C2":
         """@param d: Vector Space dimension."""
         assert d > 0, "Vector space dimension must be greater than 0"
         assert inv_dims < d - 1, "At least a single dimension must be symmetric"
@@ -130,12 +131,12 @@ class C2(Sym):
         p = np.flip(np.arange(d))
         r = np.ones_like(p)
 
-        if d % 2 > 0:   # Odd dimensional repr: Can have odd number of `inv_dims`
+        if d % 2 > 0:  # Odd dimensional repr: Can have odd number of `inv_dims`
             if id % 2 == 0:
-                r[d//2] *= -1
+                r[d // 2] *= -1
             else:
-                id -= 1    # Count middle point invariance
-        else:           # Even dimensional repr: Cannot have odd number of `inv_dims`
+                id -= 1  # Count middle point invariance
+        else:  # Even dimensional repr: Cannot have odd number of `inv_dims`
             if id % 2 > 0:
                 inv_dims += 1
                 id = inv_dims
@@ -168,7 +169,7 @@ class C2(Sym):
         pendind_dims = set(range(n))
         cycles = []
 
-        pbar = tqdm(total=n, disable=False,  dynamic_ncols=True, maxinterval=20, position=0, leave=True)
+        pbar = tqdm(total=n, disable=False, dynamic_ncols=True, maxinterval=20, position=0, leave=True)
         while pendind_dims:
             a = pendind_dims.pop()  # Get the initial point of an orbit.
             pbar.update(1)
@@ -190,8 +191,8 @@ class C2(Sym):
                 Q[cyc, -1] = [np.prod(p[i:-1]) for i in range(len(p))]
         return Q
 
-class Klein4(Sym):
 
+class Klein4(Sym):
     def __init__(self, generators):
         """@param generators: (2,d,d) Two generators in matrix form (excluding the identity), where `d` is the dimension
         of the Vector Space and action representations.
@@ -204,10 +205,15 @@ class Klein4(Sym):
 
         def is_eye(x):
             return np.isclose(sum(x.diagonal()), self.d) if self.is_sparse else jnp.isclose(jnp.trace(x), self.d)
+
         a_is_eye, b_is_eye, ab_is_eye = is_eye(a), is_eye(b), is_eye(a @ b)
+
         def is_cyclic(x):
-            return np.isclose(sum((x @ x).diagonal()), self.d) if self.is_sparse else jnp.isclose(jnp.trace(x @ x), self.d)
-        a_is_cyclic, b_is_cyclic, ab_is_cyclic = is_cyclic(a),  is_cyclic(b),  is_cyclic(a @ b)
+            return (
+                np.isclose(sum((x @ x).diagonal()), self.d) if self.is_sparse else jnp.isclose(jnp.trace(x @ x), self.d)
+            )
+
+        a_is_cyclic, b_is_cyclic, ab_is_cyclic = is_cyclic(a), is_cyclic(b), is_cyclic(a @ b)
 
         assert not a_is_eye and not b_is_eye, "Generators cannot be the identity a != b != e"
         assert a_is_cyclic, f"Generator is not cyclic:\n{a @ a}"
@@ -218,7 +224,7 @@ class Klein4(Sym):
     @property
     def discrete_actions(self) -> list:
         a, b = self.discrete_generators
-        return [sparse.eye(self.d, format='coo'), a, b, a@b]
+        return [sparse.eye(self.d, format="coo"), a, b, a @ b]
 
     def __hash__(self):
         return hash(str(self.discrete_generators))
@@ -227,7 +233,7 @@ class Klein4(Sym):
         return f"V4[d:{self.d}]" if self.n_inv_dims == 0 else f"V4[d:{self.d}|inv:{self.n_inv_dims}]"
 
     @staticmethod
-    def canonical_group(d, inv_dims: int = 0) -> 'Klein4':
+    def canonical_group(d, inv_dims: int = 0) -> "Klein4":
         """@param d: Vector Space dimension."""
         assert d > 0, "Vector space dimension must be greater than 0"
 
@@ -251,17 +257,21 @@ class Klein4(Sym):
             feasible_inv_dims -= 1
 
         idx = np.array(range(d))
-        equiv_dims = idx[feasible_inv_dims//2: len(idx) - feasible_inv_dims//2]
+        equiv_dims = idx[feasible_inv_dims // 2 : len(idx) - feasible_inv_dims // 2]
         parts = np.array_split(equiv_dims, indices_or_sections=4)
 
         equiv_a = np.concatenate((parts[1], parts[0], parts[3], parts[2])).tolist()
         equiv_b = np.concatenate((parts[2], parts[3], parts[0], parts[1])).tolist()
 
-        a = np.concatenate((idx[:feasible_inv_dims//2], equiv_a, idx[len(idx) - feasible_inv_dims//2:]))
-        b = np.concatenate((idx[:feasible_inv_dims//2], equiv_b, idx[len(idx) - feasible_inv_dims//2:]))
+        a = np.concatenate((idx[: feasible_inv_dims // 2], equiv_a, idx[len(idx) - feasible_inv_dims // 2 :]))
+        b = np.concatenate((idx[: feasible_inv_dims // 2], equiv_b, idx[len(idx) - feasible_inv_dims // 2 :]))
 
-        rep_a = C2.oneline2matrix(a,)
-        rep_b = C2.oneline2matrix(b,)
+        rep_a = C2.oneline2matrix(
+            a,
+        )
+        rep_b = C2.oneline2matrix(
+            b,
+        )
         G = Klein4(generators=[rep_a, rep_b])
 
         assert G.n_inv_dims == feasible_inv_dims, G.n_inv_dims

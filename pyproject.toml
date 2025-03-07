@@ -6,7 +6,7 @@ allow-direct-references = true   # We use custom branch of escnn with some devel
 
 [project]
 name = "morpho_symm"
-version = "0.1.4"
+version = "0.1.5"
 keywords = ["morphological symmetry", "locomotion", "dynamical systems", "robot symmetries", "symmetry"]
 description = "Tools for the identification, study, and exploitation of morphological symmetries in locomoting dynamical systems"
 readme = "README.md"
@@ -31,9 +31,10 @@ dependencies = [
     "pytransform3d",
     "robot_descriptions",
     "urllib3",
+    "lie-learn>=0.0.2",  # Fix version for compatibility
     "escnn",
     "networkx>=2.5",
-    "pin",
+    "pin>=2.6",
     "pybullet",
 ]
 [project.scripts]

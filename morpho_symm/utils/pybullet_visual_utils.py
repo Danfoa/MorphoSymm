@@ -6,7 +6,6 @@ import numpy as np
 import pybullet
 from pybullet_utils.bullet_client import BulletClient
 from pytransform3d import rotations as rt
-from pytransform3d import transformations as tr
 from tqdm import tqdm
 
 from morpho_symm.robots.PinBulletWrapper import PinBulletWrapper
@@ -27,39 +26,47 @@ def draw_vector(pb, origin, vector, v_color, scale=1.0):
     v_norm = np.linalg.norm(vector) * scale
 
     vector_radius = max(0.0025, 0.0025 * v_norm * 4.0)
-    vector_body_id = pb.createVisualShape(shapeType=pb.GEOM_CYLINDER, radius=vector_radius,
-                                          length=v_norm,
-                                          rgbaColor=v_color,
-                                          specularColor=[0.4, .4, 0], )
+    vector_body_id = pb.createVisualShape(
+        shapeType=pb.GEOM_CYLINDER,
+        radius=vector_radius,
+        length=v_norm,
+        rgbaColor=v_color,
+        specularColor=[0.4, 0.4, 0],
+    )
     import morpho_symm
+
     cone_path = pathlib.Path(morpho_symm.__file__).parent / "resources/stl_files/Cone.obj"
-    vector_head_id = pb.createVisualShape(shapeType=pb.GEOM_MESH,
-                                          fileName=str(cone_path),
-                                          rgbaColor=v_color,
-                                          specularColor=[0.4, .4, 0],
-                                          meshScale=np.array([1, 1, 1]) * (vector_radius * 2 * 30))
+    vector_head_id = pb.createVisualShape(
+        shapeType=pb.GEOM_MESH,
+        fileName=str(cone_path),
+        rgbaColor=v_color,
+        specularColor=[0.4, 0.4, 0],
+        meshScale=np.array([1, 1, 1]) * (vector_radius * 2 * 30),
+    )
     # Get rotation where the `x` axis is aligned with the vector orientation
     v2 = np.random.rand(3)
     v3 = np.cross(vector, v2)
     R = rt.matrix_from_two_vectors(a=vector, b=v3)[:, [1, 2, 0]]
-    body_origin = origin + (vector * scale / 2.)
+    body_origin = origin + (vector * scale / 2.0)
     R_head = rt.active_matrix_from_intrinsic_euler_xyz([np.deg2rad(90), np.deg2rad(0), np.deg2rad(0)])
-    vector_id = pb.createMultiBody(baseMass=1,
-                                   baseInertialFramePosition=[0, 0, 0],
-                                   baseCollisionShapeIndex=vector_body_id,
-                                   baseVisualShapeIndex=vector_body_id,
-                                   basePosition=body_origin,
-                                   baseOrientation=matrix_to_quat_xyzw(R),
-                                   linkMasses=[0.01],
-                                   linkVisualShapeIndices=[vector_head_id],
-                                   linkCollisionShapeIndices=[vector_head_id],
-                                   linkPositions=[np.array([0, 0, v_norm / 2.])],
-                                   linkOrientations=[matrix_to_quat_xyzw(R_head)],
-                                   linkInertialFramePositions=[np.array([0, 0, v_norm / 2.])],
-                                   linkInertialFrameOrientations=[matrix_to_quat_xyzw(R_head)],
-                                   linkParentIndices=[0],
-                                   linkJointTypes=[pb.JOINT_FIXED],
-                                   linkJointAxis=[(1, 0, 0)])
+    vector_id = pb.createMultiBody(
+        baseMass=1,
+        baseInertialFramePosition=[0, 0, 0],
+        baseCollisionShapeIndex=vector_body_id,
+        baseVisualShapeIndex=vector_body_id,
+        basePosition=body_origin,
+        baseOrientation=matrix_to_quat_xyzw(R),
+        linkMasses=[0.01],
+        linkVisualShapeIndices=[vector_head_id],
+        linkCollisionShapeIndices=[vector_head_id],
+        linkPositions=[np.array([0, 0, v_norm / 2.0])],
+        linkOrientations=[matrix_to_quat_xyzw(R_head)],
+        linkInertialFramePositions=[np.array([0, 0, v_norm / 2.0])],
+        linkInertialFrameOrientations=[matrix_to_quat_xyzw(R_head)],
+        linkParentIndices=[0],
+        linkJointTypes=[pb.JOINT_FIXED],
+        linkJointAxis=[(1, 0, 0)],
+    )
     return vector_id
 
 
@@ -70,19 +77,32 @@ def draw_plane(pb, R, p, color, size=(0.01, 0.25, 0.25), cylinder=False):
     else:
         body_id = pb.createVisualShape(shapeType=pb.GEOM_CYLINDER, radius=size[0], length=size[1], rgbaColor=color)
 
-    plane_id = pb.createMultiBody(baseMass=1,
-                                  baseInertialFramePosition=[0, 0, 0],
-                                  baseCollisionShapeIndex=body_id,
-                                  baseVisualShapeIndex=body_id,
-                                  basePosition=p,
-                                  baseOrientation=matrix_to_quat_xyzw(R))
+    plane_id = pb.createMultiBody(
+        baseMass=1,
+        baseInertialFramePosition=[0, 0, 0],
+        baseCollisionShapeIndex=body_id,
+        baseVisualShapeIndex=body_id,
+        basePosition=p,
+        baseOrientation=matrix_to_quat_xyzw(R),
+    )
     return plane_id
 
 
 def render_orbiting_animation(
-        pb, cam_target_pose, cam_distance, save_path: pathlib.Path, fps=20, file_name="animation", periods=1,
-        anim_time=10, pitch_sin_amplitude=15, init_roll_pitch_yaw=(0, -20, 45), invert_roll=False, gen_gif=True,
-        gen_imgs=True):
+    pb,
+    cam_target_pose,
+    cam_distance,
+    save_path: pathlib.Path,
+    fps=20,
+    file_name="animation",
+    periods=1,
+    anim_time=10,
+    pitch_sin_amplitude=15,
+    init_roll_pitch_yaw=(0, -20, 45),
+    invert_roll=False,
+    gen_gif=True,
+    gen_imgs=True,
+):
     """Renders an orbiting animation around a fix target camera position."""
     n_frames = anim_time * fps
     render_width, render_height, fov, shadow = (812, 812, 60, True) if gen_gif else (3024, 3024, 40, False)
@@ -99,10 +119,21 @@ def render_orbiting_animation(
     roll = np.ones_like(t) * roll0
 
     light_distance, light_directions = 4, (0.5, 0.5, 1)
-    frames = render_camera_trajectory(pb, pitch, roll, yaw, n_frames, cam_distance, cam_target_pose,
-                                      light_direction=light_directions, light_distance=light_distance,
-                                      render_width=render_width, render_height=render_height, fov=fov, shadow=shadow
-                                      )[:-1]
+    frames = render_camera_trajectory(
+        pb,
+        pitch,
+        roll,
+        yaw,
+        n_frames,
+        cam_distance,
+        cam_target_pose,
+        light_direction=light_directions,
+        light_distance=light_distance,
+        render_width=render_width,
+        render_height=render_height,
+        fov=fov,
+        shadow=shadow,
+    )[:-1]
 
     if invert_roll:
         # Generate linear transition of roll from 0 to 180 degrees
@@ -113,9 +144,19 @@ def render_orbiting_animation(
         yaw_rot = np.ones_like(t_rot) * yaw[-1]
         pitch_rot = -np.abs(np.linspace(pitch[-1], -pitch[-1], rotation_frames))
         rot_frames = render_camera_trajectory(
-            pb, pitch_rot, roll_rot, yaw_rot, rotation_frames, cam_distance, cam_target_pose,
-            light_direction=light_directions, light_distance=light_distance, shadow=shadow,
-            render_width=render_width, render_height=render_height, fov=fov
+            pb,
+            pitch_rot,
+            roll_rot,
+            yaw_rot,
+            rotation_frames,
+            cam_distance,
+            cam_target_pose,
+            light_direction=light_directions,
+            light_distance=light_distance,
+            shadow=shadow,
+            render_width=render_width,
+            render_height=render_height,
+            fov=fov,
         )
 
         # Add final loop
@@ -123,9 +164,19 @@ def render_orbiting_animation(
         yaw_inv = yaw
         pitch_inv = pitch
         frames_inv = render_camera_trajectory(
-            pb, pitch_inv, roll_inv, yaw_inv, n_frames, cam_distance, cam_target_pose,
-            light_direction=light_directions, light_distance=light_distance, shadow=shadow,
-            render_width=render_width, render_height=render_height, fov=fov
+            pb,
+            pitch_inv,
+            roll_inv,
+            yaw_inv,
+            n_frames,
+            cam_distance,
+            cam_target_pose,
+            light_direction=light_directions,
+            light_distance=light_distance,
+            shadow=shadow,
+            render_width=render_width,
+            render_height=render_height,
+            fov=fov,
         )[:-1]
         # Add transition frames
         # frames = np.concatenate([rot_frames, list(reversed(rot_frames))], axis=0)
@@ -136,34 +187,55 @@ def render_orbiting_animation(
 
     if gen_gif:
         from moviepy.editor import ImageSequenceClip
+
         # Save animation
-        file_name = file_name.replace(".gif", '')
-        file_path = save_path / f'{file_name}.gif'
+        file_name = file_name.replace(".gif", "")
+        file_path = save_path / f"{file_name}.gif"
         file_count = 1
         while file_path.exists():
-            file_path = save_path / f'{file_name}({file_count}).gif'
+            file_path = save_path / f"{file_name}({file_count}).gif"
             file_count += 1
         clip = ImageSequenceClip(list(frames), fps=fps)
-        clip.write_gif(file_path, fps=fps, loop=False, )  # program='ffmpeg', progress_bar=True, fuzz=0.05)
+        clip.write_gif(
+            file_path,
+            fps=fps,
+            loop=False,
+        )  # program='ffmpeg', progress_bar=True, fuzz=0.05)
         print(f"Animation saved to {file_path.absolute()}")
     elif gen_imgs:
         import matplotlib.pyplot as plt
+
         for i, frame in enumerate(frames):
-            file_path = save_path / f'{file_name}-{i}'
+            file_path = save_path / f"{file_name}-{i}"
             # Create a figure and axis
             fig, ax = plt.subplots()
             ax.imshow(frame)
-            ax.axis('off')
-            plt.savefig(file_path, dpi=300, bbox_inches='tight', pad_inches=0)
+            ax.axis("off")
+            plt.savefig(file_path, dpi=300, bbox_inches="tight", pad_inches=0)
             print(f"Frame saved to {file_path.absolute()}")
             plt.close(fig)
         return frames
 
 
-def render_camera_trajectory(pb, pitch, roll, yaw, n_frames, cam_distance, cam_target_pose, upAxisIndex=2,
-                             render_width=812, render_height=812, nearPlane=0.01, farPlane=100, fov=60,
-                             light_direction=(0, 0, 0.5), light_distance=1.0, shadow=True, progress=False,
-                             ):
+def render_camera_trajectory(
+    pb,
+    pitch,
+    roll,
+    yaw,
+    n_frames,
+    cam_distance,
+    cam_target_pose,
+    upAxisIndex=2,
+    render_width=812,
+    render_height=812,
+    nearPlane=0.01,
+    farPlane=100,
+    fov=60,
+    light_direction=(0, 0, 0.5),
+    light_distance=1.0,
+    shadow=True,
+    progress=False,
+):
     """Renders a camera trajectory given a set of yaw, pitch, roll angle trajectories."""
     # Set rendering constants
     aspect = render_width / render_height
@@ -173,15 +245,23 @@ def render_camera_trajectory(pb, pitch, roll, yaw, n_frames, cam_distance, cam_t
         yaw_t, pitch_t, roll_t = yaw[s], pitch[s], roll[s]
         # Compute view and projection matrices from yaw, pitch, roll
         viewMatrix = pb.computeViewMatrixFromYawPitchRoll(
-            cam_target_pose, cam_distance, yaw_t, pitch_t, roll_t, upAxisIndex)
+            cam_target_pose, cam_distance, yaw_t, pitch_t, roll_t, upAxisIndex
+        )
         projectionMatrix = pb.computeProjectionMatrixFOV(fov, aspect, nearPlane, farPlane)
         # Render image
-        img_arr = pb.getCameraImage(render_width, render_height, viewMatrix, projectionMatrix, shadow=shadow,
-                                    lightDirection=light_direction, lightDistance=light_distance,
-                                    renderer=pb.ER_TINY_RENDERER,
-                                    # renderer=pb.ER_BULLET_HARDWARE_OPENGL,
-                                    lightColor=[1, 1, 1],
-                                    lightSpecularCoeff=0.32)
+        img_arr = pb.getCameraImage(
+            render_width,
+            render_height,
+            viewMatrix,
+            projectionMatrix,
+            shadow=shadow,
+            lightDirection=light_direction,
+            lightDistance=light_distance,
+            renderer=pb.ER_TINY_RENDERER,
+            # renderer=pb.ER_BULLET_HARDWARE_OPENGL,
+            lightColor=[1, 1, 1],
+            lightSpecularCoeff=0.32,
+        )
         w = img_arr[0]  # width of the image, in pixels
         h = img_arr[1]  # height of the image, in pixels
         rgb = img_arr[2]  # color data RGB
@@ -200,14 +280,16 @@ def setup_debug_sliders(pb, robot):
         upper_limit = min(joint.sim_joint.pos_limit_high, np.pi)
         if lower_limit > upper_limit:
             lower_limit, upper_limit = -np.pi, np.pi
-        pb.addUserDebugParameter(paramName=f"{i}:{joint_name}", rangeMin=lower_limit,
-                                 rangeMax=upper_limit, startValue=0.0)
+        pb.addUserDebugParameter(
+            paramName=f"{i}:{joint_name}", rangeMin=lower_limit, rangeMax=upper_limit, startValue=0.0
+        )
 
 
 # Read param values
 def listen_update_robot_sliders(pb, robot):
     """Read the values of the debug sliders and update the robot accordingly in pybullet."""
     import time
+
     while True:
         for i, joint_name in enumerate(robot.joint_space_names):
             joint = robot.joint_space[joint_name]
@@ -222,7 +304,7 @@ def change_robot_appearance(pb, robot: PinBulletWrapper, change_color=True, alph
         return
 
     # Define repo awsome colors. Lets call it Danfoa's color palette :)
-    robot_color = [0.054, 0.415, 0.505 , alpha]  # This is a nice teal
+    robot_color = [0.054, 0.415, 0.505, alpha]  # This is a nice teal
     FL_leg_color = [0.698, 0.376, 0.082, alpha]  # This is a nice orange
     FR_leg_color = [0.260, 0.263, 0.263, alpha]  # This is a nice grey
     HL_leg_color = [0.800, 0.480, 0.000, alpha]  # This is a nice yellow
@@ -247,26 +329,41 @@ def change_robot_appearance(pb, robot: PinBulletWrapper, change_color=True, alph
                 color = FL_leg_color
             elif np.any([s in joint_name.lower() for s in ["fr_", "rf_", "right", "_120"]]):
                 color = FR_leg_color
-            elif np.any([s in joint_name.lower() for s in ["rl_", "hl_", "lh_", "left",]]):
+            elif np.any(
+                [
+                    s in joint_name.lower()
+                    for s in [
+                        "rl_",
+                        "hl_",
+                        "lh_",
+                        "left",
+                    ]
+                ]
+            ):
                 color = HL_leg_color
             elif np.any([s in joint_name.lower() for s in ["rr_", "hr_", "rh_", "right"]]):
                 color = HR_leg_color
             else:
                 color = robot_color
 
-            pb.changeVisualShape(objectUniqueId=robot.robot_id, linkIndex=joint_idx,
-                                 rgbaColor=color, specularColor=[0, 0, 0])
+            pb.changeVisualShape(
+                objectUniqueId=robot.robot_id, linkIndex=joint_idx, rgbaColor=color, specularColor=[0, 0, 0]
+            )
 
     if change_color:
-        pb.changeVisualShape(objectUniqueId=robot.robot_id, linkIndex=-1, rgbaColor=robot_color,
-                             specularColor=[0, 0, 0])
+        pb.changeVisualShape(
+            objectUniqueId=robot.robot_id, linkIndex=-1, rgbaColor=robot_color, specularColor=[0, 0, 0]
+        )
 
 
 def spawn_robot_instances(
-        robot: PinBulletWrapper, bullet_client: Optional[BulletClient],
-        base_positions: List[List], base_orientations: Optional[List[List]] = None,
-        tint: bool = False, alpha: float = 1.0,
-        ) -> List[PinBulletWrapper]:
+    robot: PinBulletWrapper,
+    bullet_client: Optional[BulletClient],
+    base_positions: List[List],
+    base_orientations: Optional[List[List]] = None,
+    tint: bool = False,
+    alpha: float = 1.0,
+) -> List[PinBulletWrapper]:
     """Spawn multiple instances of the same robot in pybullet in de defined locations and orientations.
 
     Args:
@@ -304,31 +401,54 @@ def spawn_robot_instances(
     return robots
 
 
-def display_robots_and_vectors(pb, robot, group, base_confs, orbit_q_js, orbit_v_js, orbit_com_momentum, forces,
-                               forces_points, surface_normals, tint=True, draw_floor=True):
+def display_robots_and_vectors(
+    pb,
+    robot,
+    group,
+    base_confs,
+    orbit_q_js,
+    orbit_v_js,
+    orbit_com_momentum,
+    forces,
+    forces_points,
+    surface_normals,
+    tint=True,
+    draw_floor=True,
+):
     """Plot side by side robots with different configurations, CoM momentums and expected CoM after an action g."""
     # pb.resetSimulation()
     G = group
     rep_Ed = G.representations["E3"]
     # Optional: Display origin.
-    draw_vector(pb, np.zeros(3), np.asarray([.1, 0, 0]), v_color=[1, 0, 0, 1])
-    draw_vector(pb, np.zeros(3), np.asarray([0, .1, 0]), v_color=[0, 1, 0, 1])
-    draw_vector(pb, np.zeros(3), np.asarray([0, 0, .1]), v_color=[0, 0, 1, 1])
+    draw_vector(pb, np.zeros(3), np.asarray([0.1, 0, 0]), v_color=[1, 0, 0, 1])
+    draw_vector(pb, np.zeros(3), np.asarray([0, 0.1, 0]), v_color=[0, 1, 0, 1])
+    draw_vector(pb, np.zeros(3), np.asarray([0, 0, 0.1]), v_color=[0, 0, 1, 1])
 
     plane_height = 0
     plane_size = (0.01, robot.hip_height / 2, robot.hip_height / 2)
 
     # Sagittal plane
-    draw_plane(pb, R=rt.matrix_from_two_vectors(a=[0, 1, 0], b=[1, 0, 0]),
-               p=[0.0, 0.0, plane_height],
-               color=np.array([230, 230, 256, 40]) / 256., size=plane_size)
-    draw_plane(pb, R=rt.matrix_from_two_vectors(a=[1, 0, 0], b=[0, 1, 0]),
-               p=[0.0, 0.0, plane_height],
-               color=np.array([256, 230, 230, 40]) / 256., size=plane_size)
-    draw_plane(pb, R=rt.matrix_from_two_vectors(a=[0, 0, 1], b=[0, 1, 0]),
-               p=[0.0, 0.0, 0.0],
-               color=np.array([250, 250, 250, 80]) / 256.,
-               size=(0.01, robot.hip_height * 6, robot.hip_height * 6))
+    draw_plane(
+        pb,
+        R=rt.matrix_from_two_vectors(a=[0, 1, 0], b=[1, 0, 0]),
+        p=[0.0, 0.0, plane_height],
+        color=np.array([230, 230, 256, 40]) / 256.0,
+        size=plane_size,
+    )
+    draw_plane(
+        pb,
+        R=rt.matrix_from_two_vectors(a=[1, 0, 0], b=[0, 1, 0]),
+        p=[0.0, 0.0, plane_height],
+        color=np.array([256, 230, 230, 40]) / 256.0,
+        size=plane_size,
+    )
+    draw_plane(
+        pb,
+        R=rt.matrix_from_two_vectors(a=[0, 0, 1], b=[0, 1, 0]),
+        p=[0.0, 0.0, 0.0],
+        color=np.array([250, 250, 250, 80]) / 256.0,
+        size=(0.01, robot.hip_height * 6, robot.hip_height * 6),
+    )
 
     robots = [robot]
     com_pos = None
@@ -336,9 +456,9 @@ def display_robots_and_vectors(pb, robot, group, base_confs, orbit_q_js, orbit_v
         q_js, v_js, XB, ghg_B = orbit_q_js[g], orbit_v_js[g], base_confs[g], orbit_com_momentum[g]
         assert q_js.size == robot.nq - 7, f"Invalid joint-space position dim(Q_js)={robot.nq - 7}!={q_js.size}"
         assert v_js.size == robot.nv - 6, f"Invalid joint-space velocity dim(TqQ_js)={robot.nv - 6}!={v_js.size}"
-        RB = XB[:3, :3] # Base rotation
+        RB = XB[:3, :3]  # Base rotation
         rB = XB[:3, 3]  # Base position
-        base_q = SE3_2_gen_coordinates(XB) # vector-quaternion representation of the base conf
+        base_q = SE3_2_gen_coordinates(XB)  # vector-quaternion representation of the base conf
         gq, gv = np.concatenate((base_q, q_js)), np.concatenate((np.zeros(6), v_js))
         if g != G.identity:
             grobot = copy.copy(robot)
@@ -354,42 +474,60 @@ def display_robots_and_vectors(pb, robot, group, base_confs, orbit_q_js, orbit_v
         # Get symmetric CoM position for visualization
         gcom_pos = (rep_Ed(g) @ np.concatenate((com_pos, np.ones(1))))[:3]
         # Draw COM momentum and COM location
-        com_id = pb.createVisualShape(shapeType=pb.GEOM_SPHERE, radius=0.02,
-                                      rgbaColor=np.array([10, 10, 10, 255]) / 255.)
-        pb.createMultiBody(baseMass=1, baseVisualShapeIndex=com_id, basePosition=gcom_pos,
-                           baseOrientation=matrix_to_quat_xyzw(np.eye(3)))
-        draw_vector(pb, origin=gcom_pos, vector=ghg_B[:3],
-                    v_color=np.array([255, 153, 0, 255]) / 255.,
-                    scale=(1 / np.linalg.norm(ghg_B[:3]) * robot.hip_height * .3))
-        draw_vector(pb, origin=gcom_pos, vector=ghg_B[3:],
-                    v_color=np.array([136, 204, 0, 255]) / 255.,
-                    scale=(1 / np.linalg.norm(ghg_B[3:]) * robot.hip_height * .3))
+        com_id = pb.createVisualShape(
+            shapeType=pb.GEOM_SPHERE, radius=0.02, rgbaColor=np.array([10, 10, 10, 255]) / 255.0
+        )
+        pb.createMultiBody(
+            baseMass=1,
+            baseVisualShapeIndex=com_id,
+            basePosition=gcom_pos,
+            baseOrientation=matrix_to_quat_xyzw(np.eye(3)),
+        )
+        draw_vector(
+            pb,
+            origin=gcom_pos,
+            vector=ghg_B[:3],
+            v_color=np.array([255, 153, 0, 255]) / 255.0,
+            scale=(1 / np.linalg.norm(ghg_B[:3]) * robot.hip_height * 0.3),
+        )
+        draw_vector(
+            pb,
+            origin=gcom_pos,
+            vector=ghg_B[3:],
+            v_color=np.array([136, 204, 0, 255]) / 255.0,
+            scale=(1 / np.linalg.norm(ghg_B[3:]) * robot.hip_height * 0.3),
+        )
 
         # Draw forces and contact planes
         force_color = (0.590, 0.153, 0.510, 1.0)
         for force_orbit, rf_orbit, GRf_w in zip(forces, forces_points, surface_normals):
             draw_vector(pb, origin=rf_orbit[g], vector=force_orbit[g], v_color=force_color)
             if draw_floor:
-                body_id = pb.createVisualShape(shapeType=pb.GEOM_BOX, halfExtents=[.2 * robot.hip_height,
-                                                                                   .2 * robot.hip_height,
-                                                                                   0.01],
-                                               rgbaColor=np.array([115, 140, 148, 150]) / 255.)
-                pb.createMultiBody(baseMass=1,
-                                   baseInertialFramePosition=[0, 0, 0],
-                                   baseCollisionShapeIndex=body_id,
-                                   baseVisualShapeIndex=body_id,
-                                   basePosition=rf_orbit[g],
-                                   baseOrientation=matrix_to_quat_xyzw(GRf_w[g]))
+                body_id = pb.createVisualShape(
+                    shapeType=pb.GEOM_BOX,
+                    halfExtents=[0.2 * robot.hip_height, 0.2 * robot.hip_height, 0.01],
+                    rgbaColor=np.array([115, 140, 148, 150]) / 255.0,
+                )
+                pb.createMultiBody(
+                    baseMass=1,
+                    baseInertialFramePosition=[0, 0, 0],
+                    baseCollisionShapeIndex=body_id,
+                    baseVisualShapeIndex=body_id,
+                    basePosition=rf_orbit[g],
+                    baseOrientation=matrix_to_quat_xyzw(GRf_w[g]),
+                )
         # Draw Base orientation
         if robot.nq == 12:  # Only for Solo
-            draw_vector(pb, origin=rB + RB @ np.array((0.06, 0, 0.03)), vector=RB[:, 0], v_color=[1, 1, 1, 1],
-                        scale=0.05)
+            draw_vector(
+                pb, origin=rB + RB @ np.array((0.06, 0, 0.03)), vector=RB[:, 0], v_color=[1, 1, 1, 1], scale=0.05
+            )
 
 
 def get_mock_ground_reaction_forces(pb, robot, robot_cfg):
     """Get mock ground reaction forces for visualization purposes. Simply to show transformation of vectors."""
-    end_effectors = np.random.choice(robot.bullet_ids_allowed_floor_contacts,
-                                     len(robot.bullet_ids_allowed_floor_contacts), replace=False)
+    end_effectors = np.random.choice(
+        robot.bullet_ids_allowed_floor_contacts, len(robot.bullet_ids_allowed_floor_contacts), replace=False
+    )
     # Get positions and orientations of end effector links of the robot, used to place the forces used in visualization
     rf1_w, quatf1_w = (np.array(x) for x in pb.getLinkState(robot.robot_id, end_effectors[0])[0:2])
     rf2_w, quatf2_w = (np.array(x) for x in pb.getLinkState(robot.robot_id, end_effectors[1])[0:2])
@@ -403,8 +541,8 @@ def get_mock_ground_reaction_forces(pb, robot, robot_cfg):
     f1_w = Rf1_w[:, 2] + [2 * np.random.rand() - 1, 2 * np.random.rand() - 1, np.random.rand()]
     f2_w = Rf2_w[:, 2] + [2 * np.random.rand() - 1, 2 * np.random.rand() - 1, np.random.rand()]
     # For visualization purposes we make the forces proportional to the robot height
-    f1_w = f1_w / np.linalg.norm(f1_w) * robot_cfg.hip_height * .4
-    f2_w = f2_w / np.linalg.norm(f2_w) * robot_cfg.hip_height * .4
+    f1_w = f1_w / np.linalg.norm(f1_w) * robot_cfg.hip_height * 0.4
+    f2_w = f2_w / np.linalg.norm(f2_w) * robot_cfg.hip_height * 0.4
     return Rf1_w, Rf2_w, f1_w, f2_w, rf1_w, rf2_w
 
 
@@ -421,8 +559,11 @@ def configure_bullet_simulation(gui=True, debug=False):
     )
     from pybullet_utils import bullet_client
 
-    BACKGROUND_COLOR = '--background_color_red=%.2f --background_color_green=%.2f --background_color_blue=%.2f' % \
-                       (1.0, 1.0, 1.0)
+    BACKGROUND_COLOR = "--background_color_red=%.2f --background_color_green=%.2f --background_color_blue=%.2f" % (
+        1.0,
+        1.0,
+        1.0,
+    )
 
     if gui:
         pb = bullet_client.BulletClient(connection_mode=GUI, options=BACKGROUND_COLOR)

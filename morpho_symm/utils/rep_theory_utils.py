@@ -15,8 +15,9 @@ def generate_cyclic_rep(G: CyclicGroup, rep):
     h = G.generators[0]
     # Check the given matrix representations comply with group axioms
     # assert not np.allclose(rep[h], rep[G.identity]), "Invalid generator: h=e"
-    assert np.allclose(np.linalg.matrix_power(rep[h], G.order()), rep[G.identity]), \
+    assert np.allclose(np.linalg.matrix_power(rep[h], G.order()), rep[G.identity]), (
         f"Invalid rotation generator h_ref^{G.order()} != I"
+    )
 
     curr_g = h
     while len(rep) < G.order():  # Use generator to obtain all elements and element reps in group
@@ -34,8 +35,9 @@ def generate_dihedral_rep(G: DihedralGroup, rep):
     # assert not np.allclose(rep[h_ref], rep[G.identity]), "Invalid reflection generator: h_ref=e"
     # assert not np.allclose(rep[h_rot], rep[G.identity]), "Invalid rotation generator: h_rot=e"
     assert np.allclose(rep[h_ref] @ rep[h_ref], rep[G.identity]), "Invalid reflection generator `h_ref @ h_ref != I`"
-    assert np.allclose(np.linalg.matrix_power(rep[h_rot], G.order() // 2), rep[G.identity]), \
+    assert np.allclose(np.linalg.matrix_power(rep[h_rot], G.order() // 2), rep[G.identity]), (
         f"Invalid rotation generator h_ref^{G.order} != I"
+    )
 
     curr_g, curr_ref_g = h_rot, h_ref @ h_rot
     rep[curr_ref_g] = rep[h_ref] @ rep[h_rot]
@@ -107,8 +109,8 @@ def irreps_stats(irreps_ids):
 
 
 def escnn_representation_form_mapping(
-        G: Group, representation: Union[Dict[GroupElement, np.ndarray], Callable[[GroupElement], np.ndarray]]
-        ):
+    G: Group, representation: Union[Dict[GroupElement, np.ndarray], Callable[[GroupElement], np.ndarray]]
+):
     """Get a ESCNN representation instance from a mapping from group elements to unitary matrices.
 
     Args:
@@ -155,9 +157,9 @@ def escnn_representation_form_mapping(
         assert np.unique(multiplicities).size == 1, "Multiplicities error"
         multiplicity = multiplicities[0]
         for m in range(multiplicity):
-            Q_isore2isoimg.append(data['Q'])  # Add transformation from Real irrep to complex irrep
+            Q_isore2isoimg.append(data["Q"])  # Add transformation from Real irrep to complex irrep
             escnn_real_irreps.append(escnn_irrep)  # Add escnn irrep to the list for instanciation
-            for subrep, rep_start_dims in zip(data['subreps'], subreps_start_dims):
+            for subrep, rep_start_dims in zip(data["subreps"], subreps_start_dims):
                 rep_size = subrep[G.sample()].shape[0] if isinstance(subrep, dict) else subrep.size
                 oneline_perm += list(range(rep_start_dims[m], rep_start_dims[m] + rep_size))
     # As the complex irreps forming a real irrep can be spread over the dimensions of the input rep, we find a
@@ -186,8 +188,9 @@ def escnn_representation_form_mapping(
         Q_re = np.real(Q_re)  # Remove numerical noise and ensure rep(g) is of dtype: float instead of cfloat
 
     # Then we have that `Q_re^-1 @ iso_re(g) @ Q_re = rep(g)`
-    reconstructed_rep = Representation(G, name="reconstructed", irreps=[irrep.id for irrep in escnn_real_irreps],
-                                       change_of_basis=Q_re.conj().T)
+    reconstructed_rep = Representation(
+        G, name="reconstructed", irreps=[irrep.id for irrep in escnn_real_irreps], change_of_basis=Q_re.conj().T
+    )
 
     # Test ESCNN reconstruction
     for g in G.elements:
@@ -201,8 +204,8 @@ def escnn_representation_form_mapping(
 
 
 def is_complex_irreducible(
-        G: Group, representation: Union[Dict[GroupElement, np.ndarray], Callable[[GroupElement], np.ndarray]]
-        ):
+    G: Group, representation: Union[Dict[GroupElement, np.ndarray], Callable[[GroupElement], np.ndarray]]
+):
     """Check if a representation is complex irreducible.
 
     We check this by asserting weather non-scalar (no multiple of
@@ -211,6 +214,7 @@ def is_complex_irreducible(
     Otherwise, returns (False, H) where H is a non-scalar matrix that commutes with all elements' representation.
     """
     if isinstance(representation, dict):
+
         def rep(g):
             return representation[g]
     else:
@@ -244,8 +248,8 @@ def is_complex_irreducible(
 
 
 def decompose_representation(
-        G: Group, representation: Union[Dict[GroupElement, np.ndarray], Callable[[GroupElement], np.ndarray]]
-        ):
+    G: Group, representation: Union[Dict[GroupElement, np.ndarray], Callable[[GroupElement], np.ndarray]]
+):
     """Find the Hermitian matrix `Q` that block-diagonalizes the representation `rep` of group `G`.
 
     Such that `Q @ rep[g] @ Q^H = block_diag(rep_1[g], ..., rep_m[g])` for all `g` in `G`.
@@ -255,6 +259,7 @@ def decompose_representation(
 
     eps = 1e-12
     if isinstance(representation, dict):
+
         def rep(g):
             return representation[g]
     else:
@@ -272,7 +277,7 @@ def decompose_representation(
         return [rep], np.eye(n)
 
     # Eigen-decomposition of matrix `H = P·A·P^-1` reveals the G-invariant subspaces/eigenspaces of the representations.
-    eivals, eigvects = np.linalg.eigh(H, UPLO='L')
+    eivals, eigvects = np.linalg.eigh(H, UPLO="L")
     P = eigvects.conj().T
     assert np.allclose(P.conj().T @ np.diag(eivals) @ P, H)
 
@@ -312,7 +317,7 @@ def decompose_representation(
         for comp_id, comp in enumerate(connected_components):
             block_start, block_end = comp[0], comp[-1] + 1
             # Transform the decomposed representation into the Jordan Cannonical Form (jcf)
-            jcf_rep = (PJ @ decomposed_reps[g] @ PJ.T)
+            jcf_rep = PJ @ decomposed_reps[g] @ PJ.T
             # Check Jordan Cannonical Form TODO: Extract this to a utils. function
             above_block = jcf_rep[0:block_start, block_start:block_end]
             below_block = jcf_rep[block_end:, block_start:block_end]
@@ -361,9 +366,7 @@ def map_character_tables(in_table: np.ndarray, reference_table: np.ndarray):
     return multiplicities, out_ids
 
 
-def cplx_isotypic_decomposition(
-        G: Group, representation: Callable[[GroupElement], np.ndarray]
-        ):
+def cplx_isotypic_decomposition(G: Group, representation: Callable[[GroupElement], np.ndarray]):
     """Perform the isotypic decomposition of unitary representation, decomposing the rep into complex irreps.
 
     Args:
@@ -378,6 +381,7 @@ def cplx_isotypic_decomposition(
 
     """
     if isinstance(representation, dict):
+
         def rep(g):
             return representation[g]
     else:

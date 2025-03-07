@@ -4,16 +4,14 @@ import time
 
 import hydra
 import numpy as np
-import scipy
 from omegaconf import DictConfig
 from scipy.spatial.transform import Rotation
-
 from utils.pybullet_visual_utils import (
     change_robot_appearance,
     display_robots_and_vectors,
     get_mock_ground_reaction_forces,
     render_orbiting_animation,
-    )
+)
 from utils.robot_utils import load_symmetric_system
 
 import morpho_symm
@@ -22,7 +20,7 @@ from morpho_symm.utils.pybullet_visual_utils import configure_bullet_simulation
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
 
-@hydra.main(config_path='cfg/', config_name='config_visualization', version_base='1.3')
+@hydra.main(config_path="cfg/", config_name="config_visualization", version_base="1.3")
 def main(cfg: DictConfig):
     """Visualize the effect of DMSs transformations in 3D animation.
 
@@ -35,12 +33,12 @@ def main(cfg: DictConfig):
     robot, G = load_symmetric_system(robot_cfg=cfg.robot, debug=cfg.debug_joints)
 
     # Get the group representations of joint-state space, and Euclidean space.
-    rep_QJ = G.representations['Q_js']  # rep_QJ(g) is a permutation matrix ∈ R^nqj
-    rep_TqQJ = G.representations['TqQ_js']  # rep_TqQJ(g) is a permutation matrix ∈ R^nvj
-    rep_Ed = G.representations['E3']  # rep_Ed(g) is a homogenous transformation matrix ∈ R^(3+1)x(3+1)
-    rep_Rd = G.representations['R3']  # rep_Rd(g) is an orthogonal matrix ∈ R^3x3
-    rep_Rd_pseudo = G.representations['R3_pseudo']  # rep_Rd_pseudo(g) is an orthogonal matrix ∈ R^3x3
-    rep_euler_xyz = G.representations['euler_xyz']  # rep_euler_xyz(g) is an euler angle vector ∈ R^3
+    rep_QJ = G.representations["Q_js"]  # rep_QJ(g) is a permutation matrix ∈ R^nqj
+    rep_TqQJ = G.representations["TqQ_js"]  # rep_TqQJ(g) is a permutation matrix ∈ R^nvj
+    rep_Ed = G.representations["E3"]  # rep_Ed(g) is a homogenous transformation matrix ∈ R^(3+1)x(3+1)
+    rep_Rd = G.representations["R3"]  # rep_Rd(g) is an orthogonal matrix ∈ R^3x3
+    rep_Rd_pseudo = G.representations["R3_pseudo"]  # rep_Rd_pseudo(g) is an orthogonal matrix ∈ R^3x3
+    rep_euler_xyz = G.representations["euler_xyz"]  # rep_euler_xyz(g) is an euler angle vector ∈ R^3
 
     # Configuration of the 3D visualization -------------------------------------------------------------------------
     # Not really relevant to understand.
@@ -92,7 +90,12 @@ def main(cfg: DictConfig):
     e = G.identity  # Identity element of the group
     orbit_q_js, orbit_v_js = {e: q_js}, {e: v_js}
     orbit_hg_B, orbit_XB_w = {e: hg_B}, {e: XB}
-    orbit_f1, orbit_f2, orbit_rf1, orbit_rf2 = {e: f1}, {e: f2}, {e: rf1}, {e: rf2},
+    orbit_f1, orbit_f2, orbit_rf1, orbit_rf2 = (
+        {e: f1},
+        {e: f2},
+        {e: rf1},
+        {e: rf2},
+    )
     orbit_Rf1, orbit_Rf2 = {e: Rf1}, {e: Rf2}
     orbit_ori_euler_xyz = {e: base_ori_euler_xyz}
     # For each symmetry action g ∈ G, we get the representations of the action in the relevant vector spaces to
@@ -130,11 +133,20 @@ def main(cfg: DictConfig):
 
     # Visualization of orbits of robot states and of data ==========================================================
     # Use Ctrl and mouse-click+drag to rotate the 3D environment.
-    display_robots_and_vectors(pb, robot, group=G, base_confs=orbit_XB_w, orbit_q_js=orbit_q_js,
-                               orbit_v_js=orbit_v_js,
-                               orbit_com_momentum=orbit_hg_B, forces=[orbit_f1, orbit_f2],
-                               forces_points=[orbit_rf1, orbit_rf2], surface_normals=[orbit_Rf1, orbit_Rf2],
-                               tint=cfg.robot.tint_bodies, draw_floor=cfg.robot.draw_floor)
+    display_robots_and_vectors(
+        pb,
+        robot,
+        group=G,
+        base_confs=orbit_XB_w,
+        orbit_q_js=orbit_q_js,
+        orbit_v_js=orbit_v_js,
+        orbit_com_momentum=orbit_hg_B,
+        forces=[orbit_f1, orbit_f2],
+        forces_points=[orbit_rf1, orbit_rf2],
+        surface_normals=[orbit_Rf1, orbit_Rf2],
+        tint=cfg.robot.tint_bodies,
+        draw_floor=cfg.robot.draw_floor,
+    )
 
     root_path = pathlib.Path(morpho_symm.__file__).parents[1].absolute()
     if cfg.make_gif:
@@ -144,23 +156,41 @@ def main(cfg: DictConfig):
         cam_target_pose = [0, 0, 0]
         save_path = root_path / "docs/static/animations"
         save_path.mkdir(exist_ok=True)
-        render_orbiting_animation(pb, cam_target_pose=cam_target_pose, cam_distance=cam_distance,
-                                  save_path=save_path, anim_time=10, fps=15, periods=1,
-                                  init_roll_pitch_yaw=(0, 35, 0), invert_roll="dh" in cfg.robot.group_label.lower(),
-                                  pitch_sin_amplitude=20,
-                                  file_name=f"{robot.name}-{G.name}-symmetries_anim_static",
-                                  gen_gif=True, gen_imgs=False)
+        render_orbiting_animation(
+            pb,
+            cam_target_pose=cam_target_pose,
+            cam_distance=cam_distance,
+            save_path=save_path,
+            anim_time=10,
+            fps=15,
+            periods=1,
+            init_roll_pitch_yaw=(0, 35, 0),
+            invert_roll="dh" in cfg.robot.group_label.lower(),
+            pitch_sin_amplitude=20,
+            file_name=f"{robot.name}-{G.name}-symmetries_anim_static",
+            gen_gif=True,
+            gen_imgs=False,
+        )
         print("Done enjoy your gif :). I hope you learned something new")
     elif cfg.make_imgs:
         cam_distance = offset * 6
         cam_target_pose = [0, 0, 0]
         save_path = root_path / f"paper/images/{cfg.robot.name}"
         save_path.mkdir(exist_ok=True)
-        render_orbiting_animation(pb, cam_target_pose=cam_target_pose, cam_distance=cam_distance,
-                                  anim_time=2, fps=2, periods=1, pitch_sin_amplitude=0,
-                                  init_roll_pitch_yaw=(0, 90, 0) if G.order() > 2 else (0, 0, 0),
-                                  invert_roll="dh" in cfg.robot.group_label.lower(),
-                                  save_path=save_path, gen_gif=False, gen_imgs=True)
+        render_orbiting_animation(
+            pb,
+            cam_target_pose=cam_target_pose,
+            cam_distance=cam_distance,
+            anim_time=2,
+            fps=2,
+            periods=1,
+            pitch_sin_amplitude=0,
+            init_roll_pitch_yaw=(0, 90, 0) if G.order() > 2 else (0, 0, 0),
+            invert_roll="dh" in cfg.robot.group_label.lower(),
+            save_path=save_path,
+            gen_gif=False,
+            gen_imgs=True,
+        )
     if cfg.gui:
         while True:
             time.sleep(0.1)
@@ -168,5 +198,5 @@ def main(cfg: DictConfig):
         pb.disconnect()
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

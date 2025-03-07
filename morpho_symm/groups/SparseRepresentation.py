@@ -18,7 +18,6 @@ log = logging.getLogger(__name__)
 
 
 class SparseRep(BaseRep):
-
     def __init__(self, G: Union[Sym, Group]):
         super().__init__()
         self.G = G
@@ -30,7 +29,8 @@ class SparseRep(BaseRep):
         TODO: Canonicalizes problems
         and caches solutions for reuse. Output [Q (N,r)].
         """
-        if self == Scalar: return jnp.ones((1, 1))
+        if self == Scalar:
+            return jnp.ones((1, 1))
         canon_rep, perm = self.canonicalize()
         invperm = np.argsort(perm)
 
@@ -71,7 +71,7 @@ class SparseRep(BaseRep):
             constraints = []
             constraints.extend([self.rho(h) - scipy.sparse.eye(n) for h in self.G.discrete_generators])
             constraints.extend([self.drho(A) for A in self.G.lie_algebra])
-            return scipy.sparse.vstack(constraints) if constraints else None # TODO: Check
+            return scipy.sparse.vstack(constraints) if constraints else None  # TODO: Check
         else:
             return super().constraint_matrix()
 
@@ -92,7 +92,7 @@ class SparseRep(BaseRep):
         log.info(f"Solving equivariant basis using single generalized permutation matrix {P.shape}")
         n = P.shape[0]
 
-        idx = scipy.sparse.eye(n, format='coo', dtype=P.dtype)
+        idx = scipy.sparse.eye(n, format="coo", dtype=P.dtype)
         orbits = [idx]
         # First action is identity e
         for i, h in enumerate(self.G.discrete_actions[1:]):
@@ -109,8 +109,15 @@ class SparseRep(BaseRep):
         # A set is viable alternative to account for repeated orbits but has a higher memory cost
         pending_dims = np.ones((n,), dtype=np.bool)
 
-        pbar = tqdm(total=len(pending_dims), disable=False, dynamic_ncols=True, maxinterval=20, position=0, leave=True,
-                    file=sys.stdout)
+        pbar = tqdm(
+            total=len(pending_dims),
+            disable=False,
+            dynamic_ncols=True,
+            maxinterval=20,
+            position=0,
+            leave=True,
+            file=sys.stdout,
+        )
         pbar.set_description("Finding Eigenvectors")
 
         n_orbit = 0
@@ -139,7 +146,7 @@ class SparseRep(BaseRep):
                             orbit[idx] = 0 if val != orbit[idx] else val
                         else:
                             orbit[idx] = val
-                else:                         # Equivariant dimensions alone
+                else:  # Equivariant dimensions alone
                     orbit = {idx: val for idx, val in zip(w_idx, w_coeff)}
 
                 eig_rows.extend(orbit.keys())
@@ -167,8 +174,12 @@ class SparseRep(BaseRep):
         # non generalized-matrix representations.
         assert isinstance(self, SparseRep) and isinstance(other, SparseRep), f"{type(self)} != {type(other)}"
         G_class = type(self.G)
-        G = G_class([sparse.block_diag((self.rho(g1), other.rho(g2))) for g1, g2 in zip(self.G.discrete_generators,
-                                                                                        other.G.discrete_generators)])
+        G = G_class(
+            [
+                sparse.block_diag((self.rho(g1), other.rho(g2)))
+                for g1, g2 in zip(self.G.discrete_generators, other.G.discrete_generators)
+            ]
+        )
         return SparseRep(G)
 
     def __mul__(self, other):
@@ -176,7 +187,7 @@ class SparseRep(BaseRep):
         if type(other) == int:
             n_repetitions = other
             G_class = type(self.G)
-            G = G_class([sparse.block_diag([self.rho(g)]*n_repetitions) for g in self.G.discrete_generators])
+            G = G_class([sparse.block_diag([self.rho(g)] * n_repetitions) for g in self.G.discrete_generators])
             return SparseRep(G)
         else:
             raise NotImplementedError(f"Mul operator not defined for {type(other)}")
@@ -188,7 +199,6 @@ class SparseRep(BaseRep):
 
 # This will be called in the situation you brought up.
 class SparseRepE3(SparseRep):
-
     def __init__(self, G: Union[Sym, Group], pseudovector=False):
         super().__init__(G)
         self.pseudovector = pseudovector

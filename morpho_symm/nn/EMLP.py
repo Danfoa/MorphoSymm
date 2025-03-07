@@ -5,8 +5,9 @@ import escnn
 import numpy as np
 import torch
 from escnn.nn import EquivariantModule, FieldType, GeometricTensor
-from morpho_symm.utils.robot_utils import load_symmetric_system
+
 from morpho_symm.nn.EquivariantModules import IsotypicBasis
+from morpho_symm.utils.robot_utils import load_symmetric_system
 
 log = logging.getLogger(__name__)
 
@@ -14,16 +15,18 @@ log = logging.getLogger(__name__)
 class EMLP(EquivariantModule):
     """Equivariant Multi-Layer Perceptron (EMLP) model."""
 
-    def __init__(self,
-                 in_type: FieldType,
-                 out_type: FieldType,
-                 num_hidden_units: int = 64,
-                 num_layers: int = 3,
-                 bias: bool = True,
-                 activation: Union[str, EquivariantModule] = "ELU",
-                 head_with_activation: bool = False,
-                 batch_norm: bool = False,
-                 batch_norm_kwargs: dict = dict(affine=False, track_running_stats=True)):
+    def __init__(
+        self,
+        in_type: FieldType,
+        out_type: FieldType,
+        num_hidden_units: int = 64,
+        num_layers: int = 3,
+        bias: bool = True,
+        activation: Union[str, EquivariantModule] = "ELU",
+        head_with_activation: bool = False,
+        batch_norm: bool = False,
+        batch_norm_kwargs: dict = dict(affine=False, track_running_stats=True),
+    ):
         """Constructor of an Equivariant Multi-Layer Perceptron (EMLP) model.
 
         This utility class allows to easily instanciate a G-equivariant MLP architecture. As a convention, we assume
@@ -74,8 +77,10 @@ class EMLP(EquivariantModule):
             inner_irreps = set(out_type.irreps)
             diff = input_irreps.symmetric_difference(inner_irreps)
             if len(diff) > 0:
-                log.warning(f"Irreps {list(diff)} of group {self.gspace.fibergroup} are not in the input/output types."
-                            f"This represents an information bottleneck. Consider extracting invariant features.")
+                log.warning(
+                    f"Irreps {list(diff)} of group {self.gspace.fibergroup} are not in the input/output types."
+                    f"This represents an information bottleneck. Consider extracting invariant features."
+                )
 
         if self.num_layers == 1 and not head_with_activation:
             log.warning(f"{self} model with 1 layer and no activation. This is equivalent to a linear map")
@@ -96,10 +101,12 @@ class EMLP(EquivariantModule):
             layer_out_type = hidden_type
 
             block = escnn.nn.SequentialModule()
-            block.add_module(f"linear_{n}: in={layer_in_type.size}-out={layer_out_type.size}",
-                             escnn.nn.Linear(layer_in_type, layer_out_type, bias=bias))
+            block.add_module(
+                f"linear_{n}: in={layer_in_type.size}-out={layer_out_type.size}",
+                escnn.nn.Linear(layer_in_type, layer_out_type, bias=bias),
+            )
             if batch_norm:
-                block.add_module(f"batchnorm_{n}", escnn.nn.IIDBatchNorm1d(layer_out_type, **batch_norm_kwargs)),
+                (block.add_module(f"batchnorm_{n}", escnn.nn.IIDBatchNorm1d(layer_out_type, **batch_norm_kwargs)),)
             block.add_module(f"act_{n}", hidden_activation)
 
             self.net.add_module(f"block_{n}", block)
@@ -114,18 +121,27 @@ class EMLP(EquivariantModule):
             self.change2isotypic_basis = IsotypicBasis(hidden_type)
             # Number of G-invariant features from net output equals the number of G-stable subspaces.
             num_inv_features = len(hidden_type.irreps)
-            self.net_head.add_module(f"linear_{num_layers - 1}",
-                                     torch.nn.Linear(num_inv_features, out_type.size, bias=bias))
+            self.net_head.add_module(
+                f"linear_{num_layers - 1}", torch.nn.Linear(num_inv_features, out_type.size, bias=bias)
+            )
             if head_with_activation:
                 if batch_norm:
-                    self.net_head.add_module(f"batchnorm_{num_layers - 1}", torch.nn.BatchNorm1d(out_type.size, **batch_norm_kwargs)),
+                    (
+                        self.net_head.add_module(
+                            f"batchnorm_{num_layers - 1}", torch.nn.BatchNorm1d(out_type.size, **batch_norm_kwargs)
+                        ),
+                    )
                 self.net_head.add_module(f"act_{num_layers - 1}", activation)
         else:  # Equivariant Network
             self.net_head = escnn.nn.SequentialModule()
             self.net_head.add_module(f"linear_{num_layers - 1}", escnn.nn.Linear(layer_in_type, out_type, bias=bias))
             if head_with_activation:
                 if batch_norm:
-                    self.net_head.add_module(f"batchnorm_{num_layers - 1}", escnn.nn.IIDBatchNorm1d(out_type, **batch_norm_kwargs)),
+                    (
+                        self.net_head.add_module(
+                            f"batchnorm_{num_layers - 1}", escnn.nn.IIDBatchNorm1d(out_type, **batch_norm_kwargs)
+                        ),
+                    )
                 self.net_head.add_module(f"act_{num_layers - 1}", escnn.nn.ELU(in_type=out_type))
         # Test the entire model is equivariant.
         # self.net.check_equivariance()
@@ -160,19 +176,21 @@ class EMLP(EquivariantModule):
             raise NotImplementedError("Identity activation not implemented yet")
             # return escnn.nn.IdentityModule()
         else:
-            act = escnn.nn.FourierPointwise(gspace,
-                                            channels=channels,
-                                            irreps=list(unique_irreps),
-                                            function=f"p_{activation.lower()}",
-                                            inplace=True,
-                                            **grid_kwargs)
+            act = escnn.nn.FourierPointwise(
+                gspace,
+                channels=channels,
+                irreps=list(unique_irreps),
+                function=f"p_{activation.lower()}",
+                inplace=True,
+                **grid_kwargs,
+            )
         # assert (act.out_type.size - desired_hidden_units) <= unique_irreps_dim, \
         #     f"out_type.size {act.out_type.size} - des_hidden_units {desired_hidden_units} > {unique_irreps_dim}"
         return act
 
     @staticmethod
     def get_group_kwargs(group: escnn.group.Group):
-        grid_type = 'regular' if not group.continuous else 'rand'
+        grid_type = "regular" if not group.continuous else "rand"
         N = group.order() if not group.continuous else 10
         kwargs = dict()
 
@@ -189,12 +207,13 @@ class EMLP(EquivariantModule):
     @staticmethod
     def irrep_norm_pooling(x: torch.Tensor, field_type: FieldType) -> torch.Tensor:
         from morpho_symm.utils.rep_theory_utils import irreps_stats
+
         n_inv_features = len(field_type.irreps)
         # TODO: Ensure isotypic basis i.e irreps of the same type are consecutive to each other.
         inv_features = []
-        for field_start, field_end, rep in zip(field_type.fields_start,
-                                               field_type.fields_end,
-                                               field_type.representations):
+        for field_start, field_end, rep in zip(
+            field_type.fields_start, field_type.fields_end, field_type.representations
+        ):
             # Each field here represents a representation of an Isotypic Subspace. This rep is only composed of a single
             # irrep type.
             x_field = x[..., field_start:field_end]
@@ -222,7 +241,7 @@ class EMLP(EquivariantModule):
 
 if __name__ == "__main__":
     # Load robot instance and its symmetry group
-    robot_name = 'mini_cheetah-k4'  # or any of the robots in the library (see `/morpho_symm/cfg/robot`)
+    robot_name = "mini_cheetah-k4"  # or any of the robots in the library (see `/morpho_symm/cfg/robot`)
     robot, G = load_symmetric_system(robot_name=robot_name)
     # We use ESCNN to handle the group/representation-theoretic concepts and for the construction of equivariant neural networks.
     gspace = escnn.gspaces.no_base_space(G)
@@ -249,17 +268,11 @@ if __name__ == "__main__":
     in_type = FieldType(gspace, [rep_R3, rep_R3_pseudo, rep_R3, rep_R3, rep_R3_pseudo, rep_TqQJ, rep_TqQJ, rep_TqQJ])
     out_type = escnn.nn.FieldType(gspace, [G.trivial_representation] * 1)
     # Test Invariant EMLP
-    emlp = EMLP(in_type, out_type,
-                num_hidden_units=128,
-                num_layers=3,
-                activation="ReLU",
-                head_with_activation=False)
+    emlp = EMLP(in_type, out_type, num_hidden_units=128, num_layers=3, activation="ReLU", head_with_activation=False)
     emlp.eval()  # Shut down batch norm
     x = in_type(torch.randn(1, in_type.size))
     y = emlp(x)
     import numpy as np
-
-
 
     # G = escnn.group.DihedralGroup(6)
     # gspace = escnn.gspaces.no_base_space(G)

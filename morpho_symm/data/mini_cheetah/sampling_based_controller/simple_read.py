@@ -1,7 +1,8 @@
-import numpy as np
 import pathlib
-from morpho_symm.data.DynamicsRecording import DynamicsRecording
 
+import numpy as np
+
+from morpho_symm.data.DynamicsRecording import DynamicsRecording
 
 # HOW DID I SAVED THING??
 # temp_state =  np.zeros((1, 25))
@@ -59,6 +60,7 @@ from morpho_symm.data.DynamicsRecording import DynamicsRecording
 # temp_disturbance[0, 6] = start_disturbance_boolean WORLD
 # data_external_disturbance.append(copy.deepcopy(temp_disturbance))
 
+
 def convert_mini_cheetah_sb_controller_recording(data_path: pathlib.Path):
     """Conversion script for the recordings of observations from the Mini-Cheetah Robot.
 
@@ -99,7 +101,7 @@ def convert_mini_cheetah_sb_controller_recording(data_path: pathlib.Path):
     """
     assert data_path.exists(), f"Path {data_path.absolute()} does not exist"
 
-    with open(data_path, 'rb') as f:
+    with open(data_path, "rb") as f:
         state = np.squeeze(np.load(f))
         reference = np.squeeze(np.load(f))
         input = np.squeeze(np.load(f))
@@ -109,27 +111,31 @@ def convert_mini_cheetah_sb_controller_recording(data_path: pathlib.Path):
     assert state.shape[1] == 85, f"State shape is {state.shape}, expected (time, 85)"
     assert reference.shape[1] == 22, f"Reference shape is {reference.shape}, expected (time, 22)"
     assert input.shape[1] == 24, f"Input shape is {input.shape}, expected (time, 24)"
-    assert external_disturbance.shape[1] == 7, f"External Disturbance shape is {external_disturbance.shape}, expected (time, 7)"
+    assert external_disturbance.shape[1] == 7, (
+        f"External Disturbance shape is {external_disturbance.shape}, expected (time, 7)"
+    )
 
     # Here you can add the transformations and checks on the data as needed
 
     # Define the dataset.
     data_recording = DynamicsRecording(
         description=f"Mini Cheetah {data_path.parent.parent.stem}",
-        info=dict(num_traj=1,
-                  trajectory_length=state.shape[0]),
+        info=dict(num_traj=1, trajectory_length=state.shape[0]),
         dynamics_parameters=dict(dt=0.001 * dt_subsample, group=dict(group_name=G.name, group_order=G.order())),
-        recordings=dict(state=state,
-                        reference=reference,
-                        input=input,
-                        external_disturbance=external_disturbance),
+        recordings=dict(state=state, reference=reference, input=input, external_disturbance=external_disturbance),
         state_obs=(
-            'joint_pos', 'joint_vel', 'base_z_error', 'base_ori', 'base_ori_error', 'base_vel_error',
-            'base_ang_vel_error'),
-        action_obs=('joint_torques',),
+            "joint_pos",
+            "joint_vel",
+            "base_z_error",
+            "base_ori",
+            "base_ori_error",
+            "base_vel_error",
+            "base_ang_vel_error",
+        ),
+        action_obs=("joint_torques",),
         obs_representations=dict(),  # Add the representations for each observation here
-        obs_moments=dict()  # Add the moments for each observation here
-        )
+        obs_moments=dict(),  # Add the moments for each observation here
+    )
 
     # Compute the mean and variance of all observations considering symmetry constraints.
     for obs_name in data_recording.recordings.keys():
@@ -137,20 +143,20 @@ def convert_mini_cheetah_sb_controller_recording(data_path: pathlib.Path):
             continue
         data_recording.compute_obs_moments(obs_name=obs_name)
 
-    file_name = (f"n_trajs={data_recording.info['num_traj']}"
-                 f"-frames={data_recording.info['trajectory_length']}.pkl")
+    file_name = f"n_trajs={data_recording.info['num_traj']}-frames={data_recording.info['trajectory_length']}.pkl"
     data_recording.save_to_file(data_path.parent.parent / file_name)
     print(f"Dynamics Recording saved to {data_path.parent.parent / file_name}")
     return data_recording
 
-if __name__ == '__main__':
-    data_path = pathlib.Path('./data_estimator.npy')
+
+if __name__ == "__main__":
+    data_path = pathlib.Path("./data_estimator.npy")
     data_recording = convert_mini_cheetah_sb_controller_recording(data_path)
     print("done")
 
     # Read the saved data
 
-with open('./data_estimator.npy', 'rb') as f:
+with open("./data_estimator.npy", "rb") as f:
     state = np.squeeze(np.load(f))
     reference = np.squeeze(np.load(f))
     input = np.squeeze(np.load(f))
@@ -158,13 +164,13 @@ with open('./data_estimator.npy', 'rb') as f:
 
     # Create a scatterplot matrix of disturbances
     import matplotlib.pyplot as plt
-    import seaborn as sns
     import pandas as pd
+    import seaborn as sns
 
     not_disturbed = np.alltrue(np.isclose(external_disturbance[:, :6], 0, atol=1e-2, rtol=1e-2), axis=1)
     external_disturbance[:, -1] = np.logical_not(not_disturbed)
-    df = pd.DataFrame(external_disturbance, columns=['Fx', 'Fy', 'Fz', 'Mx', 'My', 'Mz', 'is_disturbed'])
-    sns.pairplot(df, hue='is_disturbed')
+    df = pd.DataFrame(external_disturbance, columns=["Fx", "Fy", "Fz", "Mx", "My", "Mz", "is_disturbed"])
+    sns.pairplot(df, hue="is_disturbed")
     plt.show()
 
     print(state.shape)

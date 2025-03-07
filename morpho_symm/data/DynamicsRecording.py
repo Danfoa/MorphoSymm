@@ -1,4 +1,5 @@
 from __future__ import annotations  # Support new typing structure in 3.8 and 3.9
+
 import copy
 import logging
 import math
@@ -6,7 +7,7 @@ import pickle
 from dataclasses import dataclass, field
 from math import floor
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional, Tuple, Union
+from typing import Iterable, List, Optional, Union
 
 import datasets
 import numpy as np
@@ -22,7 +23,7 @@ class DynamicsRecording:
 
     description: Optional[str] = None
     info: dict[str, object] = field(default_factory=dict)
-    dynamics_parameters: dict = field(default_factory=lambda: {'dt': None})
+    dynamics_parameters: dict = field(default_factory=lambda: {"dt": None})
 
     # Ordered list of observations composing to the state and action space of the Markov Process.
     state_obs: tuple[str, ...] = field(default_factory=list)
@@ -37,19 +38,20 @@ class DynamicsRecording:
     def __post_init__(self):
         # Check provided state observables are in the recordings
         for obs_name in self.state_obs:
-            assert obs_name in self.recordings.keys(), \
+            assert obs_name in self.recordings.keys(), (
                 f"State observable {obs_name} not in the provided recordings: {self.recordings.keys()}"
+            )
         for obs_name in self.recordings.keys():
             # Scalar observations should have shape (traj, time, 1)
-            obs_shape = self.recordings[obs_name].shape
-            if len(obs_shape) == 2:
-                self.recordings[obs_name] = self.recordings[obs_name][..., None]
+            # obs_shape = self.recordings[obs_name].shape
+            # if len(obs_shape) == 2:
+            #     self.recordings[obs_name] = self.recordings[obs_name][..., None]
             # If group representation of observation is provided, check the representation has the same dimension
             if obs_name in self.obs_representations.keys():
                 rep = self.obs_representations[obs_name]
-                assert rep.size == self.obs_dims[obs_name], \
-                    (f"Invalid dimension of representation {rep.name} {(rep.size, rep.size)} associated to "
-                     f"the observation {obs_name} ({self.obs_dims[obs_name]},)")
+                assert rep.size == self.recordings[obs_name].shape[-1], (
+                    f"[{obs_name}] Invalid rep dim={rep.size} for {self.recordings[obs_name]}"
+                )
 
     @property
     def obs_dims(self):
@@ -62,8 +64,9 @@ class DynamicsRecording:
         return sum([self.obs_dims[obs] for obs in self.state_obs])
 
     _obs_idx = None
+
     def obs_idx_in_state(self, obs_name) -> tuple[int]:
-        """returns a tuple of indices of each observation in the state vector."""
+        """Returns a tuple of indices of each observation in the state vector."""
         assert obs_name in self.state_obs, f"Observation {obs_name} not in state observations"
         if self._obs_idx is None:
             self._obs_idx = {}
@@ -90,7 +93,7 @@ class DynamicsRecording:
             var.append(obs_var)
         mean, var = np.concatenate(mean), np.concatenate(var)
         return mean, var
-    
+
     def compute_obs_moments(self, obs_name: str) -> [np.ndarray, np.ndarray]:
         """Compute the mean and standard deviation of observations."""
         assert obs_name in self.recordings.keys(), f"Observation {obs_name} not found in recording"
@@ -125,23 +128,24 @@ class DynamicsRecording:
                 avg_projector = rep_obs.change_of_basis @ S @ rep_obs.change_of_basis_inv
                 # Compute the mean in a single vectorized operation
                 mean_empirical = np.mean(obs_original_basis, axis=(0, 1))
-                mean = np.einsum('...ij,...j->...i', avg_projector, mean_empirical)
+                mean = np.einsum("...ij,...j->...i", avg_projector, mean_empirical)
 
             # Compute the variance of the observable by computing a single variance per irrep G-stable subspace.
             # To do this, we project the observations to the basis exposing the irreps, compute the variance per
             # G-stable subspace, and map the variance back to the original basis.
-            centered_obs_irrep_basis = np.einsum('...ij,...j->...i', Q_inv, obs_original_basis - mean)
+            centered_obs_irrep_basis = np.einsum("...ij,...j->...i", Q_inv, obs_original_basis - mean)
             var_irrep_basis = np.ones_like(var)
             for irrep_id, irrep_dims in zip(rep_obs.irreps, irreps_dimension):
                 irrep = G.irrep(*irrep_id)
                 centered_obs_irrep = centered_obs_irrep_basis[..., irrep_dims]
-                assert centered_obs_irrep.shape[-1] == irrep.size, \
+                assert centered_obs_irrep.shape[-1] == irrep.size, (
                     f"Obs irrep shape {centered_obs_irrep.shape} != {irrep.size}"
+                )
 
                 # Since the irreps are unitary/orthogonal transformations, we are constrained compute a unique variance
                 # for all dimensions of the irrep G-stable subspace, as scaling the dimensions independently would break
                 # the symmetry of the rv. As a centered rv the variance is the expectation of the squared rv.
-                var_irrep = np.mean(centered_obs_irrep ** 2)  # Single scalar variance per G-stable subspace
+                var_irrep = np.mean(centered_obs_irrep**2)  # Single scalar variance per G-stable subspace
                 # Store the irrep mean and variance in the entire representation mean and variance
                 var_irrep_basis[irrep_dims] = var_irrep
             # Convert the variance from the irrep basis to the original basis
@@ -164,10 +168,12 @@ class DynamicsRecording:
         else:
             mean = np.mean(np.asarray(self.recordings[obs_name]), axis=(0, 1))
             var = np.var(np.asarray(self.recordings[obs_name]), axis=(0, 1))
-        assert mean.shape == (self.obs_dims[obs_name],), \
+        assert mean.shape == (self.obs_dims[obs_name],), (
             f"Obs {obs_name} dim ({self.obs_dims[obs_name]},) diff from estimated mean dim ({mean.shape},)!= "
-        assert var.shape == (self.obs_dims[obs_name],), \
+        )
+        assert var.shape == (self.obs_dims[obs_name],), (
             f"Obs {obs_name} dim ({self.obs_dims[obs_name]},) diff from estimated var dim ({var.shape},)!= "
+        )
 
         self.obs_moments[obs_name] = mean, var
 
@@ -196,19 +202,22 @@ class DynamicsRecording:
             obs_dim = self.obs_dims[obs_name]
             dim_names += [f"{obs_name}:{i}" for i in range(obs_dim)]
         return dim_names
-    
-    def get_obs_from_vector(self, vector: np.ndarray, obs_names: tuple[str,...] = None) -> dict[str, np.ndarray]:
-        """ Extract the observation values from a vector given the ordered observation names."""
+
+    def get_obs_from_vector(self, vector: np.ndarray, obs_names: tuple[str, ...] = None) -> dict[str, np.ndarray]:
+        """Extract the observation values from a vector given the ordered observation names."""
         if obs_names is None:
             obs_names = self.state_obs
         else:
             for name in obs_names:
                 assert name in self.recordings.keys(), f"Observation {name} not in recordings {self.recordings.keys()}"
         obs_dims = [self.obs_dims[obs] for obs in obs_names]
-        assert vector.shape[-1] == sum(obs_dims), \
+        assert vector.shape[-1] == sum(obs_dims), (
             f"Vector dim {vector.shape[-1]} differs from expected dimension {sum(obs_dims)}"
+        )
         obs_idx = [0] + [sum(obs_dims[:i]) for i in range(1, len(obs_dims))]
-        obs_values = {obs_name: vector[...,obs_idx[i]:obs_idx[i] + obs_dims[i]] for i, obs_name in enumerate(obs_names)}
+        obs_values = {
+            obs_name: vector[..., obs_idx[i] : obs_idx[i] + obs_dims[i]] for i, obs_name in enumerate(obs_names)
+        }
         return obs_values
 
     def save_to_file(self, file_path: Path):
@@ -226,17 +235,17 @@ class DynamicsRecording:
             self._group_name = group.__class__.__name__
             # Remove non-serializable objects
             del self.obs_representations
-            self.dynamics_parameters.pop('group', None)
+            self.dynamics_parameters.pop("group", None)
 
-        with file_path.with_suffix(".pkl").open('wb') as file:
+        with file_path.with_suffix(".pkl").open("wb") as file:
             self._path = file_path.with_suffix(".pkl").absolute()
             pickle.dump(self, file, protocol=pickle.HIGHEST_PROTOCOL)
 
     @staticmethod
-    def load_from_file(file_path: Path, only_metadata=False,
-                       obs_names: Optional[Iterable[str]] = None,
-                       ignore_other_obs: bool = True) -> 'DynamicsRecording':
-        """ Load a DynamicsRecording object from a file.
+    def load_from_file(
+        file_path: Path, only_metadata=False, obs_names: Optional[Iterable[str]] = None, ignore_other_obs: bool = True
+    ) -> "DynamicsRecording":
+        """Load a DynamicsRecording object from a file.
 
         Args:
             file_path: Path to the file containing the DynamicsRecording object.
@@ -247,7 +256,7 @@ class DynamicsRecording:
         Returns:
             A DynamicsRecording object containing the loaded data.
         """
-        with file_path.with_suffix(".pkl").open('rb') as file:
+        with file_path.with_suffix(".pkl").open("rb") as file:
             data = pickle.load(file)
             if only_metadata:
                 del data.recordings
@@ -260,9 +269,9 @@ class DynamicsRecording:
                         for k in irrelevant_obs:
                             del data.recordings[k]
 
-            if hasattr(data, '_group_name'):
+            if hasattr(data, "_group_name"):
                 group = groups_dict[data._group_name]._generator(**data._group_keys)  # Instanciate symmetry group
-                data.dynamics_parameters['group'] = group
+                data.dynamics_parameters["group"] = group
                 data.obs_representations = {}
                 for obs_name in data._obs_rep_irreps.keys():
                     irreps_ids = data._obs_rep_irreps[obs_name]
@@ -273,18 +282,21 @@ class DynamicsRecording:
                     elif rep_name in group.representations:
                         data.obs_representations[obs_name] = group.representations[rep_name]
                     else:
-                        data.obs_representations[obs_name] = Representation(group, name=rep_name,
-                                                                            irreps=irreps_ids, change_of_basis=rep_Q)
+                        data.obs_representations[obs_name] = Representation(
+                            group, name=rep_name, irreps=irreps_ids, change_of_basis=rep_Q
+                        )
                     group.representations[rep_name] = data.obs_representations[obs_name]
         data.__post_init__()
         return data
 
     @staticmethod
-    def load_data_generator(dynamics_recordings: list["DynamicsRecording"],
-                            frames_per_step: int = 1,
-                            prediction_horizon: Union[int, float] = 1,
-                            state_obs: Optional[list[str]] = None,
-                            action_obs: Optional[list[str]] = None):
+    def load_data_generator(
+        dynamics_recordings: list["DynamicsRecording"],
+        frames_per_step: int = 1,
+        prediction_horizon: Union[int, float] = 1,
+        state_obs: Optional[list[str]] = None,
+        action_obs: Optional[list[str]] = None,
+    ):
         """Generator that yields observation samples of length `n_frames_per_state` from the Markov Dynamics recordings.
 
         Args:
@@ -341,24 +353,27 @@ class DynamicsRecording:
                         start_indices = np.arange(0, num_steps) * frames_per_step + frame
                         end_indices = start_indices + frames_per_step
                         # Use these indices to slice the relevant portion of the trajectory
-                        obs_time_horizon = trajs[traj_id][start_indices[0]:end_indices[-1]]
+                        obs_time_horizon = trajs[traj_id][start_indices[0] : end_indices[-1]]
                         # Reshape the slice to have the desired shape (time, frames_per_step, obs_dim)
                         obs_dim = file_data.obs_dims[obs_name]
                         obs_time_horizon = obs_time_horizon.reshape((num_steps, frames_per_step, obs_dim))
 
                         # Test no copy is being made (too costly to do at runtime)
                         # assert np.shares_memory(obs_time_horizon, trajs[traj_id])
-                        assert len(obs_time_horizon) == steps_in_pred_horizon + 1, \
+                        assert len(obs_time_horizon) == steps_in_pred_horizon + 1, (
                             f"{len(obs_time_horizon)} != {steps_in_pred_horizon + 1}"
+                        )
                         sample[obs_name] = obs_time_horizon
                     # print(frame)
                     yield sample
 
     @staticmethod
-    def map_state_next_state(sample: dict,
-                             state_observations: List[str],
-                             state_mean: Optional[np.ndarray] = None,
-                             state_std: Optional[np.ndarray] = None) -> dict:
+    def map_state_next_state(
+        sample: dict,
+        state_observations: List[str],
+        state_mean: Optional[np.ndarray] = None,
+        state_std: Optional[np.ndarray] = None,
+    ) -> dict:
         """Map composing multiple frames of observations into a flat vectors `state` and `next_state` samples.
 
         This method constructs the state `s_t` and history of nex steps `s_t+1` of the Markov Process.
@@ -398,14 +413,15 @@ class DynamicsRecording:
         return flat_sample
 
 
-def estimate_dataset_size(recordings: list[DynamicsRecording], prediction_horizon: Union[int, float] = 1,
-                          frames_per_step: int = 1):
+def estimate_dataset_size(
+    recordings: list[DynamicsRecording], prediction_horizon: Union[int, float] = 1, frames_per_step: int = 1
+):
     num_trajs = 0
     num_samples = 0
     steps_pred_horizon = []
     for r in recordings:
-        r_num_trajs = r.info['num_traj']
-        r_traj_length = r.info['trajectory_length']
+        r_num_trajs = r.info["num_traj"]
+        r_traj_length = r.info["trajectory_length"]
         if isinstance(prediction_horizon, float):
             steps_in_pred_horizon = floor((prediction_horizon * r_traj_length) // frames_per_step)
         else:
@@ -427,10 +443,11 @@ def reduce_dataset_size(recordings: Iterable[DynamicsRecording], train_ratio: fl
     log.info(f"Reducing dataset size to {train_ratio * 100}%")
     # Ensure all training seeds use the same training data partitions
     from morpho_symm.utils.mysc import TemporaryNumpySeed
+
     with TemporaryNumpySeed(10):
         for r in recordings:
             # Decide to keep a ratio of the original trajectories
-            num_trajs = r.info['num_traj']
+            num_trajs = r.info["num_traj"]
             if num_trajs < 10:  # Do not discard entire trajectories, but rather parts of the trajectories
                 time_horizon = r.recordings[r.state_obs[0]].shape[1]  # Take the time horizon from the first observation
 
@@ -439,19 +456,18 @@ def reduce_dataset_size(recordings: Iterable[DynamicsRecording], train_ratio: fl
                 n_partitions = math.ceil((1 / (1 - train_ratio)))
                 n_partitions = n_partitions * 10 if n_partitions < 10 else n_partitions
                 # Ensure partitions of the same time duration
-                partitions_idx = np.split(idx[:-(time_horizon % n_partitions)], indices_or_sections=n_partitions)
+                partitions_idx = np.split(idx[: -(time_horizon % n_partitions)], indices_or_sections=n_partitions)
                 partition_length = partitions_idx[0].shape[0]
                 n_partitions_to_keep = math.ceil(n_partitions * train_ratio)
-                partitions_to_keep = np.random.choice(range(n_partitions),
-                                                      size=n_partitions_to_keep,
-                                                      replace=False)
+                partitions_to_keep = np.random.choice(range(n_partitions), size=n_partitions_to_keep, replace=False)
                 print(partitions_to_keep)
                 partitions_to_keep = [partitions_idx[i] for i in partitions_to_keep]
 
                 ratio_of_samples_removed = (time_horizon - (len(partitions_to_keep) * partition_length)) / time_horizon
-                assert ratio_of_samples_removed - (1 - train_ratio) < 0.05, \
-                    (f"Requested to remove {(1 - train_ratio) * 100}% of the samples, "
-                     f"but removed {ratio_of_samples_removed * 100}%")
+                assert ratio_of_samples_removed - (1 - train_ratio) < 0.05, (
+                    f"Requested to remove {(1 - train_ratio) * 100}% of the samples, "
+                    f"but removed {ratio_of_samples_removed * 100}%"
+                )
 
                 new_recordings = {}
                 for obs_name, obs in r.recordings.items():
@@ -460,8 +476,8 @@ def reduce_dataset_size(recordings: Iterable[DynamicsRecording], train_ratio: fl
                         new_obs_trajs.append(obs[:, part_time_idx])
                     new_recordings[obs_name] = np.concatenate(new_obs_trajs, axis=0)
                 r.recordings = new_recordings
-                r.info['num_traj'] = len(partitions_to_keep)
-                r.info['trajectory_length'] = partition_length
+                r.info["num_traj"] = len(partitions_to_keep)
+                r.info["trajectory_length"] = partition_length
             else:  # Discard entire trajectories
                 # Sample int(num_trajs * train_ratio) trajectories from the original recordings
                 num_trajs_to_keep = math.ceil(num_trajs * train_ratio)
@@ -473,10 +489,10 @@ def reduce_dataset_size(recordings: Iterable[DynamicsRecording], train_ratio: fl
 
 
 def split_train_val_test(
-        dyn_recording: DynamicsRecording,
-        partition_sizes=(0.70, 0.15, 0.15),
-        split_dimension: str = 'auto' # 'time' or 'trajectory' 
-        ) -> [DynamicsRecording, DynamicsRecording, DynamicsRecording]:
+    dyn_recording: DynamicsRecording,
+    partition_sizes=(0.70, 0.15, 0.15),
+    split_dimension: str = "auto",  # 'time' or 'trajectory'
+) -> [DynamicsRecording, DynamicsRecording, DynamicsRecording]:
     """Split the recordings into training, validation and test sets.
 
     Args:
@@ -484,34 +500,33 @@ def split_train_val_test(
         partition_sizes: (tuple): The sizes of the training, validation and test sets.
         split_dimension: (str): The dimension to split the data. Can be 'time' or 'trajectory' or 'auto'. In the case
          of auto, the function will decide the best way to split the data based on the shape of the data.
+
     Returns:
         (DynamicsRecording, DynamicsRecording, DynamicsRecording): The training, validation and test sets.
     """
-
     assert np.isclose(np.sum(partition_sizes), 1.0), f"Invalid partition sizes {partition_sizes}"
     partitions_names = ["train", "val", "test"]
-    
-    
+
     log.info(f"Partitioning {dyn_recording.description} into train/val/test of sizes {partition_sizes}[%]")
     # Ensure all training seeds use the same training data partitions
     from morpho_symm.utils.mysc import TemporaryNumpySeed
+
     with TemporaryNumpySeed(10):  # Ensure deterministic behavior
         # Decide to keep a ratio of the original trajectories
         state_traj = dyn_recording.get_state_trajs()
         assert state_traj.ndim == 3, f"Expectec (traj, time, state_dim) but got {state_traj.shape}"
         num_trajs, time_horizon, state_dim = state_traj.shape
 
-        if split_dimension == 'auto':
+        if split_dimension == "auto":
             split_time = time_horizon > num_trajs
-        elif split_dimension == 'time':
+        elif split_dimension == "time":
             split_time = True
-        elif split_dimension == 'trajectory':
+        elif split_dimension == "trajectory":
             split_time = False
         else:
             raise ValueError(f"Invalid split dimension {split_dimension} expected 'time', 'trajectory' or 'auto'")
 
         if split_time:  # Do not discard entire trajectories, but rather parts of the trajectories
-
             num_samples = time_horizon
             min_idx = 0
             partitions_sample_idx = {partition: None for partition in partitions_names}
@@ -524,7 +539,7 @@ def split_train_val_test(
             partitions_recordings = {partition: copy.deepcopy(dyn_recording) for partition in partitions_names}
             for partition_name, sample_idx in partitions_sample_idx.items():
                 part_num_samples = len(sample_idx)
-                partitions_recordings[partition_name].info['trajectory_length'] = part_num_samples
+                partitions_recordings[partition_name].info["trajectory_length"] = part_num_samples
                 partitions_recordings[partition_name].recordings = dict()
                 for obs_name in dyn_recording.recordings.keys():
                     if len(dyn_recording.recordings[obs_name].shape) == 3:
@@ -547,30 +562,29 @@ def split_train_val_test(
             partitions_recordings = {partition: copy.deepcopy(dyn_recording) for partition in partitions_names}
             for partition_name, sample_idx in partitions_sample_idx.items():
                 part_num_samples = len(sample_idx)
-                partitions_recordings[partition_name].info['num_traj'] = part_num_samples
+                partitions_recordings[partition_name].info["num_traj"] = part_num_samples
                 partitions_recordings[partition_name].recordings = dict()
                 for obs_name in dyn_recording.recordings.keys():
                     data = dyn_recording.recordings[obs_name][sample_idx]
                     partitions_recordings[partition_name].recordings[obs_name] = data
 
-        return partitions_recordings['train'], partitions_recordings['val'], partitions_recordings['test']
+        return partitions_recordings["train"], partitions_recordings["val"], partitions_recordings["test"]
 
 
-
-
-def get_dynamics_dataset(train_shards: list[Path],
-                         test_shards: Optional[list[Path]] = None,
-                         val_shards: Optional[list[Path]] = None,
-                         frames_per_step: int = 1,
-                         train_ratio: float = 1.0,
-                         train_pred_horizon: Union[int, float] = 1,
-                         eval_pred_horizon: Union[int, float] = 10,
-                         test_pred_horizon: Union[int, float] = 10,
-                         state_obs: Optional[tuple[str]] = None,
-                         action_obs: Optional[tuple[str]] = None,
-                         hard_test_augment: bool = False,
-                         hard_val_augment: bool = False,
-                         ) -> tuple[list[IterableDataset], DynamicsRecording]:
+def get_dynamics_dataset(
+    train_shards: list[Path],
+    test_shards: Optional[list[Path]] = None,
+    val_shards: Optional[list[Path]] = None,
+    frames_per_step: int = 1,
+    train_ratio: float = 1.0,
+    train_pred_horizon: Union[int, float] = 1,
+    eval_pred_horizon: Union[int, float] = 10,
+    test_pred_horizon: Union[int, float] = 10,
+    state_obs: Optional[tuple[str]] = None,
+    action_obs: Optional[tuple[str]] = None,
+    hard_test_augment: bool = False,
+    hard_val_augment: bool = False,
+) -> tuple[list[IterableDataset], DynamicsRecording]:
     """Load Markov Dynamics recordings from a list of files and return a train, test and validation dataset."""
     # TODO: ensure all shards come from the same dynamical system
     metadata: DynamicsRecording = DynamicsRecording.load_from_file(train_shards[0])
@@ -579,6 +593,7 @@ def get_dynamics_dataset(train_shards: list[Path],
 
     if len(test_shards) > 0:
         from morpho_symm.utils.mysc import compare_dictionaries
+
         test_metadata = DynamicsRecording.load_from_file(test_shards[0], only_metadata=True)
         dyn_params_diff = compare_dictionaries(metadata.dynamics_parameters, test_metadata.dynamics_parameters)
         assert len(dyn_params_diff) == 0, "Different dynamical systems loaded in train/test sets"
@@ -592,7 +607,7 @@ def get_dynamics_dataset(train_shards: list[Path],
     for obs_name in relevant_obs:
         assert obs_name in metadata.recordings.keys(), f"Observation {obs_name} not found in recordings"
     for obs_name in relevant_obs:
-        features[obs_name] = datasets.Array2D(shape=(frames_per_step, metadata.obs_dims[obs_name]), dtype='float32')
+        features[obs_name] = datasets.Array2D(shape=(frames_per_step, metadata.obs_dims[obs_name]), dtype="float32")
 
     part_datasets = []
     for partition, partition_shards in zip(["train", "test", "val"], [train_shards, test_shards, val_shards]):
@@ -613,17 +628,22 @@ def get_dynamics_dataset(train_shards: list[Path],
             pred_horizon = test_pred_horizon
 
         num_trajs, num_samples = estimate_dataset_size(recordings, pred_horizon, frames_per_step)
-        dataset = IterableDataset.from_generator(DynamicsRecording.load_data_generator,
-                                                 features=Features(features),
-                                                 gen_kwargs=dict(dynamics_recordings=recordings,
-                                                                 frames_per_step=frames_per_step,
-                                                                 prediction_horizon=pred_horizon,
-                                                                 state_obs=tuple(state_obs),
-                                                                 action_obs=tuple(action_obs))
-                                                 )
+        dataset = IterableDataset.from_generator(
+            DynamicsRecording.load_data_generator,
+            features=Features(features),
+            gen_kwargs=dict(
+                dynamics_recordings=recordings,
+                frames_per_step=frames_per_step,
+                prediction_horizon=pred_horizon,
+                state_obs=tuple(state_obs),
+                action_obs=tuple(action_obs),
+            ),
+        )
 
-        log.debug(f"[Dataset {partition} - Trajs:{num_trajs} - Samples: {num_samples} - "
-                  f"Frames per sample : {frames_per_step}]-----------------------------")
+        log.debug(
+            f"[Dataset {partition} - Trajs:{num_trajs} - Samples: {num_samples} - "
+            f"Frames per sample : {frames_per_step}]-----------------------------"
+        )
 
         dataset.info.dataset_size = num_samples
         dataset.info.dataset_name = f"[{partition}] Linear dynamics"
@@ -654,27 +674,29 @@ if __name__ == "__main__":
     assert path_to_data.exists(), f"Invalid Dataset path {path_to_data.absolute()}"
 
     # Find all dynamic systems recordings
-    path_to_data /= Path('mini_cheetah') / 'recordings' / 'grass'
+    path_to_data /= Path("mini_cheetah") / "recordings" / "grass"
     # path_to_data = Path('/home/danfoa/Projects/koopman_robotics/data/linear_system/group=C3-dim=6/n_constraints=1/')
-    path_to_dyn_sys_data = set([a.parent for a in list(path_to_data.rglob('*test.pkl'))])
+    path_to_dyn_sys_data = set([a.parent for a in list(path_to_data.rglob("*test.pkl"))])
     # Select a dynamical system
     mock_path = path_to_dyn_sys_data.pop()
     # Obtain the training, testing and validation file paths containing distinct trajectories of motion.
     train_data, test_data, val_data = get_train_test_val_file_paths(mock_path)
     # Obtain hugging face Iterable datasets instances
-    pred_horizon = .1
+    pred_horizon = 0.1
     frames_per_state = 10
-    (train_dataset, test_dataset, val_dataset), metadata = get_dynamics_dataset(train_shards=train_data,
-                                                                                test_shards=test_data,
-                                                                                val_shards=val_data,
-                                                                                frames_per_step=frames_per_state,
-                                                                                train_pred_horizon=pred_horizon,
-                                                                                eval_pred_horizon=0.5)
+    (train_dataset, test_dataset, val_dataset), metadata = get_dynamics_dataset(
+        train_shards=train_data,
+        test_shards=test_data,
+        val_shards=val_data,
+        frames_per_step=frames_per_state,
+        train_pred_horizon=pred_horizon,
+        eval_pred_horizon=0.5,
+    )
 
     # test_flat = map_state_next_state(sample, metadata.state_observations)
     # Test the map
     torch_dataset = test_dataset.with_format("torch").shuffle()
-    torch_dataset = torch_dataset.map(map_state_next_state, batched=True, fn_kwargs={'state_observations': ['state']})
+    torch_dataset = torch_dataset.map(map_state_next_state, batched=True, fn_kwargs={"state_observations": ["state"]})
 
     # Test errors while looping.
     for i, s in enumerate(torch_dataset):
