@@ -133,3 +133,73 @@ def SE3_2_gen_coordinates(X):
     pos = X[:3, 3]
     quat = matrix_to_quat_xyzw(X[:3, :3])
     return np.concatenate((pos, quat))
+
+
+def matrix_from_two_vectors(a, b):
+    """Compute rotation matrix from two vectors.
+
+    We assume that the two given vectors form a plane so that we can compute
+    a third, orthogonal vector with the cross product.
+
+    The x-axis will point in the same direction as a, the y-axis corresponds
+    to the normalized vector rejection of b on a, and the z-axis is the
+    cross product of the other basis vectors.
+
+    Parameters
+    ----------
+    a : array-like, shape (3,)
+        First vector, must not be 0
+
+    b : array-like, shape (3,)
+        Second vector, must not be 0 or parallel to a
+
+    Returns:
+    -------
+    R : array, shape (3, 3)
+        Rotation matrix
+
+    Raises:
+    ------
+    ValueError
+        If vectors are parallel or one of them is the zero vector
+    """
+    if np.linalg.norm(a) == 0:
+        raise ValueError("a must not be the zero vector.")
+    if np.linalg.norm(b) == 0:
+        raise ValueError("b must not be the zero vector.")
+
+    c = np.cross(a, b)
+    if np.linalg.norm(c) == 0:
+        raise ValueError("a and b must not be parallel.")
+
+    a = a / np.linalg.norm(a)
+
+    b_on_a_projection = vector_projection(b, a)
+    b_on_a_rejection = b - b_on_a_projection
+    b = b_on_a_rejection / np.linalg.norm(b_on_a_projection)
+
+    c = c / np.linalg.norm(c)
+
+    return np.column_stack((a, b, c))
+
+
+def vector_projection(a, b):
+    """Orthogonal projection of vector a on vector b.
+
+    Parameters
+    ----------
+    a : array-like, shape (3,)
+        Vector a that will be projected on vector b
+
+    b : array-like, shape (3,)
+        Vector b on which vector a will be projected
+
+    Returns:
+    -------
+    a_on_b : array, shape (3,)
+        Vector a
+    """
+    b_norm_squared = np.dot(b, b)
+    if b_norm_squared == 0.0:
+        return np.zeros(3)
+    return np.dot(a, b) * b / b_norm_squared

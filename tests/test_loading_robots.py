@@ -22,6 +22,7 @@ def test_robot_import_no_pin(load_pin_robot):  # noqa: D103
         except Exception as e:
             raise AssertionError(f"Failed to load robot {robot_name}") from e
 
+
 #
 # if __name__ == "__main__":
 #     test_robot_import_no_pin(load_pin_robot=True)

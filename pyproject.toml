@@ -25,12 +25,9 @@ classifiers = [
 ]
 dependencies = [
     "hydra-core",
-    "numpy",
-    "scipy",
-    "matplotlib",
-    "pytransform3d",
+    "numpy>=1.26",
+    "scipy>=1.2",
     "robot_descriptions",
-    "urllib3",
     "lie-learn>=0.0.2",  # Fix version for compatibility
     "escnn",
     "networkx>=2.5",

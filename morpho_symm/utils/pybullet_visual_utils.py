@@ -5,11 +5,16 @@ from typing import List, Optional
 import numpy as np
 import pybullet
 from pybullet_utils.bullet_client import BulletClient
-from pytransform3d import rotations as rt
+from scipy.spatial.transform import Rotation
 from tqdm import tqdm
 
 from morpho_symm.robots.PinBulletWrapper import PinBulletWrapper
-from morpho_symm.utils.algebra_utils import SE3_2_gen_coordinates, matrix_to_quat_xyzw, quat_xyzw_to_SO3
+from morpho_symm.utils.algebra_utils import (
+    SE3_2_gen_coordinates,
+    matrix_from_two_vectors,
+    matrix_to_quat_xyzw,
+    quat_xyzw_to_SO3,
+)
 
 
 def draw_vector(pb, origin, vector, v_color, scale=1.0):
@@ -45,10 +50,12 @@ def draw_vector(pb, origin, vector, v_color, scale=1.0):
     )
     # Get rotation where the `x` axis is aligned with the vector orientation
     v2 = np.random.rand(3)
+    v2 = np.cross((v2 - np.dot(v2, vector) * vector) / np.linalg.norm(vector), vector)
     v3 = np.cross(vector, v2)
-    R = rt.matrix_from_two_vectors(a=vector, b=v3)[:, [1, 2, 0]]
+    RR = np.vstack((vector, v2, v3)).T
+    R = (RR / np.linalg.norm(RR, axis=0))[:, [1, 2, 0]]
     body_origin = origin + (vector * scale / 2.0)
-    R_head = rt.active_matrix_from_intrinsic_euler_xyz([np.deg2rad(90), np.deg2rad(0), np.deg2rad(0)])
+    R_head = Rotation.from_euler("xyz", [90, 0, 0], degrees=True).as_matrix()
     vector_id = pb.createMultiBody(
         baseMass=1,
         baseInertialFramePosition=[0, 0, 0],
@@ -430,21 +437,21 @@ def display_robots_and_vectors(
     # Sagittal plane
     draw_plane(
         pb,
-        R=rt.matrix_from_two_vectors(a=[0, 1, 0], b=[1, 0, 0]),
+        R=matrix_from_two_vectors(a=[0, 1, 0], b=[1, 0, 0]),
         p=[0.0, 0.0, plane_height],
         color=np.array([230, 230, 256, 40]) / 256.0,
         size=plane_size,
     )
     draw_plane(
         pb,
-        R=rt.matrix_from_two_vectors(a=[1, 0, 0], b=[0, 1, 0]),
+        R=matrix_from_two_vectors(a=[1, 0, 0], b=[0, 1, 0]),
         p=[0.0, 0.0, plane_height],
         color=np.array([256, 230, 230, 40]) / 256.0,
         size=plane_size,
     )
     draw_plane(
         pb,
-        R=rt.matrix_from_two_vectors(a=[0, 0, 1], b=[0, 1, 0]),
+        R=matrix_from_two_vectors(a=[0, 0, 1], b=[0, 1, 0]),
         p=[0.0, 0.0, 0.0],
         color=np.array([250, 250, 250, 80]) / 256.0,
         size=(0.01, robot.hip_height * 6, robot.hip_height * 6),
