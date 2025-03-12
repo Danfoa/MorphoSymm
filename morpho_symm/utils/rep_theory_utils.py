@@ -109,7 +109,9 @@ def irreps_stats(irreps_ids):
 
 
 def escnn_representation_form_mapping(
-    G: Group, representation: Union[Dict[GroupElement, np.ndarray], Callable[[GroupElement], np.ndarray]]
+        G: Group,
+        representation: Union[Dict[GroupElement, np.ndarray], Callable[[GroupElement], np.ndarray]],
+        name:str ='reconstructed',
 ):
     """Get a ESCNN representation instance from a mapping from group elements to unitary matrices.
 
@@ -117,6 +119,7 @@ def escnn_representation_form_mapping(
         G (Group): Symmetry group of the representation.
         representation (Union[Dict[GroupElement, np.ndarray], Callable[[GroupElement], np.ndarray]]): Mapping from
             group elements to unitary matrices.
+        name (str, optional): Name of the representation. Defaults to 'reconstructed'.
 
     Returns:
         representation (Representation): ESCNN representation instance.
@@ -189,7 +192,7 @@ def escnn_representation_form_mapping(
 
     # Then we have that `Q_re^-1 @ iso_re(g) @ Q_re = rep(g)`
     reconstructed_rep = Representation(
-        G, name="reconstructed", irreps=[irrep.id for irrep in escnn_real_irreps], change_of_basis=Q_re.conj().T
+        G, name=name, irreps=[irrep.id for irrep in escnn_real_irreps], change_of_basis=Q_re.conj().T
     )
 
     # Test ESCNN reconstruction

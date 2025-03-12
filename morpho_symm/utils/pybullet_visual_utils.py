@@ -1,10 +1,20 @@
 import copy
 import pathlib
+import warnings
 from typing import List, Optional
 
 import numpy as np
-import pybullet
-from pybullet_utils.bullet_client import BulletClient
+try:
+    import pybullet
+    from pybullet_utils.bullet_client import BulletClient
+except ImportError as e:
+    raise ImportError(
+        "Pybullet is an optional dependency of MorphoSymm which is not installed.\n"
+        "Please install it using: \n"
+        "\t cd <morpho_symm_root_dir> \n"
+        "\t pip install -e '.[pin]'"
+        ) from e
+
 from scipy.spatial.transform import Rotation
 from tqdm import tqdm
 

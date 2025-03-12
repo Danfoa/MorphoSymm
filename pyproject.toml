@@ -6,7 +6,7 @@ allow-direct-references = true   # We use custom branch of escnn with some devel
 
 [project]
 name = "morpho_symm"
-version = "0.1.5"
+version = "0.1.6"
 keywords = ["morphological symmetry", "locomotion", "dynamical systems", "robot symmetries", "symmetry"]
 description = "Tools for the identification, study, and exploitation of morphological symmetries in locomoting dynamical systems"
 readme = "README.md"
@@ -25,25 +25,21 @@ classifiers = [
 ]
 dependencies = [
     "hydra-core",
-    "numpy>=1.26",
-    "scipy>=1.2",
+    "scipy>=1.6",        # Need scipy.spatial.transform API
     "robot_descriptions",
-    "lie-learn>=0.0.2",  # Fix version for compatibility
-    "escnn",
-    "networkx>=2.5",
-    "pin>=2.6",
-    "pybullet",
+    #    "lie-learn>=0.0.2",  # Fix version for compatibility
+    "escnn>=1.0.0",
+    "networkx>=2.5",     # Used to construct ESCNN reps from sets of numpy arrays.
+    "pytest",
 ]
+
 [project.scripts]
     view = "morpho_symm:robot_symmetry_visualization"
 
 [project.optional-dependencies]
-#robotics = [
-#    #
-#]
-learning = [
-    "pytorch-lightning>=1.7.7",
-    "torch>=1.12.1",
+pin = [
+    "pin>=2.6,<3.0",
+    "pybullet",          # TODO: Replace by mujoco.
 ]
 
 [project.urls]
@@ -74,6 +70,7 @@ exclude = [
     ".git",
     ".idea",
     ".venv",
+    "paper",
 ]
 
 #fixable = ["A", "B", "C", "D", "E", "F", "G", "I", "N", "Q", "S", "T", "W", "ANN", "ARG", "BLE", "COM", "DJ", "DTZ", "EM", "ERA", "EXE", "FBT", "ICN", "INP", "ISC", "NPY", "PD", "PGH", "PIE", "PL", "PT", "PTH", "PYI", "RET", "RSE", "RUF", "SIM", "SLF", "TCH", "TID", "TRY", "UP", "YTT"]
