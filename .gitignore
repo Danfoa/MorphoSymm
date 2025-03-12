@@ -18,5 +18,5 @@ output/
 /morpho_symm/experiments/
 
 .vscode/
-
+/dist/
 *.pkl

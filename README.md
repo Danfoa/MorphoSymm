@@ -488,12 +488,18 @@ If you find this repository or any our our papers relevant please cite us as:
 ### [Morphological symmetries in robotics](https://arxiv.org/abs/2402.15552)
 
 ```
-  @article{ordonez2024morphological,
-    title={Morphological Symmetries in Robotics},
-    author={Ordo{\~n}ez-Apraez, Daniel and Turrisi, Giulio and Kostic, Vladimir and Martin, Mario and Agudo, Antonio and Moreno-Noguer, Francesc and Pontil, Massimiliano and Semini, Claudio and Mastalli, Carlos},
-    journal={arXiv preprint arXiv:2402.15552},
-    year={2024}
-  }
+@article{ordonez2025morphosymm,
+  author = {Daniel Ordoñez-Apraez and Giulio Turrisi and Vladimir Kostic and Mario Martin and Antonio Agudo and Francesc Moreno-Noguer and Massimiliano Pontil and Claudio Semini and Carlos Mastalli},
+  title ={Morphological symmetries in robotics},
+  journal = {The International Journal of Robotics Research},
+  volume = {0},
+  number = {0},
+  pages = {02783649241282422},
+  year = {0},
+  doi = {10.1177/02783649241282422},
+  URL = {https://doi.org/10.1177/02783649241282422},
+  eprint = {https://doi.org/10.1177/02783649241282422}
+}
 ```
 
 ### [On discrete symmetries of robotics systems: A group-theoretic and data-driven analysis (RSS-2023)](https://danfoa.github.io/MorphoSymm/)
