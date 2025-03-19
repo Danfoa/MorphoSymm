@@ -36,6 +36,40 @@ def flatten_dict(d: dict, prefix=""):
     return a
 
 
+def compare_dictionaries(dict1: dict, dict2: dict):
+    """Recursively compare dictionaries which entries might be other dictionaries.
+    Any entry in one dictionary that is not present in the other dictionary needs to be reported.
+
+    Args:
+        dict1: A tree of dictionaries.
+        dict2: A tree of dictionaries.
+
+    Returns: The dictionary containing only the keys that are different between the two dictionaries. In all levels of
+    the tree. Each entry of this difference dictionary is a tuple (val1, val2) when val1 != val2.
+
+    """
+    diff = {}
+    for key in dict1.keys():
+        if key not in dict2.keys():
+            diff[key] = (dict1[key], None)
+        else:
+            if isinstance(dict1[key], dict):
+                inner_diff = compare_dictionaries(dict1[key], dict2[key])
+                if len(inner_diff) > 0:
+                    diff[key] = inner_diff
+            elif isinstance(dict1[key], np.ndarray):
+                if not np.allclose(dict1[key] - dict2[key], 0, rtol=1e-6, atol=1e-6):
+                    diff[key] = (dict1[key], dict2[key])
+            else:
+                if dict1[key] != dict2[key]:
+                    diff[key] = (dict1[key], dict2[key])
+
+    for key in dict2.keys():
+        if key not in dict1.keys():
+            diff[key] = (None, dict2[key])
+
+    return diff
+
 class TemporaryNumpySeed:
     def __init__(self, seed):
         self.seed = seed

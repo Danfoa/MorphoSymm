@@ -591,7 +591,7 @@ def get_dynamics_dataset(
     test_shards = [] if test_shards is None else test_shards
     val_shards = [] if val_shards is None else val_shards
 
-    if len(test_shards) > 0:
+    if len(test_shards) > 1:
         from morpho_symm.utils.mysc import compare_dictionaries
 
         test_metadata = DynamicsRecording.load_from_file(test_shards[0], only_metadata=True)
@@ -654,6 +654,7 @@ def get_dynamics_dataset(
     metadata.state_obs = state_obs
     metadata.action_obs = action_obs
     return part_datasets, metadata
+
 
 
 def get_train_test_val_file_paths(data_path: Path):
