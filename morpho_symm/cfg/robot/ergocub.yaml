@@ -1,0 +1,50 @@
+defaults:
+  - base_robot
+
+name: ergocub
+tint_bodies: false
+fix_base: True
+hip_height: 0.7
+
+# ______|_Base Pos_|_Base Ori_|______________________________QJ___________________________________________________|
+# init_q: [0, 0, 0.7, 0, 0, 0, 1, 0.2, 0.2, 0.2, -1.0, 0.3, 1.3, 0.1, -1.4, -0.2, -0.2, 0.2, -1.0, 0.3, 1.3, 0.1, -1.4]
+# endeff_names: ['LeftFootPitch', 'RightFootPitch']
+
+group_label: C2
+
+# QJ: Joint Space symmetries____________________________________
+#[
+#'l_hip_pitch', 'l_hip_roll', 'l_hip_yaw', 'l_knee', 'l_ankle_pitch', 'l_ankle_roll',    [0... 6)
+#'r_hip_pitch', 'r_hip_roll', 'r_hip_yaw', 'r_knee', 'r_ankle_pitch', 'r_ankle_roll',    [6...12)
+#'torso_roll', 'torso_pitch', 'torso_yaw',                                               [12..15)
+# 'l_shoulder_pitch', 'l_shoulder_roll', 'l_shoulder_yaw', 'l_elbow', 'l_wrist_yaw', 'l_wrist_roll',
+# 'l_wrist_pitch', 'l_index_add', 'l_index_prox', 'l_index_dist', 'l_middle_prox', 'l_middle_dist',
+# 'l_pinkie_prox', 'l_pinkie_dist', 'l_ring_prox', 'l_ring_dist', 'l_thumb_add', 'l_thumb_prox', 'l_thumb_dist',  [15...34)
+#'neck_pitch', 'neck_roll', 'neck_yaw', 'camera_tilt', [34...38)
+# 'r_shoulder_pitch', 'r_shoulder_roll', 'r_shoulder_yaw', 'r_elbow', 'r_wrist_yaw', 'r_wrist_roll',
+# 'r_wrist_pitch', 'r_index_add', 'r_index_prox', 'r_index_dist', 'r_middle_prox', 'r_middle_dist',
+# 'r_pinkie_prox', 'r_pinkie_dist', 'r_ring_prox', 'r_ring_dist', 'r_thumb_add', 'r_thumb_prox', 'r_thumb_dist' [38...57)
+#]
+# QJ: Joint Space symmetries____________________________________
+permutation_Q_js: [
+  [
+    6, 7, 8, 9, 10, 11,   # 'r_hip_pitch', 'r_hip_roll', 'r_hip_yaw', 'r_knee', 'r_ankle_pitch', 'r_ankle_roll'
+    0, 1, 2, 3, 4, 5,     # 'l_hip_pitch', 'l_hip_roll', 'l_hip_yaw', 'l_knee', 'l_ankle_pitch', 'l_ankle_roll'
+    12, 13, 14,           # 'torso_roll', 'torso_pitch', 'torso_yaw'
+    38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56,  # 'r_shoulder_pitch', ..., 'r_thumb_dist'
+    34, 35, 36, 37,       # 'neck_pitch', 'neck_roll', 'neck_yaw', 'camera_tilt'
+    15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33   # 'l_shoulder_pitch', ..., 'l_thumb_dist'
+  ]
+]
+
+# Reflections are determined by joint frame predefined orientation.
+reflection_Q_js: [
+  [
+    1, -1, -1, 1, 1, -1,   # 'l_hip_pitch', 'l_hip_roll', 'l_hip_yaw', 'l_knee', 'l_ankle_pitch', 'l_ankle_roll'
+    1, -1, -1, 1, 1, -1,   # 'r_hip_pitch', 'r_hip_roll', 'r_hip_yaw', 'r_knee', 'r_ankle_pitch', 'r_ankle_roll'
+    -1, 1, -1,             # 'torso_roll', 'torso_pitch', 'torso_yaw'
+    -1, -1, 1, -1, 1, -1, -1, -1, 1, -1, -1, -1, -1, 1, -1, -1, -1, -1, -1,      # 'r_shoulder_pitch', ..., 'r_thumb_dist'
+    1, -1, 1, 1,           # 'neck_pitch', 'neck_roll', 'neck_yaw', 'camera_tilt'
+    -1, -1, 1, -1, 1, -1, -1, -1, 1, -1, -1, -1, -1, 1, -1, -1, -1, -1, -1       # 'l_shoulder_pitch', ..., 'l_thumb_dist'
+  ]
+]

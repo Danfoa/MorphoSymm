@@ -14,11 +14,11 @@ from typing import Optional
 import escnn
 import escnn.group
 import numpy as np
-from escnn.group import CyclicGroup, DihedralGroup, DirectProductGroup, Group, Representation
+from escnn.group import CyclicGroup, DihedralGroup, DirectProductGroup, Group, Representation, change_basis
 from omegaconf import DictConfig
 
 import morpho_symm
-from morpho_symm.utils.algebra_utils import gen_permutation_matrix
+from morpho_symm.utils.algebra_utils import gen_permutation_matrix, permutation_matrix
 from morpho_symm.utils.mysc import ConfigException, load_config_hierarchy
 from morpho_symm.utils.pybullet_visual_utils import (
     change_robot_appearance,
@@ -31,11 +31,10 @@ from morpho_symm.utils.rep_theory_utils import escnn_representation_form_mapping
 log = logging.getLogger("MorphoSymm")
 
 
-def get_escnn_group(cfg: DictConfig):
+def get_escnn_group(group_label: str):
     """Get the ESCNN group object from the group label in the config file."""
-    group_label = cfg.group_label
     label_pattern = r"([A-Za-z]+)(\d+)"
-    assert cfg.group_label is not None, f"Group label unspecified. Not clear which symmetry group {cfg.name} has"
+    assert group_label is not None, "Group label unspecified"
     match = re.match(label_pattern, group_label)
     if match:
         group_class = match.group(1)
@@ -69,7 +68,8 @@ def load_symmetric_system(
     robot_name: Optional[str] = None,
     debug=False,
     return_robot=True,
-) -> [PinBulletWrapper, escnn.group.Group]:
+    joint_space_order: list[str] = None,
+) -> [escnn.group.Group]:
     """Utility function to get the symmetry group and representations of a robotic system defined in config.
 
     This function loads the robot into pinocchio, and generate the symmetry group representations for the following
@@ -82,6 +82,7 @@ def load_symmetric_system(
         robot_cfg (DictConfig): (Optional) configuration parameters of the robot. Check `cfg/robot/`
         debug (bool): if true we load the robot into an interactive simulation session to visually inspect URDF
         return_robot (bool): if true we return the robot instance loaded in pyBullet.
+        joint_space_order (list[str]): (Optional) Order of the joint-space coordinates. Must be a list of joint names matching those of the urdf file.
 
     Returns:
         robot (PinBulletWrapper): instance with the robot loaded in pinocchio and ready to be loaded in pyBullet
@@ -99,8 +100,7 @@ def load_symmetric_system(
 
     robot_name = str.lower(robot_cfg.name)
 
-    symmetry_space = get_escnn_group(robot_cfg)
-
+    symmetry_space = get_escnn_group(group_label=robot_cfg.group_label)
     G = symmetry_space.fibergroup
 
     # Select the field for the representations.
@@ -134,7 +134,7 @@ def load_symmetric_system(
             # Generate ESCNN representation of generators
             gen_rep = {}
             for h, perm, refx in zip(G.generators, perm_list, reflex_list):
-                assert len(perm) == len(refx) == rep_dim
+                assert len(perm) == len(refx) == rep_dim, f"For {h}: len(perm)={len(perm)}, len(refx)={len(refx)}"
                 refx = np.array(refx, dtype=rep_field)
                 gen_rep[h] = gen_permutation_matrix(oneline_notation=perm, reflections=refx)
             # Generate the entire group
@@ -169,22 +169,11 @@ def load_symmetric_system(
     rep_rot_flat = escnn_representation_form_mapping(G, rep_rot_flat)
     rep_rot_flat.name = "SO3_flat"
 
-    # Add representations to the group.
-    G.representations.update(
-        Q_js=rep_Q_js,
-        TqQ_js=rep_TqQ_js,
-        R3=rep_R3,
-        E3=rep_E3,
-        R3_pseudo=rep_R3pseudo,
-        E3_pseudo=rep_E3pseudo,
-        SO3_flat=rep_rot_flat,
-    )
-
     log.info(f"Loaded robot {robot_name}, with defined group representations:")
     for name, rep in G.representations.items():
         log.info(f"\t {name}: dimension: {rep.size}")
 
-    if return_robot:
+    if return_robot or joint_space_order is not None:
         from morpho_symm.robots.PinBulletWrapper import PinBulletWrapper
 
         # We allow symbolic expressions (e.g. `np.pi/2`) in the `q_zero` and `init_q`.
@@ -200,7 +189,35 @@ def load_symmetric_system(
             q_zero=q_zero,
             hip_height=robot_cfg.hip_height,
             endeff_names=robot_cfg.endeff_names,
+            fixed_base=robot_cfg.fix_base,
         )
+
+        default_joint_order = robot.joint_space_names
+        if joint_space_order is not None and default_joint_order != joint_space_order:
+            assert len(joint_space_order) == len(default_joint_order), (
+                f"|joint_space_order|={len(joint_space_order)} != |default_joint_order|={len(default_joint_order)}"
+            )
+            assert set(joint_space_order) == set(default_joint_order), (
+                f"Invalid joint order, missing joints:  {default_joint_order - joint_space_order}"
+            )
+            log.info(f"Changing joint-space order to match the required order {joint_space_order}")
+            # Oneline notation of the permutation from default to required joint order
+            perm = np.array([default_joint_order.index(j) for j in joint_space_order])
+            P = permutation_matrix(oneline_notation=perm)
+
+            rep_Q_js = change_basis(
+                rep_Q_js, P, name="Q_js", supported_nonlinearities=rep_Q_js.supported_nonlinearities
+            )
+            rep_TqQ_js = change_basis(
+                rep_TqQ_js, P, name="TqQ_js", supported_nonlinearities=rep_TqQ_js.supported_nonlinearities
+            )
+
+        if debug:
+            pb = configure_bullet_simulation(gui=True, debug=debug)
+            robot.configure_bullet_simulation(pb, world=None)
+            change_robot_appearance(pb, robot)
+            setup_debug_sliders(pb, robot)
+            listen_update_robot_sliders(pb, robot)
 
         dimQ_js, dimTqQ_js = robot.nq - 7, robot.nv - 6
         if dimQ_js != rep_Q_js.size:
@@ -214,15 +231,21 @@ def load_symmetric_system(
                 f"tangent representation `TqQ_js` dimension {rep_TqQ_js.size}"
             )
 
-        if debug:
-            pb = configure_bullet_simulation(gui=True, debug=debug)
-            robot.configure_bullet_simulation(pb, world=None)
-            change_robot_appearance(pb, robot)
-            setup_debug_sliders(pb, robot)
-            listen_update_robot_sliders(pb, robot)
-        return robot, G
+    # Add representations to the group.
+    G.representations.update(
+        Q_js=rep_Q_js,
+        TqQ_js=rep_TqQ_js,
+        R3=rep_R3,
+        E3=rep_E3,
+        R3_pseudo=rep_R3pseudo,
+        E3_pseudo=rep_E3pseudo,
+        SO3_flat=rep_rot_flat,
+    )
 
-    return G
+    if return_robot:
+        return robot, G
+    else:
+        return G
 
 
 def generate_euclidean_space_representations(G: Group) -> tuple[Representation, ...]:

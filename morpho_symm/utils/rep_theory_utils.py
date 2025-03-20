@@ -109,9 +109,9 @@ def irreps_stats(irreps_ids):
 
 
 def escnn_representation_form_mapping(
-        G: Group,
-        representation: Union[Dict[GroupElement, np.ndarray], Callable[[GroupElement], np.ndarray]],
-        name:str ='reconstructed',
+    G: Group,
+    representation: Union[Dict[GroupElement, np.ndarray], Callable[[GroupElement], np.ndarray]],
+    name: str = "reconstructed",
 ):
     """Get a ESCNN representation instance from a mapping from group elements to unitary matrices.
 

@@ -70,6 +70,7 @@ def compare_dictionaries(dict1: dict, dict2: dict):
 
     return diff
 
+
 class TemporaryNumpySeed:
     def __init__(self, seed):
         self.seed = seed

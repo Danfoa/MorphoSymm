@@ -4,6 +4,7 @@ from typing import Collection, List, Optional, Tuple, Union
 
 import numpy as np
 import scipy
+
 try:
     import pinocchio as pin
     from pinocchio import JointModelFreeFlyer, RobotWrapper
@@ -13,7 +14,7 @@ except ImportError as e:
         "Please install it using: \n"
         "\t cd <morpho_symm_root_dir> \n"
         "\t pip install -e '.[pin]'"
-        ) from e
+    ) from e
 from robot_descriptions.loaders.pinocchio import load_robot_description as pin_load_robot_description
 from scipy.linalg import inv
 
@@ -67,7 +68,9 @@ class PinSimWrapper(ABC):
         assert self._q0.size == self.nq, f"Expected |q_0|=3+4+nj={self.nq}, but received len(q0)={len(q_zero)}"
 
         self._init_q = np.concatenate((np.zeros(6), [1], np.zeros(self.n_js))) if init_q is None else np.array(init_q)
-        assert len(self._init_q) == self.nq, f"Expected |q_init|=3+4+nj={self.nq}, but received {self._init_q.size}"
+        assert len(self._init_q) == self.nq, (
+            f"Expected |q_init|=3+4+nj={self.nq}, but received |q_init|={self._init_q.size}"
+        )
 
         # Mappings between joint names pin and bullet ids, and pinocchio generalized q and dq coordinates
         self.pin_joint_space = {}

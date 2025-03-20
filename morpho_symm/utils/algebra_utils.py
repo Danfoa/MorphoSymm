@@ -174,12 +174,14 @@ def matrix_from_two_vectors(a, b):
 
     a = a / np.linalg.norm(a)
 
-    b_on_a_projection = vector_projection(b, a)
-    b_on_a_rejection = b - b_on_a_projection
-    b = b_on_a_rejection / np.linalg.norm(b_on_a_projection)
+    b_proj_on_a = vector_projection(b, a)
+    b = b - b_proj_on_a
+    b /= np.linalg.norm(b)
 
     c = c / np.linalg.norm(c)
 
+    R = np.column_stack((a, b, c))
+    assert not np.any(np.isnan(R)) and not np.any(np.isinf(R)), "NaN or inf in rotation matrix"
     return np.column_stack((a, b, c))
 
 

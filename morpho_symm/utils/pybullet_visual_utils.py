@@ -1,9 +1,9 @@
 import copy
 import pathlib
-import warnings
 from typing import List, Optional
 
 import numpy as np
+
 try:
     import pybullet
     from pybullet_utils.bullet_client import BulletClient
@@ -13,7 +13,7 @@ except ImportError as e:
         "Please install it using: \n"
         "\t cd <morpho_symm_root_dir> \n"
         "\t pip install -e '.[pin]'"
-        ) from e
+    ) from e
 
 from scipy.spatial.transform import Rotation
 from tqdm import tqdm
