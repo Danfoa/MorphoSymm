@@ -5,12 +5,13 @@ build-backend = "hatchling.build"
 allow-direct-references = true   # We use custom branch of escnn with some developments usefull for this repo
 
 [project]
-name = "morpho_symm"
+name = "morpho-symm"
 version = "0.1.9"
 keywords = ["morphological symmetry", "locomotion", "dynamical systems", "robot symmetries", "symmetry"]
-description = "Tools for the identification, study, and exploitation of morphological symmetries in locomoting dynamical systems"
+description = "Tools for the identification, study, and exploitation of morphological symmetries in robotics"
 readme = "README.md"
 requires-python = ">=3.8"
+
 authors = [
   { name="Daniel Ordoñez-Apraez", email="daniels.ordonez@gmail.com" },
 ]
@@ -45,6 +46,29 @@ pin = [
 [project.urls]
 "Homepage" = "https://github.com/Danfoa/MorphoSymm"
 "Bug Tracker" = "https://github.com/Danfoa/MorphoSymm/issues"
+
+[tool.hatch.build]
+include = [
+    "morpho_symm/**",   # Only include necessary package files
+]
+exclude = [
+    ".github/**",        # Exclude GitHub workflows
+    "tests/**",          # Exclude test files
+    "docs/**",           # Exclude documentation files
+    "paper/**",          # Exclude paper scripts.
+#    "*.md",             # Exclude markdown files (e.g., README.md, CONTRIBUTING.md)
+#    "*.yml", "*.yaml",  # Exclude CI/CD configuration files
+#    "*.json",           # Exclude JSON files
+#    "*.csv",            # Exclude CSV files
+    "*.log",             # Exclude log files
+    "*.zip", "*.tar.gz", # Exclude compressed files
+    "*.h5",              # Exclude large data files
+    "*.mat",             # Exclude large data files
+    "*.pkl",             # Exclude pickle files
+#    "*.mp4", "*.avi",   # Exclude video files
+#    "*.png", "*.jpg",   # Exclude image files
+    "__pycache__/**",    # Exclude Python cache files
+]
 
 [tool.ruff]
 line-length = 120
