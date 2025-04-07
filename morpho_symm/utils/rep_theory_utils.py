@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import itertools
 from typing import Callable, Dict, List, Union
 
@@ -10,17 +12,17 @@ from morpho_symm.utils.algebra_utils import permutation_matrix
 from morpho_symm.utils.mysc import CallableDict
 
 
-def generate_cyclic_rep(G: CyclicGroup, rep):
-    """Generate cylic froup form a representation of its generator."""
-    h = G.generators[0]
+def generate_cyclic_rep(group: CyclicGroup, rep: dict | Representation):
+    """Generate cyclic group form a representation of its generator."""
+    h = group.generators[0]
     # Check the given matrix representations comply with group axioms
     # assert not np.allclose(rep[h], rep[G.identity]), "Invalid generator: h=e"
-    assert np.allclose(np.linalg.matrix_power(rep[h], G.order()), rep[G.identity]), (
-        f"Invalid rotation generator h_ref^{G.order()} != I"
+    assert np.allclose(np.linalg.matrix_power(rep[h], group.order()), rep[group.identity]), (
+        f"Invalid rotation generator h_ref^{group.order()} != I"
     )
 
     curr_g = h
-    while len(rep) < G.order():  # Use generator to obtain all elements and element reps in group
+    while len(rep) < group.order():  # Use generator to obtain all elements and element reps in group
         g = curr_g @ h
         rep[g] = rep[curr_g] @ rep[h]
         curr_g = g
@@ -28,20 +30,18 @@ def generate_cyclic_rep(G: CyclicGroup, rep):
     return rep
 
 
-def generate_dihedral_rep(G: DihedralGroup, rep):
+def generate_dihedral_rep(group: DihedralGroup, rep: dict | Representation):
     """Generate dihedral group form a representation of its generators."""
-    h_rot, h_ref = G.generators
+    h_rot, h_ref = group.generators
     # Check the given matrix representations comply with group axioms
-    # assert not np.allclose(rep[h_ref], rep[G.identity]), "Invalid reflection generator: h_ref=e"
-    # assert not np.allclose(rep[h_rot], rep[G.identity]), "Invalid rotation generator: h_rot=e"
-    assert np.allclose(rep[h_ref] @ rep[h_ref], rep[G.identity]), "Invalid reflection generator `h_ref @ h_ref != I`"
-    assert np.allclose(np.linalg.matrix_power(rep[h_rot], G.order() // 2), rep[G.identity]), (
-        f"Invalid rotation generator h_ref^{G.order} != I"
+    assert np.allclose(rep[h_ref] @ rep[h_ref], rep[group.identity]), "Invalid reflection generator `h_ref @ h_ref != I`"
+    assert np.allclose(np.linalg.matrix_power(rep[h_rot], group.order() // 2), rep[group.identity]), (
+        f"Invalid rotation generator h_ref^{group.order} != I"
     )
 
     curr_g, curr_ref_g = h_rot, h_ref @ h_rot
     rep[curr_ref_g] = rep[h_ref] @ rep[h_rot]
-    while len(rep) < G.order():  # Use generator to obtain all elements and element reps in group
+    while len(rep) < group.order():  # Use generator to obtain all elements and element reps in group
         g = curr_g @ h_rot
         gr = curr_ref_g @ h_rot
         rep[g] = rep[curr_g] @ rep[h_rot]
@@ -51,11 +51,11 @@ def generate_dihedral_rep(G: DihedralGroup, rep):
     return rep
 
 
-def generate_direct_product_rep(G: DirectProductGroup, rep1, rep2):
+def generate_direct_product_rep(group: DirectProductGroup, rep1, rep2):
     """Generate direct product group form the two representations of each group generators."""
     rep = {}
     for h1, h2 in itertools.product(rep1.keys(), rep2.keys()):
-        g = G.pair_elements(h1, h2)
+        g = group.pair_elements(h1, h2)
         rep[g] = rep1[h1] @ rep2[h2]
     return rep
 
@@ -410,7 +410,7 @@ def cplx_isotypic_decomposition(G: Group, representation: Callable[[GroupElement
             Qs.append(Q_sub)
 
     # Sort irreps by dimension.
-    P, sorted_irreps = sorted_jordan_cann_form(G, found_irreps)
+    P, sorted_irreps = sorted_jordan_canonical_form(G, found_irreps)
 
     # If subreps were decomposable, then these get further decomposed with an additional Hermitian matrix such that:
     # Q @ rep[g] @ Q^-1 = block_diag[irreps] | Q = (Q_external @ Q_internal)
@@ -427,11 +427,11 @@ def cplx_isotypic_decomposition(G: Group, representation: Callable[[GroupElement
     return sorted_irreps, Q
 
 
-def sorted_jordan_cann_form(G: Group, reps: List[Callable[[GroupElement], np.ndarray]]):
+def sorted_jordan_canonical_form(group: Group, reps: List[Callable[[GroupElement], np.ndarray]]):
     """Sorts a list of representations in ascending order of dimension, and returns a permutation matrix P such that.
 
     Args:
-        G (Group): Symmetry group of the representation.
+        group (Group): Symmetry group of the representation.
         reps: List of representations to sort by dimension.
 
     Returns:
@@ -439,7 +439,7 @@ def sorted_jordan_cann_form(G: Group, reps: List[Callable[[GroupElement], np.nda
         reps (List[Union[Dict[GroupElement, np.ndarray], Representation]]): Sorted list of representations.
     """
     reps_idx = range(len(reps))
-    reps_size = [rep(G.sample()).shape[0] for rep in reps]
+    reps_size = [rep(group.sample()).shape[0] for rep in reps]
     sort_order = sorted(reps_idx, key=lambda idx: reps_size[idx])
     if sort_order == list(reps_idx):
         return np.eye(sum(reps_size)), reps

@@ -193,7 +193,7 @@ def load_symmetric_system(
                 f"|joint_space_order|={len(joint_space_order)} != |default_joint_order|={len(default_joint_order)}"
             )
             assert set(joint_space_order) == set(default_joint_order), (
-                f"Invalid joint order, missing joints:  {default_joint_order - joint_space_order}"
+                f"Invalid joint order, missing joints:  {set(default_joint_order) - set(joint_space_order)}"
             )
             log.info(f"Changing joint-space order to match the required order {joint_space_order}")
             # Oneline notation of the permutation from default to required joint order
