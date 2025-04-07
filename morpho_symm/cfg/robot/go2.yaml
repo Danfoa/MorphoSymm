@@ -1,0 +1,6 @@
+defaults:
+  - a1
+
+name: go2
+
+endeff_names: ['FL_foot_joint', 'FR_foot_joint', 'RL_foot_joint', 'RR_foot_joint']

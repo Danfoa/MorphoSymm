@@ -1,12 +1,15 @@
 # Morphological Symmetries - _MorphoSymm_
 
+[![PyPI version](https://img.shields.io/pypi/v/morpho-symm.svg)](https://pypi.org/project/morpho-symm/) [![Python Version](https://img.shields.io/badge/python-3.8%20--%203.12-blue)](https://github.com/Danfoa/MorphoSymm/actions/workflows/tests.yaml)
+
+
 The Morphological Symmetries (MorphoSymm) repository offers a comprehensive toolkit for the detection, analysis, and exploitation of morphological symmetries in the modeling and control of robotic systems. These symmetries are a common characteristic of both biological and artificial locomotion systems, including legged, swimming, and flying animals, robots, and virtual characters. Essentially, a morphological symmetry is a transformation that connects two equivalent states under the governing dynamics, meaning two states that will evolve identically when influenced by equivalent moving forces. For example, consider these two motion trajectories from the mini-cheetah quadruped robot, which are related by a symmetry transformation.
 
 <p align="center">
   <img src="docs/static/dynamic_animations/mini-cheetah-dynamic_symmetries_forces.gif" width="40%" />
 </p>
 
-These symmetries carry significant implications. Notably, they offer a valuable geometric bias, since by modeling and controlling the dynamics of one state, we can effectively identify and control the dynamics of all its symmetric counterparts (see [our paper](https://danfoa.github.io/MorphoSymm/) for details).
+These symmetries carry significant implications. Notably, they offer a valuable geometric bias, since by modeling and controlling the dynamics of one state, we can effectively identify and control the dynamics of all its symmetric counterparts (see [our RSS-2023 paper](https://danfoa.github.io/MorphoSymm/) and [IJRR-2024 Journal](https://arxiv.org/abs/2402.15552) for details).
 
 
 <p align="center">
@@ -116,17 +119,28 @@ Through the application of abstract harmonic analysis, the symmetries of a robot
 - [Contributing](#contributing)
 
 ## Installation:
-Simply clone the repository and install it through pip:
+### [![PyPI version](https://img.shields.io/pypi/v/morpho-symm.svg)](https://pypi.org/project/morpho-symm/) [![Python Version](https://img.shields.io/badge/python-3.8%20--%203.12-blue)](https://github.com/Danfoa/MorphoSymm/actions/workflows/tests.yaml)
+
+
+```bash
+pip install morpho-symm 
+# To run examples and visualization install the optional dependencies with
+# pip install 'morpho-symm[pin]'  
+```
+
+### Source
 ```bash
 git clone https://github.com/Danfoa/MorphoSymm.git
 cd MorphoSymm
 pip install -e .
+# To run examples and visualization install the optional dependencies with
+# pip install -e ".[pin]" 
 ```
 
 ## Library of symmetric dynamical systems
 The following is a non-exhaustive and expanding list of dynamical systems with Discrete Morphological Symmetries. Each example can be
 reproduced in a 3D interactive environment running:
-```python
+```bash
 python morpho_symm/robot_symmetry_visualization.py robot=<robot> gui=True 
 ```
 This script functions as an introductory tutorial showing how we define the representations of Discrete Morphological Symmetries in order to perform symmetry transformations on the robot state, and proprioceptive and exteroceptive observations.
@@ -147,6 +161,7 @@ This script functions as an introductory tutorial showing how we define the repr
     <th align="center"> Anymal-C </th>
     <th align="center"> Anymal-B </th>
     <th align="center"> Go1 </th>
+    <th align="center"> Go2 </th>
     <th align="center"> B1 </th>
     <th align="center"> UR-3 </th>
     <th align="center"> UR-5 </th>
@@ -204,6 +219,10 @@ This script functions as an introductory tutorial showing how we define the repr
     </td>
     <td align="center">
       <img src="docs/static/animations/go1-C2-symmetries_anim_static.gif" alt="Morphological symmetries go1 quadruped robot, State symmetry, Discrete Symmetry Group"
+          width="200" height="200"/>
+    </td>
+    <td align="center">
+      <img src="docs/static/animations/go2-C2-symmetries_anim_static.gif" alt="Morphological symmetries go2 quadruped robot, State symmetry, Discrete Symmetry Group"
           width="200" height="200"/>
     </td>
     <td align="center">
@@ -299,14 +318,16 @@ ___________________________________________
 ## Getting Started 
 
 ### Loading symmetric dynamical systems
-Each symmetric dynamical system has a configuration file in the folder `morpho_symm/cfg/supervised/robot`. To load one
+Each symmetric dynamical system has a configuration file in the folder `morpho_symm/cfg/robot`. To load one
 of these systems, simply use the function `load_symmetric_system` as follows:
 
 ```python
 from morpho_symm.utils.robot_utils import load_symmetric_system
-robot_name = 'solo'  # or any of the robots in the library (see `/morpho_symm/cfg/robot`)
+robot_name = 'solo'  # | solo-k4 | atlas | or any of the robots in the library (see `/morpho_symm/cfg/robot`)
 
 robot, G = load_symmetric_system(robot_name=robot_name)
+# or load group representations without using pinocchio with 
+# G = load_symmetric_system(robot_name=robot_name, return_robot=False)
 ```
 
 The function returns:
@@ -317,7 +338,11 @@ The function returns:
 
 The system state is defined as $(\mathbf{q}, \mathbf{v}) | \mathbf{q} \in \mathcal{Q},  \mathbf{v} \in T_{q}\mathcal{Q}$, being $\mathcal{Q}$ the space of generalized position coordinates, and $\mathcal{T}_ {q}\mathcal{Q}$ the space of generalized velocity coordinates. Recall from the [paper convention](https://arxiv.org/abs/2302.10433) that the state configuration can be separated into base configuration and joint space configuration $\mathcal{Q} := \mathbb{E}_ 3 \times \mathcal{Q}_ {js}$. Where, $\mathbb{E}_ 3$ is the Euclidean space in which the system evolves, and $\mathcal{Q}_ {js}$ is the joint space position coordinates. This enables to express every system state as $\mathbf{q} := \[\mathbf{X}_ B,  \mathbf{q}_ {js}\]^ T$, where $\mathbf{X}_ B \in  \mathbb{E}_ 3$ and $\mathbf{q}_ {js} \in \mathcal{Q}_ {js}$. To access these quantities in code we do:
 ```python 
+from morpho_symm.utils.robot_utils import load_symmetric_system
 from morpho_symm.utils.pybullet_visual_utils import configure_bullet_simulation
+
+robot_name = 'solo'  # | solo-k4 | atlas | or any of the robots in the library (see `/morpho_symm/cfg/robot`)
+robot, G = load_symmetric_system(robot_name=robot_name)
 
 # Load robot to pybullet simulation environment. Robot state will be the simulation state. 
 bullet_client = configure_bullet_simulation(gui=True)         # Start pybullet simulation
@@ -480,7 +505,24 @@ print(f"Here is your equivariant MLP \n {model}")
 ## How to cite us?
 If you find this repository or any our our papers relevant please cite us as:
 
-### [On discrete symmetries of robotics systems: A group-theoretic and data-driven analysis](https://danfoa.github.io/MorphoSymm/)
+### [Morphological symmetries in robotics](https://arxiv.org/abs/2402.15552)
+
+```
+@article{ordonez2025morphosymm,
+  author = {Daniel Ordoñez-Apraez and Giulio Turrisi and Vladimir Kostic and Mario Martin and Antonio Agudo and Francesc Moreno-Noguer and Massimiliano Pontil and Claudio Semini and Carlos Mastalli},
+  title ={Morphological symmetries in robotics},
+  journal = {The International Journal of Robotics Research},
+  volume = {0},
+  number = {0},
+  pages = {02783649241282422},
+  year = {0},
+  doi = {10.1177/02783649241282422},
+  URL = {https://doi.org/10.1177/02783649241282422},
+  eprint = {https://doi.org/10.1177/02783649241282422}
+}
+```
+
+### [On discrete symmetries of robotics systems: A group-theoretic and data-driven analysis (RSS-2023)](https://danfoa.github.io/MorphoSymm/)
 ```
 @INPROCEEDINGS{Ordonez-Apraez-RSS-23,
     AUTHOR    = {Daniel F Ordo{\~n}ez-Apraez AND Martin, Mario AND Antonio Agudo AND Francesc Moreno},
@@ -492,7 +534,7 @@ If you find this repository or any our our papers relevant please cite us as:
     DOI       = {10.15607/RSS.2023.XIX.053}
 }
 ```
-### [Dynamics Harmonic Analysis of Robotic Systems: Application in Data-Driven Koopman Modeling](https://danfoa.github.io/DynamicsHarmonicsAnalysis/)
+### [Dynamics Harmonic Analysis of Robotic Systems: Application in Data-Driven Koopman Modeling (L4DC-2024)](https://danfoa.github.io/DynamicsHarmonicsAnalysis/)
 
 ```
 @article{ordonez2023dynamics,

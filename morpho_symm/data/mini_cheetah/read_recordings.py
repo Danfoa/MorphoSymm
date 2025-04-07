@@ -2,11 +2,11 @@ from pathlib import Path
 
 import numpy as np
 import pybullet
-from escnn.group import Group, Representation, directsum
+from escnn.group import Group, Representation
 from pybullet_utils.bullet_client import BulletClient
 from scipy.spatial.transform import Rotation
 
-from morpho_symm.data.DynamicsRecording import DynamicsRecording, split_train_val_test
+from morpho_symm.data.DynamicsRecording import DynamicsRecording
 from morpho_symm.utils.algebra_utils import permutation_matrix
 from morpho_symm.utils.rep_theory_utils import escnn_representation_form_mapping, group_rep_from_gens
 from morpho_symm.utils.robot_utils import load_symmetric_system
@@ -26,7 +26,7 @@ def get_kinematic_three_rep(G: Group):
 
 
 def get_Rd_signals_on_kin_subchains(G: Group, rep_kin_three: Representation):
-    rep_R3 = G.representations['R3']
+    rep_R3 = G.representations["R3"]
     rep_F = {G.identity: np.eye(12, dtype=int)}
     gens = [np.kron(rep_kin_three(g), rep_R3(g)) for g in G.generators]
     for h, rep_h in zip(G.generators, gens):
@@ -67,12 +67,12 @@ def convert_mini_cheetah_raysim_recordings(data_path: Path):
     state = np.load(data_path)
     assert state.shape[-1] == 86, f"Expected {86} dimensions in the state, got {state.shape[-1]}"
     # Load the Mini-Cheetah robot
-    robot, G = load_symmetric_system(robot_name='mini_cheetah')
-    rep_Q_js = G.representations['Q_js']  # Representation on joint space position coordinates
-    rep_TqQ_js = G.representations['TqQ_js']  # Representation on joint space velocity coordinates
-    rep_Rd = G.representations['R3']  # Representation on vectors in R^d
-    rep_Rd_pseudo = G.representations['R3_pseudo']  # Representation on pseudo vectors in R^d
-    rep_euler_xyz = G.representations['euler_xyz']  # Representation on Euler angles
+    robot, G = load_symmetric_system(robot_name="mini_cheetah")
+    rep_Q_js = G.representations["Q_js"]  # Representation on joint space position coordinates
+    rep_TqQ_js = G.representations["TqQ_js"]  # Representation on joint space velocity coordinates
+    rep_Rd = G.representations["R3"]  # Representation on vectors in R^d
+    rep_Rd_pseudo = G.representations["R3_pseudo"]  # Representation on pseudo vectors in R^d
+    rep_euler_xyz = G.representations["euler_xyz"]  # Representation on Euler angles
     rep_kin_three = get_kinematic_three_rep(G)  # Permutation of legs
     rep_Rd_on_limbs = get_Rd_signals_on_kin_subchains(G, rep_kin_three)  # Representation on R^3 on legs
 
@@ -154,54 +154,70 @@ def convert_mini_cheetah_raysim_recordings(data_path: Path):
     # Define the dataset.
     data_recording = DynamicsRecording(
         description=f"Mini Cheetah {data_path.parent.parent.stem}",
-        info=dict(num_traj=1,
-                  trajectory_length=state.shape[0]),
+        info=dict(num_traj=1, trajectory_length=state.shape[0]),
         dynamics_parameters=dict(dt=0.001 * dt_subsample, group=dict(group_name=G.name, group_order=G.order())),
-        recordings=dict(base_pos=base_pos[None, ...].astype(np.float32),
-                        base_z=base_pos[None, :, [2]].astype(np.float32),
-                        base_vel=base_vel[None, ...].astype(np.float32),
-                        base_ori=base_ori[None, ...].astype(np.float32),
-                        base_ori_R_flat=base_ori_R_flat[None, ...].astype(np.float32),
-                        base_ang_vel=base_ang_vel[None, ...].astype(np.float32),
-                        feet_pos=feet_pos[None, ...].astype(np.float32),
-                        feet_pos_error=feet_pos_error[None, ...].astype(np.float32),
-                        joint_pos=joint_pos[None, ...].astype(np.float32),
-                        joint_pos_S1=joint_pos_S1[None, ...].astype(np.float32),
-                        joint_vel=joint_vel[None, ...].astype(np.float32),
-                        joint_torques=joint_torques[None, ...].astype(np.float32),
-                        gait=gait[None, ...].astype(np.float32),
-                        base_z_error=base_z_error[None, ...].astype(np.float32),
-                        base_vel_error=base_vel_error[None, ...].astype(np.float32),
-                        base_ang_vel_error=base_ang_vel_error[None, ...].astype(np.float32),
-                        base_ori_error=base_ori_error[None, ...].astype(np.float32),
-                        ),
-        state_obs=('joint_pos', 'joint_vel', 'base_z_error', 'base_ori', 'base_ori_error', 'base_vel_error', 'base_ang_vel_error'),
-        action_obs=('joint_torques',),
-        obs_representations=dict(joint_pos=rep_TqQ_js,  # Joint-Space observations
-                                 joint_pos_S1=rep_Q_js,
-                                 joint_vel=rep_TqQ_js,
-                                 joint_torques=rep_TqQ_js,
-                                 # Base body observations
-                                 base_pos=rep_Rd,
-                                 base_z=rep_z,
-                                 base_z_error=rep_z,
-                                 base_vel=rep_Rd,
-                                 base_vel_error=rep_Rd,
-                                 base_ori=rep_euler_xyz,
-                                 base_ori_R_flat=rep_rot_flat,
-                                 base_ang_vel=rep_euler_xyz,
-                                 base_ang_vel_error=rep_euler_xyz,
-                                 base_ori_error=rep_euler_xyz,
-                                 # Euclidean space observations
-                                 feet_pos=rep_Rd_on_limbs,
-                                 feet_pos_error=rep_Rd_on_limbs,
-                                 gait=rep_kin_three,
-                                 ),
+        recordings=dict(
+            base_pos=base_pos[None, ...].astype(np.float32),
+            base_z=base_pos[None, :, [2]].astype(np.float32),
+            base_vel=base_vel[None, ...].astype(np.float32),
+            base_ori=base_ori[None, ...].astype(np.float32),
+            base_ori_R_flat=base_ori_R_flat[None, ...].astype(np.float32),
+            base_ang_vel=base_ang_vel[None, ...].astype(np.float32),
+            feet_pos=feet_pos[None, ...].astype(np.float32),
+            feet_pos_error=feet_pos_error[None, ...].astype(np.float32),
+            joint_pos=joint_pos[None, ...].astype(np.float32),
+            joint_pos_S1=joint_pos_S1[None, ...].astype(np.float32),
+            joint_vel=joint_vel[None, ...].astype(np.float32),
+            joint_torques=joint_torques[None, ...].astype(np.float32),
+            gait=gait[None, ...].astype(np.float32),
+            base_z_error=base_z_error[None, ...].astype(np.float32),
+            base_vel_error=base_vel_error[None, ...].astype(np.float32),
+            base_ang_vel_error=base_ang_vel_error[None, ...].astype(np.float32),
+            base_ori_error=base_ori_error[None, ...].astype(np.float32),
+        ),
+        state_obs=(
+            "joint_pos",
+            "joint_vel",
+            "base_z_error",
+            "base_ori",
+            "base_ori_error",
+            "base_vel_error",
+            "base_ang_vel_error",
+        ),
+        action_obs=("joint_torques",),
+        obs_representations=dict(
+            joint_pos=rep_TqQ_js,  # Joint-Space observations
+            joint_pos_S1=rep_Q_js,
+            joint_vel=rep_TqQ_js,
+            joint_torques=rep_TqQ_js,
+            # Base body observations
+            base_pos=rep_Rd,
+            base_z=rep_z,
+            base_z_error=rep_z,
+            base_vel=rep_Rd,
+            base_vel_error=rep_Rd,
+            base_ori=rep_euler_xyz,
+            base_ori_R_flat=rep_rot_flat,
+            base_ang_vel=rep_euler_xyz,
+            base_ang_vel_error=rep_euler_xyz,
+            base_ori_error=rep_euler_xyz,
+            # Euclidean space observations
+            feet_pos=rep_Rd_on_limbs,
+            feet_pos_error=rep_Rd_on_limbs,
+            gait=rep_kin_three,
+        ),
         # Ensure the angles in the unit circle are not disturbed by the normalization.
-        obs_moments=dict(joint_pos_S1=(np.zeros(q_js_unit_circle_t.shape[-1]), np.ones(q_js_unit_circle_t.shape[-1]),),
-                         base_ori_R_flat=(np.zeros(base_ori_R_flat.shape[-1]), np.ones(base_ori_R_flat.shape[-1]),),
-                         )
-        )
+        obs_moments=dict(
+            joint_pos_S1=(
+                np.zeros(q_js_unit_circle_t.shape[-1]),
+                np.ones(q_js_unit_circle_t.shape[-1]),
+            ),
+            base_ori_R_flat=(
+                np.zeros(base_ori_R_flat.shape[-1]),
+                np.ones(base_ori_R_flat.shape[-1]),
+            ),
+        ),
+    )
 
     # Compute the mean and variance of all observations considering symmetry constraints.
     for obs_name in data_recording.recordings.keys():
@@ -209,8 +225,7 @@ def convert_mini_cheetah_raysim_recordings(data_path: Path):
             continue
         data_recording.compute_obs_moments(obs_name=obs_name)
 
-    file_name = (f"n_trajs={data_recording.info['num_traj']}"
-                 f"-frames={data_recording.info['trajectory_length']}.pkl")
+    file_name = f"n_trajs={data_recording.info['num_traj']}-frames={data_recording.info['trajectory_length']}.pkl"
     data_recording.save_to_file(data_path.parent.parent / file_name)
     print(f"Dynamics Recording saved to {data_path.parent.parent / file_name}")
 

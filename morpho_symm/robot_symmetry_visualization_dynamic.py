@@ -10,15 +10,14 @@ from omegaconf import DictConfig
 from pynput import keyboard
 from scipy.spatial.transform import Rotation
 from tqdm import tqdm
+from utils.pybullet_visual_utils import draw_plane, draw_vector, render_camera_trajectory, spawn_robot_instances
+from utils.robot_utils import load_symmetric_system
 
 import morpho_symm
 from morpho_symm.data.DynamicsRecording import DynamicsRecording
 from morpho_symm.utils.algebra_utils import matrix_to_quat_xyzw, permutation_matrix
-from morpho_symm.utils.rep_theory_utils import group_rep_from_gens
 from morpho_symm.utils.pybullet_visual_utils import configure_bullet_simulation
-from utils.pybullet_visual_utils import (draw_vector, draw_plane, render_camera_trajectory,
-                                         spawn_robot_instances)
-from utils.robot_utils import load_symmetric_system
+from morpho_symm.utils.rep_theory_utils import group_rep_from_gens
 
 log = logging.getLogger(__name__)
 
@@ -55,9 +54,9 @@ def get_kinematic_three_rep(G: Group):
 
     return rep_kin_three
 
-def get_ground_reaction_forces_rep(G: Group, rep_kin_three: Representation):
 
-    rep_R3 = G.representations['R3']
+def get_ground_reaction_forces_rep(G: Group, rep_kin_three: Representation):
+    rep_R3 = G.representations["R3"]
     rep_F = {G.identity: np.eye(12, dtype=int)}
     gens = [np.kron(rep_kin_three(g), rep_R3(g)) for g in G.generators]
     for h, rep_h in zip(G.generators, gens):
@@ -65,7 +64,6 @@ def get_ground_reaction_forces_rep(G: Group, rep_kin_three: Representation):
 
     rep_F = group_rep_from_gens(G, rep_F)
     return rep_F
-
 
 
 def load_mini_cheetah_trajs(data_path: Path):
@@ -90,7 +88,7 @@ def load_mini_cheetah_trajs(data_path: Path):
     """
     assert data_path.exists(), f"Path {data_path} does not exist."
     recordings = {}
-    for data_name in data_path.glob('*.mat'):
+    for data_name in data_path.glob("*.mat"):
         raw_data = scipy.io.loadmat(data_name)
         recordings[data_name.stem] = raw_data
     return recordings
@@ -103,8 +101,9 @@ def update_contacts(pb, feet_pos, prev_contact_state, contact_state, planes=None
         planes = []
         for r in feet_pos:
             # Draw a dark purple plane (R, r) in the world frame.
-            planes.append(draw_plane(pb, np.eye(3), out_of_view_pos,
-                                     color=(0.9, 0, 0.9, 0.5), cylinder=True, size=(0.05, 0.005)))
+            planes.append(
+                draw_plane(pb, np.eye(3), out_of_view_pos, color=(0.9, 0, 0.9, 0.5), cylinder=True, size=(0.05, 0.005))
+            )
 
     state_change = contact_state != prev_contact_state
     idx = np.where(state_change)[0]
@@ -124,8 +123,7 @@ def update_contacts(pb, feet_pos, prev_contact_state, contact_state, planes=None
 def update_heading(pb, X_B, heading_arrow=None):
     pos = (X_B @ np.array([-0.09, 0, 0.045, 1]))[:3]
     if heading_arrow is None:
-        heading_arrow = draw_plane(pb, X_B[:3, :3], pos, color=(0.504, 0.931, 0.970, 1.0),
-                                   size=(0.01, 0.04, 0.01))
+        heading_arrow = draw_plane(pb, X_B[:3, :3], pos, color=(0.504, 0.931, 0.970, 1.0), size=(0.01, 0.04, 0.01))
     else:
         pb.resetBasePositionAndOrientation(heading_arrow, pos, matrix_to_quat_xyzw(X_B[:3, :3]))
     return heading_arrow
@@ -154,7 +152,7 @@ def update_ground_reaction_forces(pb, feet_pos, forces, contact_state, vectors=N
     return vectors
 
 
-@hydra.main(config_path='cfg', config_name='config_visualization', version_base='1.3')
+@hydra.main(config_path="cfg", config_name="config_visualization", version_base="1.3")
 def main(cfg: DictConfig):
     """Visualize the effect of DMSs transformations in 3D animation.
 
@@ -163,17 +161,17 @@ def main(cfg: DictConfig):
     cfg.robot.seed = cfg.robot.seed if cfg.robot.seed >= 0 else np.random.randint(0, 1000)
     np.random.seed(cfg.robot.seed)
 
-    if 'mini_cheetah' not in cfg.robot.name:
+    if "mini_cheetah" not in cfg.robot.name:
         raise NotImplementedError("For the moment we have only real-world data from Mini-Cheetah.")
 
     # Get robot instance, along with representations of the symmetry group on the Euclidean space (in which the robot
     # base B evolves in) and Joint Space (in which the internal configuration of the robot evolves in).
     robot, G = load_symmetric_system(robot_cfg=cfg.robot, debug=cfg.debug)
 
-    rep_Q_js = G.representations['Q_js']
+    rep_Q_js = G.representations["Q_js"]
     # rep_TqJ = G.representations['TqQ_js']
-    rep_E3 = G.representations['Ed']
-    rep_R3 = G.representations['R3']
+    rep_E3 = G.representations["Ed"]
+    rep_R3 = G.representations["R3"]
 
     offset = max(0.2, 1.8 * robot.hip_height)
     base_pos = np.array([-offset if G.order() != 2 else 0, -offset] + [robot.hip_height * 5.5])
@@ -183,29 +181,34 @@ def main(cfg: DictConfig):
     X_B[:3, 3] = base_pos
     orbit_X_B = [rep_E3(g) @ X_B @ np.linalg.inv(rep_E3(g)) for g in G.elements]
     robots = spawn_robot_instances(
-        robot, bullet_client=pb, base_positions=[X[:3, 3] for X in orbit_X_B], tint=cfg.robot.tint_bodies,
-        )
+        robot,
+        bullet_client=pb,
+        base_positions=[X[:3, 3] for X in orbit_X_B],
+        tint=cfg.robot.tint_bodies,
+    )
     robot = robots[0]
     end_effectors = robot.bullet_ids_allowed_floor_contacts
 
     # Load a trajectory of motion and measurements from the mini-cheetah robot
-    recordings_path = Path(
-        morpho_symm.__file__).parent / 'data/mini_cheetah/raysim_recordings/flat/forward_minus_0_4/n_trajs=1-frames=7771-train.pkl'
+    recordings_path = (
+        Path(morpho_symm.__file__).parent
+        / "data/mini_cheetah/raysim_recordings/flat/forward_minus_0_4/n_trajs=1-frames=7771-train.pkl"
+    )
     dyn_recordings = DynamicsRecording.load_from_file(recordings_path)
     # Load and prepare data for visualization
-    q_js_t = dyn_recordings.recordings['joint_pos']     # Joint space positions
-    v_js_t = dyn_recordings.recordings['joint_vel']     # Joint space velocities
-    base_ori_t = dyn_recordings.recordings['base_ori'][0]  # Base orientation
-    feet_pos = dyn_recordings.recordings['feet_pos']  # Feet positions  [x,y,z] w.r.t base frame
+    q_js_t = dyn_recordings.recordings["joint_pos"]  # Joint space positions
+    v_js_t = dyn_recordings.recordings["joint_vel"]  # Joint space velocities
+    base_ori_t = dyn_recordings.recordings["base_ori"][0]  # Base orientation
+    feet_pos = dyn_recordings.recordings["feet_pos"]  # Feet positions  [x,y,z] w.r.t base frame
     # ground_reaction_forces = recpitcording['F']
     # feet_contact_states = recording['contacts']
     # Prepare representations acting on proprioceptive and exteroceptive measurements.
-    rep_kin_three = dyn_recordings.obs_representations['gait']    # Contact state is a 4D vector.
-    rep_grf = dyn_recordings.obs_representations['ref_feet_pos']  #
+    rep_kin_three = dyn_recordings.obs_representations["gait"]  # Contact state is a 4D vector.
+    rep_grf = dyn_recordings.obs_representations["ref_feet_pos"]  #
 
     q0, _ = robot.pin2sim(robot._q0, np.zeros(robot.nv))
 
-    dt = dyn_recordings.dynamics_parameters['dt']
+    dt = dyn_recordings.dynamics_parameters["dt"]
     timestamps = np.linspace(0, dt * q_js_t.shape[0], q_js_t.shape[0])
     frames = []
     robot_frames = [[] for _ in range(G.order())]
@@ -228,7 +231,7 @@ def main(cfg: DictConfig):
         run_time = time.time()
         if cfg.gui:
             if run_time - run_time0 < t - t0:
-                time.sleep(((t - t0) - (run_time - run_time0))/2)
+                time.sleep(((t - t0) - (run_time - run_time0)) / 2)
                 continue
         else:
             if t - prev_t < (1 / fps):
@@ -236,7 +239,7 @@ def main(cfg: DictConfig):
         prev_t = t
 
         # Define the recording base configuration.
-        X_B[:3, :3] = Rotation.from_euler("xyz", base_ori_t[i] - np.array([0, 0, 0*np.pi/2])).as_matrix()
+        X_B[:3, :3] = Rotation.from_euler("xyz", base_ori_t[i] - np.array([0, 0, 0 * np.pi / 2])).as_matrix()
         X_B[:3, 3] = base_pos
         # contact_state = feet_contact_states[i]
         orbit_X_B, orbit_cam_target = {}, {}
@@ -281,18 +284,22 @@ def main(cfg: DictConfig):
                 #                                                            vectors=robot_grf_vects[robot_idx])
 
                 g_camera_view_point = np.real(rep_R3(g) @ camera_view_point.as_matrix() @ np.linalg.inv(rep_R3(g)))
-                roll, pitch, yaw = Rotation.from_matrix(g_camera_view_point).as_euler("xyz") * 180/np.pi
+                roll, pitch, yaw = Rotation.from_matrix(g_camera_view_point).as_euler("xyz") * 180 / np.pi
                 cam_target = orbit_X_B[g][:3, 3]
-                robot_frames[robot_idx].append(render_camera_trajectory(pb,
-                                                                        roll=[roll],
-                                                                        pitch=[-10 if robot_idx in [0, 1, 4, 5] else 20],
-                                                                        yaw=[yaw + 90],
-                                                                        render_width=512, render_height=512,
-                                                                        n_frames=1, cam_distance=robot.hip_height * 3.0,
-                                                                        farPlane=robot.hip_height * 5.0,
-                                                                        cam_target_pose=cam_target
-                                                                        )
-                                               )
+                robot_frames[robot_idx].append(
+                    render_camera_trajectory(
+                        pb,
+                        roll=[roll],
+                        pitch=[-10 if robot_idx in [0, 1, 4, 5] else 20],
+                        yaw=[yaw + 90],
+                        render_width=512,
+                        render_height=512,
+                        n_frames=1,
+                        cam_distance=robot.hip_height * 3.0,
+                        farPlane=robot.hip_height * 5.0,
+                        cam_target_pose=cam_target,
+                    )
+                )
 
         if not cfg.gui:
             symmetry_frame = np.concatenate([robot_frames[robot_idx][-1] for robot_idx in range(G.order())], axis=2)
@@ -305,27 +312,26 @@ def main(cfg: DictConfig):
             #                                        cam_target_pose=[0, 0, robot.hip_height]))
         # prev_contact_state = contact_state
 
-
     frames = symmetry_frames
 
     if len(frames) > 0:
         from moviepy.editor import ImageSequenceClip
+
         # Save animation
         root_path = Path(morpho_symm.__file__).parents[1].absolute()
         save_path = root_path / "paper/tests"
         file_name = f"mini-cheetah_{G}-{recording_name}_dynamic_symmetries"
-        file_path = save_path / f'{file_name}.gif'
+        file_path = save_path / f"{file_name}.gif"
         file_count = 1
         while file_path.exists():
-            file_path = save_path / f'{file_name}({file_count}).gif'
+            file_path = save_path / f"{file_name}({file_count}).gif"
             file_count += 1
-        clip = ImageSequenceClip(list(frames), fps=fps//2)
-        clip.write_gif(file_path, fps=fps//2, loop=0, fuzz=0.9)
-        print(f"Animation with {len(frames)} ({len(frames)/fps//2}[s]) saved to {file_path.absolute()}")
-
+        clip = ImageSequenceClip(list(frames), fps=fps // 2)
+        clip.write_gif(file_path, fps=fps // 2, loop=0, fuzz=0.9)
+        print(f"Animation with {len(frames)} ({len(frames) / fps // 2}[s]) saved to {file_path.absolute()}")
 
     pb.disconnect()
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

@@ -13,14 +13,33 @@ from morpho_symm.utils.mysc import flatten_dict
 
 log = logging.getLogger(__name__)
 
-LossCallable = Callable[[torch.Tensor, torch.Tensor, ], torch.Tensor]
-MetricCallable = Callable[[torch.Tensor, torch.Tensor, ], dict]
+LossCallable = Callable[
+    [
+        torch.Tensor,
+        torch.Tensor,
+    ],
+    torch.Tensor,
+]
+MetricCallable = Callable[
+    [
+        torch.Tensor,
+        torch.Tensor,
+    ],
+    dict,
+]
 
 
 class LightningModel(pl.LightningModule):
-
-    def __init__(self, lr, loss_fn: LossCallable, metrics_fn: MetricCallable, test_epoch_metrics_fn=None,
-                 val_epoch_metrics_fn=None, log_preact=False, log_w=False):
+    def __init__(
+        self,
+        lr,
+        loss_fn: LossCallable,
+        metrics_fn: MetricCallable,
+        test_epoch_metrics_fn=None,
+        val_epoch_metrics_fn=None,
+        log_preact=False,
+        log_w=False,
+    ):
         super().__init__()
         # self.model_type = model.__class__.__name__
         self.lr = lr
@@ -82,7 +101,7 @@ class LightningModel(pl.LightningModule):
         x, y = batch
         return self.model(x)
 
-    def log_metrics(self, metrics: dict, suffix='', batch_size=None):
+    def log_metrics(self, metrics: dict, suffix="", batch_size=None):
         flat_metrics = flatten_dict(metrics)
         for k, v in flat_metrics.items():
             name = f"{k}/{suffix}"
@@ -92,15 +111,18 @@ class LightningModel(pl.LightningModule):
         self.epoch_start_time = time.time()
 
     def on_train_epoch_end(self):
-        self.log('time_per_epoch', time.time() - self.epoch_start_time, prog_bar=False, on_epoch=True)
-        if self._log_w: self.log_weights()
-        if self._log_preact: self.log_preactivations()
+        self.log("time_per_epoch", time.time() - self.epoch_start_time, prog_bar=False, on_epoch=True)
+        if self._log_w:
+            self.log_weights()
+        if self._log_preact:
+            self.log_preactivations()
 
     def on_train_end(self) -> None:
         ckpt_call = self.trainer.checkpoint_callback
         if ckpt_call is not None:
             ckpt_path = pathlib.Path(ckpt_call.dirpath).joinpath(
-                ckpt_call.CHECKPOINT_NAME_LAST + ckpt_call.FILE_EXTENSION)
+                ckpt_call.CHECKPOINT_NAME_LAST + ckpt_call.FILE_EXTENSION
+            )
             best_path = pathlib.Path(ckpt_call.dirpath).joinpath(ckpt_call.filename + ckpt_call.FILE_EXTENSION)
             if ckpt_path.exists() and best_path.exists():
                 # Remove last model ckpt leave only best, to hint training successful termination.

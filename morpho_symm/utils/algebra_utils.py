@@ -8,7 +8,7 @@ import pathlib
 import numpy as np
 import scipy.sparse
 import torch
-from pytransform3d import rotations as rt
+from scipy.spatial.transform import Rotation
 
 
 def check_if_resume_experiment(ckpt_call):
@@ -79,13 +79,14 @@ def slugify(value, allow_unicode=False):
     """
     import re
     import unicodedata
+
     value = str(value)
     if allow_unicode:
-        value = unicodedata.normalize('NFKC', value)
+        value = unicodedata.normalize("NFKC", value)
     else:
-        value = unicodedata.normalize('NFKD', value).encode('ascii', 'ignore').decode('ascii')
-    value = re.sub(r'[^\w\s-]', '', value.lower())
-    return re.sub(r'[-\s]+', '-', value).strip('-_')
+        value = unicodedata.normalize("NFKD", value).encode("ascii", "ignore").decode("ascii")
+    value = re.sub(r"[^\w\s-]", "", value.lower())
+    return re.sub(r"[-\s]+", "-", value).strip("-_")
 
 
 # def reflection_matrix(plane_norm_vector):
@@ -114,14 +115,12 @@ def slugify(value, allow_unicode=False):
 
 def matrix_to_quat_xyzw(R):
     """SO(3) rotation to xyzw quaternion representation."""
-    assert R.shape == (3, 3), R.shape
-    return rt.quaternion_xyzw_from_wxyz(rt.quaternion_from_matrix(R))
+    return Rotation.from_matrix(R).as_quat(scalar_first=False)
 
 
 def quat_xyzw_to_SO3(q):
     """Xyzw quaternion representation to SO(3) representation."""
-    assert q.shape == (4,)
-    return rt.matrix_from_quaternion(rt.quaternion_wxyz_from_xyzw(q))
+    return Rotation.from_quat(q, scalar_first=False).as_matrix()
 
 
 def SE3_2_gen_coordinates(X):
@@ -134,3 +133,75 @@ def SE3_2_gen_coordinates(X):
     pos = X[:3, 3]
     quat = matrix_to_quat_xyzw(X[:3, :3])
     return np.concatenate((pos, quat))
+
+
+def matrix_from_two_vectors(a, b):
+    """Compute rotation matrix from two vectors.
+
+    We assume that the two given vectors form a plane so that we can compute
+    a third, orthogonal vector with the cross product.
+
+    The x-axis will point in the same direction as a, the y-axis corresponds
+    to the normalized vector rejection of b on a, and the z-axis is the
+    cross product of the other basis vectors.
+
+    Parameters
+    ----------
+    a : array-like, shape (3,)
+        First vector, must not be 0
+
+    b : array-like, shape (3,)
+        Second vector, must not be 0 or parallel to a
+
+    Returns:
+    -------
+    R : array, shape (3, 3)
+        Rotation matrix
+
+    Raises:
+    ------
+    ValueError
+        If vectors are parallel or one of them is the zero vector
+    """
+    if np.linalg.norm(a) == 0:
+        raise ValueError("a must not be the zero vector.")
+    if np.linalg.norm(b) == 0:
+        raise ValueError("b must not be the zero vector.")
+
+    c = np.cross(a, b)
+    if np.linalg.norm(c) == 0:
+        raise ValueError("a and b must not be parallel.")
+
+    a = a / np.linalg.norm(a)
+
+    b_proj_on_a = vector_projection(b, a)
+    b = b - b_proj_on_a
+    b /= np.linalg.norm(b)
+
+    c = c / np.linalg.norm(c)
+
+    R = np.column_stack((a, b, c))
+    assert not np.any(np.isnan(R)) and not np.any(np.isinf(R)), "NaN or inf in rotation matrix"
+    return np.column_stack((a, b, c))
+
+
+def vector_projection(a, b):
+    """Orthogonal projection of vector a on vector b.
+
+    Parameters
+    ----------
+    a : array-like, shape (3,)
+        Vector a that will be projected on vector b
+
+    b : array-like, shape (3,)
+        Vector b on which vector a will be projected
+
+    Returns:
+    -------
+    a_on_b : array, shape (3,)
+        Vector a
+    """
+    b_norm_squared = np.dot(b, b)
+    if b_norm_squared == 0.0:
+        return np.zeros(3)
+    return np.dot(a, b) * b / b_norm_squared

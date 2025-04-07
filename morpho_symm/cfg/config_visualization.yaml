@@ -13,7 +13,6 @@ gui: True
 
 recording_name: 'concrete_galloping'
 hydra:
-#  hydra_logging: null
   output_subdir: null  # disable hydra output directory
   verbose: ${debug}
   run:
@@ -22,9 +21,3 @@ hydra:
     chdir: False
     env_set:
       HYDRA_FULL_ERROR: '1'
-  job_logging:
-    version: 1
-    colorlog: True
-    formatters:
-      simple:
-        format: '[%(levelname)s][%(name)s] %(message)s'

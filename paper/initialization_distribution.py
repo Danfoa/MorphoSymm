@@ -7,16 +7,16 @@ import pandas as pd
 import seaborn as sns
 import torch
 import torch.nn.functional as F
+from groups.SemiDirectProduct import SparseRep
 from hydra.utils import get_original_cwd
 from omegaconf import DictConfig
 from pytorch_lightning import seed_everything
 from torch.utils.data import DataLoader
-
-from groups.SemiDirectProduct import SparseRep
-from utils.robot_utils import get_robot_params
-from morpho_symm.nn import EMLP, MLP, BasisLinear, EquivariantBlock, LinearBlock
-from morpho_symm.datasets.com_momentum.com_momentum import COMMomentum
 from utils.algebra_utils import cm2inch
+from utils.robot_utils import get_robot_params
+
+from morpho_symm.datasets.com_momentum.com_momentum import COMMomentum
+from morpho_symm.nn import EMLP, MLP, BasisLinear, EquivariantBlock, LinearBlock
 
 
 class Identity(torch.nn.Module):
@@ -53,18 +53,22 @@ def extract_weight_distribution(model):
             basis[layer_index] = base
 
     df_weights = pd.concat([pd.DataFrame.from_dict({k: v}) for k, v in weights.items()], axis=1)
-    df_weights = df_weights.melt(id_vars=None, value_vars=df_weights.columns, var_name="Layer", value_name="Param_Value").dropna()
+    df_weights = df_weights.melt(
+        id_vars=None, value_vars=df_weights.columns, var_name="Layer", value_name="Param_Value"
+    ).dropna()
     df_weights["Param"] = "W"
     if len(basis_coeff_w) > 0:
         df_basis_coeff = pd.concat([pd.DataFrame.from_dict({k: v}) for k, v in basis_coeff_w.items()], axis=1)
-        df_basis_coeff = df_basis_coeff.melt(id_vars=None, value_vars=df_basis_coeff.columns,
-                                             var_name="Layer", value_name="Param_Value").dropna()
+        df_basis_coeff = df_basis_coeff.melt(
+            id_vars=None, value_vars=df_basis_coeff.columns, var_name="Layer", value_name="Param_Value"
+        ).dropna()
         df_basis_coeff["Param"] = "c"
         df_weights = pd.concat((df_weights, df_basis_coeff), axis=0)
 
         df_basis = pd.concat([pd.DataFrame.from_dict({k: v}) for k, v in basis.items()], axis=1)
-        df_basis = df_basis.melt(id_vars=None, value_vars=df_basis.columns, var_name="Layer",
-                                       value_name="Param_Value").dropna()
+        df_basis = df_basis.melt(
+            id_vars=None, value_vars=df_basis.columns, var_name="Layer", value_name="Param_Value"
+        ).dropna()
         df_basis["Param"] = "basis"
         df_weights = pd.concat((df_weights, df_basis), axis=0)
 
@@ -72,10 +76,9 @@ def extract_weight_distribution(model):
 
 
 def extract_gradients(model, data_loader, loss_fn=F.mse_loss):
-    """
-    Args:
-        net: Object of class BaseNetwork
-        color: Color in which we want to visualize the histogram (for easier separation of activation functions)
+    """Args:
+    net: Object of class BaseNetwork
+    color: Color in which we want to visualize the histogram (for easier separation of activation functions)
     """
     model.eval()
     x, y = next(iter(data_loader))
@@ -91,7 +94,6 @@ def extract_gradients(model, data_loader, loss_fn=F.mse_loss):
             layer.linear._weight.retain_grad()
         elif isinstance(layer, BasisLinear):
             layer._weight.retain_grad()
-
 
     loss = loss_fn(preds, y)
     loss.backward()
@@ -121,9 +123,12 @@ def extract_gradients(model, data_loader, loss_fn=F.mse_loss):
     df_grads = df_grads.melt(id_vars=None, value_vars=df_grads.columns, var_name="Layer", value_name="Grad").dropna()
     df_grads["Param"] = "W"
     if len(layer_basis_coeff_grads) > 0:
-        df_basis_coeff_grads = pd.concat([pd.DataFrame.from_dict({k: v}) for k, v in layer_basis_coeff_grads.items()], axis=1)
-        df_basis_coeff_grads = df_basis_coeff_grads.melt(id_vars=None, value_vars=df_basis_coeff_grads.columns,
-                                                         var_name="Layer", value_name="Grad").dropna()
+        df_basis_coeff_grads = pd.concat(
+            [pd.DataFrame.from_dict({k: v}) for k, v in layer_basis_coeff_grads.items()], axis=1
+        )
+        df_basis_coeff_grads = df_basis_coeff_grads.melt(
+            id_vars=None, value_vars=df_basis_coeff_grads.columns, var_name="Layer", value_name="Grad"
+        ).dropna()
         df_basis_coeff_grads["Param"] = "c"
         df_grads = pd.concat((df_grads, df_basis_coeff_grads), axis=0)
 
@@ -156,12 +161,12 @@ def extract_activations(model, data_loader):
                 raise NotImplementedError(type(layer))
             print(f"\t Activations: {feats.shape}")
 
-    df = pd.concat([pd.DataFrame.from_dict({k:v}) for k,v in activations.items()], axis=1)
+    df = pd.concat([pd.DataFrame.from_dict({k: v}) for k, v in activations.items()], axis=1)
     df = df.melt(id_vars=None, value_vars=df.columns, var_name="Layer", value_name="Activation").dropna()
     return df
 
 
-@hydra.main(config_path='../morpho_symm/cfg/supervised', config_name='config')
+@hydra.main(config_path="../morpho_symm/cfg/supervised", config_name="config")
 def main(cfg: DictConfig):
     torch.set_default_dtype(torch.float32)
     cfg.seed = 10
@@ -171,31 +176,49 @@ def main(cfg: DictConfig):
     cache_dir = root_path.joinpath(".empl_cache")
     cache_dir.mkdir(exist_ok=True)
 
-    robot, Gin_data, Gout_data, Gin, Gout, = get_robot_params(cfg.robot_name)
+    (
+        robot,
+        Gin_data,
+        Gout_data,
+        Gin,
+        Gout,
+    ) = get_robot_params(cfg.robot_name)
     # Parameters
     activations = [torch.nn.ReLU, torch.nn.Tanh]
-    init_modes = ["fan_in", "fan_out", 'normal0.05', 'normal0.8']
+    init_modes = ["fan_in", "fan_out", "normal0.05", "normal0.8"]
 
     for activation in activations:
         df_activations, df_gradients, df_weights = None, None, None
-        model_types = ['mlp', 'emlp']
+        model_types = ["mlp", "emlp"]
         model_colors = sns.color_palette("magma_r", len(model_types))
         alpha = 0.2
         for color, model_type in zip(model_colors, model_types):
             # Define output group for linear momentum
             if "emlp" == cfg.model.model_type.lower():
-                network = EMLP(activation=activation, inv_dims_scale=0.0,
-                               rep_in=SparseRep(Gin), rep_out=SparseRep(Gout), hidden_group=Gout,
-                               num_layers=cfg.model.num_layers, ch=cfg.model.num_channels, with_bias=False,
-                               cache_dir=None).to(dtype=torch.float32)
-            elif 'mlp' == cfg.model.model_type.lower():
-                network = MLP(activation=activation, d_in=Gin.d, d_out=Gout.d,
-                              num_layers=cfg.model.num_layers, ch=cfg.model.num_channels, with_bias=False
-                              ).to(dtype=torch.float32)
+                network = EMLP(
+                    activation=activation,
+                    inv_dims_scale=0.0,
+                    rep_in=SparseRep(Gin),
+                    rep_out=SparseRep(Gout),
+                    hidden_group=Gout,
+                    num_layers=cfg.model.num_layers,
+                    ch=cfg.model.num_channels,
+                    with_bias=False,
+                    cache_dir=None,
+                ).to(dtype=torch.float32)
+            elif "mlp" == cfg.model.model_type.lower():
+                network = MLP(
+                    activation=activation,
+                    d_in=Gin.d,
+                    d_out=Gout.d,
+                    num_layers=cfg.model.num_layers,
+                    ch=cfg.model.num_channels,
+                    with_bias=False,
+                ).to(dtype=torch.float32)
             else:
                 raise NotImplementedError(model_type)
 
-            dataset = COMMomentum(robot, rep_in=Gin, rep_out=Gout, type='train', samples=1000)
+            dataset = COMMomentum(robot, rep_in=Gin, rep_out=Gout, type="train", samples=1000)
             data_loader = DataLoader(dataset, batch_size=512, collate_fn=lambda x: dataset.collate_fn(x))
 
             for i, init_mode in enumerate(init_modes):
@@ -213,7 +236,7 @@ def main(cfg: DictConfig):
                 # df_w["Initialization Mode"] = init_mode
 
                 if df_activations is None:
-                    df_activations, df_gradients, df_weights = df_act, df_grad, None #df_w
+                    df_activations, df_gradients, df_weights = df_act, df_grad, None  # df_w
                 else:
                     df_activations = pd.concat((df_activations, df_act), axis=0)
                     df_gradients = pd.concat((df_gradients, df_grad), axis=0)
@@ -224,12 +247,27 @@ def main(cfg: DictConfig):
                 df.loc[:, "hue"] = df["Model Type"] + "." + df["Param"]
             else:
                 df.loc[:, "hue"] = df["Model Type"]
-            g = sns.catplot(x="Layer", y=value_kw, hue="hue",
-                            row="Initialization Mode", kind="violin", data=df,
-                            sharey=False, sharex="col", height=cm2inch(10), aspect=1.4, ci="sd",
-                            scale='area', bw=.3, inner="box", scale_hue=True, dodge=True,
-                            palette=sns.color_palette("mako", len(model_types)),
-                            legend=True, legend_out=False)
+            g = sns.catplot(
+                x="Layer",
+                y=value_kw,
+                hue="hue",
+                row="Initialization Mode",
+                kind="violin",
+                data=df,
+                sharey=False,
+                sharex="col",
+                height=cm2inch(10),
+                aspect=1.4,
+                ci="sd",
+                scale="area",
+                bw=0.3,
+                inner="box",
+                scale_hue=True,
+                dodge=True,
+                palette=sns.color_palette("mako", len(model_types)),
+                legend=True,
+                legend_out=False,
+            )
             if title:
                 g.figure.suptitle(title)
                 g.figure.subplots_adjust(top=0.92)
@@ -240,10 +278,12 @@ def main(cfg: DictConfig):
 
         save = cfg.model.num_layers > 7
         main_title = f"{cfg.robot_name}_Act={activation.__name__}"
-        fig_grad = plot_layers_distributions(df=df_gradients, value_kw="Grad",
-                                             title=f"{main_title}-Gradients Distributions", save=save)
-        fig_act = plot_layers_distributions(df=df_activations, value_kw="Activation",
-                                            title=f"{main_title}-Activations Distributions", save=save)
+        fig_grad = plot_layers_distributions(
+            df=df_gradients, value_kw="Grad", title=f"{main_title}-Gradients Distributions", save=save
+        )
+        fig_act = plot_layers_distributions(
+            df=df_activations, value_kw="Activation", title=f"{main_title}-Activations Distributions", save=save
+        )
         # fig_w = plot_layers_distributions(df=df_weights, value_kw="Param_Value",
         #                                   title=f"{main_title}- Params Distributions ", save=save)
         fig_grad.show()
@@ -262,7 +302,6 @@ def main(cfg: DictConfig):
 
         for fig in [fig_act, fig_grad]:
             plt.close(fig)
-
 
 
 if __name__ == "__main__":

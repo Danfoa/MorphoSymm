@@ -20,10 +20,19 @@ from .EquivariantModules import BasisConv1d, BasisLinear, EquivariantModel
 
 log = logging.getLogger(__name__)
 
-class ContactECNN(EquivariantModel):
 
-    def __init__(self, rep_in: Rep, rep_out: Rep, window_size=150, cache_dir=None, dropout=0.5,
-                 init_mode="fan_in", inv_dim_scale=0.0, bias=True):
+class ContactECNN(EquivariantModel):
+    def __init__(
+        self,
+        rep_in: Rep,
+        rep_out: Rep,
+        window_size=150,
+        cache_dir=None,
+        dropout=0.5,
+        init_mode="fan_in",
+        inv_dim_scale=0.0,
+        bias=True,
+    ):
         super(ContactECNN, self).__init__(rep_in, rep_out, cache_dir)
         self.rep_in = rep_in
         self.rep_out = rep_out
@@ -45,7 +54,7 @@ class ContactECNN(EquivariantModel):
         rep_ch_128_2 = SparseRep(self.hidden_G.canonical_group(128, inv_dims=ceil(128 * inv_ratios[4])))
 
         # Group of the flatten feature vector, must comply with the 2D symmetry.
-        block2_out_window = int(window_size/4)
+        block2_out_window = int(window_size / 4)
         G = C2(generators=block_diag([rep_ch_128_2.G.discrete_generators[0]] * block2_out_window))
 
         # MLP reps
@@ -59,7 +68,7 @@ class ContactECNN(EquivariantModel):
             BasisConv1d(rep_in=rep_ch_64_1, rep_out=rep_ch_64_2, kernel_size=3, stride=1, padding=1, bias=bias),
             nn.ReLU(),
             nn.Dropout(p=self.dropout),
-            nn.MaxPool1d(kernel_size=2, stride=2)
+            nn.MaxPool1d(kernel_size=2, stride=2),
         )
 
         self.block2 = nn.Sequential(
@@ -68,18 +77,13 @@ class ContactECNN(EquivariantModel):
             BasisConv1d(rep_in=rep_ch_128_1, rep_out=rep_ch_128_2, kernel_size=3, stride=1, padding=1, bias=bias),
             nn.ReLU(),
             nn.Dropout(p=self.dropout),
-            nn.MaxPool1d(kernel_size=2, stride=2)
+            nn.MaxPool1d(kernel_size=2, stride=2),
         )
 
         self.fc = nn.Sequential(
-            EquivariantBlock(rep_in=rep_in_mlp,
-                             rep_out=rep_ch_2048,
-                             activation=nn.ReLU),
+            EquivariantBlock(rep_in=rep_in_mlp, rep_out=rep_ch_2048, activation=nn.ReLU),
             nn.Dropout(p=self.dropout),
-            EquivariantBlock(rep_in=rep_ch_2048,
-                             rep_out=rep_ch_512,
-                             activation=nn.ReLU),
-
+            EquivariantBlock(rep_in=rep_ch_2048, rep_out=rep_ch_512, activation=nn.ReLU),
             nn.Dropout(p=self.dropout),
             BasisLinear(rep_in=rep_ch_512, rep_out=self.rep_out),
         )
@@ -93,8 +97,9 @@ class ContactECNN(EquivariantModel):
 
         self.reset_parameters(init_mode=init_mode)
         # Test entire model equivariance.
-        self.test_module_equivariance(module=self, rep_in=self.rep_in, rep_out=self.rep_out,
-                                      in_shape=(1, 150, rep_in.G.d))
+        self.test_module_equivariance(
+            module=self, rep_in=self.rep_in, rep_out=self.rep_out, in_shape=(1, 150, rep_in.G.d)
+        )
         self.save_cache_file()
 
     def forward(self, x):
@@ -108,13 +113,15 @@ class ContactECNN(EquivariantModel):
         return fc_out
 
     def get_hparams(self):
-        return {'window_size': self.window_size,
-                'rep_in': str(self.rep_in),
-                'rep_out': str(self.rep_in),
-                'hidden_group': str(self.hidden_G),
-                'init_mode': self.init_mode,
-                'inv_dims_scale': self.inv_dims_scale,
-                'dropout': self.dropout}
+        return {
+            "window_size": self.window_size,
+            "rep_in": str(self.rep_in),
+            "rep_out": str(self.rep_in),
+            "hidden_group": str(self.hidden_G),
+            "init_mode": self.init_mode,
+            "inv_dims_scale": self.inv_dims_scale,
+            "dropout": self.dropout,
+        }
 
     def reset_parameters(self, init_mode=None, model=None):
         assert init_mode is not None or self.init_mode is not None
@@ -127,13 +134,13 @@ class ContactECNN(EquivariantModel):
                     if isinstance(m, BasisConv1d):
                         m.reset_parameters(mode=self.init_mode, activation="ReLU")
                     elif isinstance(m, EquivariantBlock):
-                        m.linear.reset_parameters(mode=self.init_mode,
-                                                  activation=m.activation.__class__.__name__.lower())
+                        m.linear.reset_parameters(
+                            mode=self.init_mode, activation=m.activation.__class__.__name__.lower()
+                        )
                     elif isinstance(m, BasisLinear):
                         m.reset_parameters(mode=self.init_mode, activation="Linear")
 
         log.info(f"{self.model_class} initialized with mode: {self.init_mode}")
-
 
     @staticmethod
     def test_module_equivariance(module: torch.nn.Module, rep_in, rep_out, in_shape=None):

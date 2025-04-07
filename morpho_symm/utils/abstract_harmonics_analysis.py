@@ -27,9 +27,9 @@ def decom_signal_into_isotypic_components(signal: np.ndarray, rep: Representatio
     Q_orig2iso = rep_iso.change_of_basis_inv  # Change of basis from original basis to isotypic basis
     assert signal.shape[-1] == rep.size, f"Expected signal shape to be (..., {rep.size}) got {signal.shape}"
 
-    signal_iso = np.einsum('...ij,...j->...i', Q_orig2iso, signal)
+    signal_iso = np.einsum("...ij,...j->...i", Q_orig2iso, signal)
 
-    isotypic_representations = rep_iso.attributes['isotypic_reps']
+    isotypic_representations = rep_iso.attributes["isotypic_reps"]
 
     # Compute the dimensions of each isotypic subspace
     cum_dim = 0
@@ -50,14 +50,15 @@ def decom_signal_into_isotypic_components(signal: np.ndarray, rep: Representatio
     for irrep_id, _ in isotypic_representations.items():
         iso_dims = iso_comp_dims[irrep_id]
         Q_isocomp2orig = Q_iso2orig[:, iso_dims]  # Change of basis from isotypic component basis to original basis
-        iso_comp_signals_orig_basis[irrep_id] = np.einsum('...ij,...j->...i',
-                                                          Q_isocomp2orig,
-                                                          iso_comp_signals[irrep_id])
+        iso_comp_signals_orig_basis[irrep_id] = np.einsum(
+            "...ij,...j->...i", Q_isocomp2orig, iso_comp_signals[irrep_id]
+        )
 
     # Check that the sum of the isotypic components is equal to the original signal
     rec_signal = np.sum([iso_comp_signals_orig_basis[irrep_id] for irrep_id in isotypic_representations.keys()], axis=0)
-    assert np.allclose(rec_signal, signal), \
+    assert np.allclose(rec_signal, signal), (
         f"Reconstructed signal is not equal to original signal. Error: {np.linalg.norm(rec_signal - signal)}"
+    )
 
     return iso_comp_signals, iso_comp_signals_orig_basis
 
@@ -103,11 +104,13 @@ def isotypic_decomp_representation(rep: Representation) -> Representation:
     for irrep_id, indices in isotypic_subspaces_indices.items():
         irrep = symm_group.irrep(*irrep_id)
         multiplicities = len(indices)
-        active_isotypic_reps[irrep_id] = Representation(group=rep.group,
-                                                        irreps=[irrep_id] * multiplicities,
-                                                        name=f'IsoSubspace {irrep_id}',
-                                                        change_of_basis=np.identity(irrep.size * multiplicities),
-                                                        supported_nonlinearities=irrep.supported_nonlinearities)
+        active_isotypic_reps[irrep_id] = Representation(
+            group=rep.group,
+            irreps=[irrep_id] * multiplicities,
+            name=f"IsoSubspace {irrep_id}",
+            change_of_basis=np.identity(irrep.size * multiplicities),
+            supported_nonlinearities=irrep.supported_nonlinearities,
+        )
 
     # Impose canonical order on the Isotypic Subspaces.
     # If the trivial representation is active it will be the first Isotypic Subspace.
@@ -125,25 +128,23 @@ def isotypic_decomp_representation(rep: Representation) -> Representation:
     P_in2iso = permutation_matrix(oneline_permutation)
 
     Q_iso = rep.change_of_basis @ P_in2iso.T
-    rep_iso_basis = directsum(list(ordered_isotypic_reps.values()),
-                              name=rep.name + '-Iso',
-                              change_of_basis=Q_iso)
+    rep_iso_basis = directsum(list(ordered_isotypic_reps.values()), name=rep.name + "-Iso", change_of_basis=Q_iso)
 
     iso_supported_nonlinearities = [iso_rep.supported_nonlinearities for iso_rep in ordered_isotypic_reps.values()]
     rep_iso_basis.supported_nonlinearities = functools.reduce(set.intersection, iso_supported_nonlinearities)
-    rep_iso_basis.attributes['isotypic_reps'] = ordered_isotypic_reps
+    rep_iso_basis.attributes["isotypic_reps"] = ordered_isotypic_reps
 
     return rep_iso_basis
 
 
-def isotypic_basis(representation: Representation, multiplicity: int = 1, prefix=''):
+def isotypic_basis(representation: Representation, multiplicity: int = 1, prefix=""):
     rep_iso = isotypic_decomp_representation(representation)
 
     iso_reps = OrderedDict()
     iso_range = OrderedDict()
 
     start_dim = 0
-    for iso_irrep_id, reg_rep_iso in rep_iso.attributes['isotypic_reps'].items():
+    for iso_irrep_id, reg_rep_iso in rep_iso.attributes["isotypic_reps"].items():
         iso_reps[iso_irrep_id] = directsum([reg_rep_iso] * multiplicity, name=f"{prefix}_IsoSpace{iso_irrep_id}")
         iso_range[iso_irrep_id] = range(start_dim, start_dim + iso_reps[iso_irrep_id].size)
         start_dim += iso_reps[iso_irrep_id].size
