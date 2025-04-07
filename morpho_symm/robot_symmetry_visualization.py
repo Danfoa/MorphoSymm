@@ -38,7 +38,6 @@ def main(cfg: DictConfig):
     rep_Ed = G.representations["E3"]  # rep_Ed(g) is a homogenous transformation matrix ∈ R^(3+1)x(3+1)
     rep_Rd = G.representations["R3"]  # rep_Rd(g) is an orthogonal matrix ∈ R^3x3
     rep_Rd_pseudo = G.representations["R3_pseudo"]  # rep_Rd_pseudo(g) is an orthogonal matrix ∈ R^3x3
-    rep_euler_xyz = G.representations["euler_xyz"]  # rep_euler_xyz(g) is an euler angle vector ∈ R^3
 
     # Configuration of the 3D visualization -------------------------------------------------------------------------
     # Not really relevant to understand.
@@ -111,12 +110,6 @@ def main(cfg: DictConfig):
         gXB = rep_Ed(g) @ XB @ rep_Ed(g).T
         orbit_XB_w[g] = gXB  # Add new robot base configuration (homogenous matrix) to the orbit of base configs.
         orbit_ori_euler_xyz[g] = Rotation.from_matrix(gXB[:3, :3]).as_euler("xyz", degrees=True)
-        # If people use euler xyz angles to represent the orientation of the robot base, we can also compute the
-        # symmetric states of the robot base orientation:
-        g_euler_xyz = rep_euler_xyz(g) @ base_ori_euler_xyz
-        # Check the analytic transformation to elements of SO(3) is equivalent to the transformation in euler xyz angles
-        g_euler_xyz_true = Rotation.from_matrix(gXB[:3, :3]).as_euler("xyz", degrees=True)
-        assert np.allclose(g_euler_xyz, g_euler_xyz_true, rtol=1e-6, atol=1e-6)
 
         # Use symmetry representations to get symmetric versions of Euclidean vectors, representing measurements of data
         orbit_f1[g], orbit_f2[g] = rep_Rd(g) @ f1, rep_Rd(g) @ f2
@@ -126,10 +119,6 @@ def main(cfg: DictConfig):
         # Apply transformations to the terrain elevation estimations/measurements
         orbit_Rf1[g] = rep_Rd(g) @ Rf1 @ rep_Rd(g).T
         orbit_Rf2[g] = rep_Rd(g) @ Rf2 @ rep_Rd(g).T
-
-    for g in G.elements:
-        print(f"Element: {g} euler_xyz(g): \n{rep_euler_xyz(g)}")
-        print(f"Element: {g} Rd_pseudo(g): \n{rep_Rd_pseudo(g)}")
 
     # Visualization of orbits of robot states and of data ==========================================================
     # Use Ctrl and mouse-click+drag to rotate the 3D environment.
