@@ -216,7 +216,8 @@ def load_symmetric_system(
                 )
             pb = configure_bullet_simulation(gui=True, debug=debug)
             robot.configure_bullet_simulation(pb, world=None)
-            change_robot_appearance(pb, robot)
+            if robot_cfg.tint_bodies:
+                change_robot_appearance(pb, robot)
             setup_debug_sliders(pb, robot)
             listen_update_robot_sliders(pb, robot)
 
