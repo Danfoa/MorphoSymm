@@ -13,7 +13,7 @@ from morpho_symm.loaders.joint_data import JointData
 log = logging.getLogger(__name__)
 
 
-def load_robot(robot_cfg: DictConfig, q_zero: np.ndarray):
+def load_robot(robot_cfg: DictConfig, q_zero: np.ndarray) -> tuple[JointData, pin.RobotWrapper]:
     """Loads a Pinocchio robot model from a given configuration."""
     if getattr(robot_cfg, "urdf_path", None) is not None:
         path = pathlib.Path(robot_cfg.urdf_path).absolute()
@@ -32,13 +32,30 @@ def load_robot(robot_cfg: DictConfig, q_zero: np.ndarray):
         )
 
     if q_zero is not None:
-        robot_model.q0[7:] = q_zero
+        robot_model.q0 = q_zero
 
     joint_info = extract_pin_joint_info(robot_model)
     print("Loaded UDRF with the following joint configuration:")
     print(_format_joint_info_table(joint_info))
 
     return joint_info, robot_model
+
+
+def debug_joints(robot_cfg: DictConfig):
+    from morpho_symm.utils.pybullet_visual_utils import (
+        change_robot_appearance,
+        configure_bullet_simulation,
+        listen_update_robot_sliders,
+        setup_debug_sliders,
+    )
+
+    raise NotImplementedError("Debugging Pinocchio robots is not implemented yet.")
+    # pb = configure_bullet_simulation(gui=True, debug=True)
+    # robot.configure_bullet_simulation(pb, world=None)
+    # if robot_cfg.tint_bodies:
+    #     change_robot_appearance(pb, robot)
+    # setup_debug_sliders(pb, robot)
+    # listen_update_robot_sliders(pb, robot)
 
 
 def extract_pin_joint_info(model: pin.RobotWrapper) -> OrderedDict[str, JointData]:

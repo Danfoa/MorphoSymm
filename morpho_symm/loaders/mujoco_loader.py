@@ -1,5 +1,6 @@
 import logging
 import pathlib
+import time
 from collections import OrderedDict
 
 import mujoco
@@ -11,7 +12,7 @@ from morpho_symm.loaders.joint_data import JointData
 log = logging.getLogger(__name__)
 
 
-def load_robot(robot_cfg: DictConfig, q_zero: np.ndarray):
+def load_robot(robot_cfg: DictConfig, q_zero: np.ndarray) -> tuple[JointData, mujoco.MjModel]:
     """Loads a Mujoco robot model from a given configuration."""
     if getattr(robot_cfg, "mjcf_path", None) is not None:
         path = pathlib.Path(robot_cfg.mjcf_path).absolute()
@@ -149,8 +150,78 @@ def _format_joint_info_table(joint_info: OrderedDict[str, "JointData"]) -> str:
     return "\n".join(lines)
 
 
+def debug_joints(robot_cfg: DictConfig):
+    """Launch MuJoCo viewer with joint sliders for debugging robot configuration.
+
+    Args:
+        robot_cfg: Robot configuration containing model path and parameters
+    """
+    try:
+        import mujoco.viewer
+    except ImportError:
+        log.error("mujoco.viewer not available. Install with: pip install mujoco[viewer]")
+        return
+
+    # Load the robot model
+    q_zero = np.array([eval(str(s)) for s in robot_cfg.q_zero], dtype=float) if robot_cfg.q_zero is not None else None
+    joint_info, model = load_robot(robot_cfg, q_zero)
+
+    # Print model info for debugging
+    print("\nModel Info:")
+    print(f"- Joints: {model.njnt}")
+    print(f"- Actuators: {model.nu}")
+    print(f"- DOFs: {model.nv}")
+
+    # Create MuJoCo data
+    data = mujoco.MjData(model)
+
+    # Disable gravity and damping for easier manipulation
+    model.opt.gravity[:] = 0
+
+    # Disable integrator to prevent drift
+    model.opt.integrator = mujoco.mjtIntegrator.mjINT_EULER
+    model.opt.timestep = 0.001
+
+    # Forward kinematics to update the state
+    mujoco.mj_forward(model, data)
+
+    try:
+        with mujoco.viewer.launch_passive(model, data) as viewer:
+            # Set white background using model options
+            model.vis.rgba.fog[0:3] = [1.0, 1.0, 1.0]  # White fog color
+            model.vis.rgba.fog[3] = 1.0  # Full opacity
+
+            # Disable skybox and set background
+            viewer.opt.flags[mujoco.mjtVisFlag.mjVIS_SKYBOX] = 0
+            viewer.scn.background[0:4] = [1.0, 1.0, 1.0, 1.0]  # White background RGBA
+
+            # Enable UI panels
+            if hasattr(viewer, "ui"):
+                viewer.ui.show_info = True
+                if model.nu > 0:
+                    viewer.ui.show_control = True
+
+            while viewer.is_running():
+                # Step the simulation to update actuator controls
+                mujoco.mj_step(model, data)
+                viewer.sync()
+                # Lower refresh rate to prevent issues
+                time.sleep(1 / 60)  # 60 Hz refresh rate
+
+    except KeyboardInterrupt:
+        log.info("Viewer closed by user")
+    except Exception as e:
+        log.error(f"Viewer error: {e}")
+        log.info("Trying fallback viewer method...")
+        try:
+            # Use the blocking viewer which might have better UI support
+            mujoco.viewer.launch(model, data)
+        except Exception as e2:
+            log.error(f"All viewer methods failed: {e2}")
+
+
 if __name__ == "__main__":
     import morpho_symm
 
     robot_name = "tiago++_mj"
-    morpho_symm.load_symmetric_system(robot_name=robot_name)
+    morpho_symm.load_symmetric_system(robot_name=robot_name, debug=True)

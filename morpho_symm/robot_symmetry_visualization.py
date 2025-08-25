@@ -41,7 +41,7 @@ def main(cfg: DictConfig):
 
     # Configuration of the 3D visualization -------------------------------------------------------------------------
     # Not really relevant to understand.
-    offset = max(0.2, 1.8 * robot.hip_height)  # Offset between robot base and reflection planes.
+    offset = max(0.2, 1.8 * cfg.robot.hip_height)  # Offset between robot base and reflection planes.
     pb = configure_bullet_simulation(gui=cfg.gui, debug=cfg.debug_joints)  # Load pybullet environment
     robot.configure_bullet_simulation(pb, world=None)  # Load robot in pybullet environment
     change_robot_appearance(pb, robot, change_color=cfg.robot.tint_bodies)  # Add color and style to boring grey robots
