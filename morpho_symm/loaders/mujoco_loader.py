@@ -17,7 +17,7 @@ def load_robot(robot_cfg: DictConfig, q_zero: np.ndarray) -> tuple[JointData, mu
     if getattr(robot_cfg, "mjcf_path", None) is not None:
         path = pathlib.Path(robot_cfg.mjcf_path).absolute()
         assert path.exists(), f"Could not find MJCF file at {path}"
-        model = mujoco.MjModel.from_xml_path(path)
+        model = mujoco.MjModel.from_xml_path(str(path))
     else:
         from robot_descriptions.loaders.mujoco import load_robot_description
 
@@ -163,7 +163,11 @@ def debug_joints(robot_cfg: DictConfig):
         return
 
     # Load the robot model
-    q_zero = np.array([eval(str(s)) for s in robot_cfg.q_zero], dtype=float) if robot_cfg.q_zero is not None else None
+    if robot_cfg.q_zero is not None:
+        q_zero = np.array([eval(str(s)) for s in robot_cfg.q_zero], dtype=float)
+    else:
+        q_zero = None
+
     joint_info, model = load_robot(robot_cfg, q_zero)
 
     # Print model info for debugging

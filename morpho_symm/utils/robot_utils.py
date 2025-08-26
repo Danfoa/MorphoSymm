@@ -59,7 +59,7 @@ def get_escnn_group(group_label: str):
 
 
 def load_symmetric_system(
-    robot_cfg: Optional[DictConfig] = None,
+    robot_cfg: Optional[morpho_symm.RobotCfg] = None,
     robot_name: Optional[str] = None,
     debug=False,
     return_robot=True,
@@ -84,6 +84,7 @@ def load_symmetric_system(
         G (escnn.group.Group): Instance of the symmetry Group of the robot. The representations for Q_js, TqQ_js and
         Ed are
         added to the list of representations of the group.
+
     """
     assert robot_cfg is not None or robot_name is not None, (
         "Either a robot configuration file or a robot name must be provided."
@@ -92,6 +93,8 @@ def load_symmetric_system(
         # Load hydra configs without hydra.
         path_cfg = Path(morpho_symm.__file__).parent / "cfg" / "robot"
         robot_cfg = load_config_hierarchy(cfg_path=path_cfg / f"{robot_name}.yaml")
+    else:
+        robot_name = robot_cfg.name
 
     if debug:
         if "_mj" in robot_name:
@@ -106,15 +109,15 @@ def load_symmetric_system(
     G = symmetry_space.fibergroup
 
     # Select the field for the representations.
-    rep_field = float if robot_cfg.rep_fields.lower() != "complex" else complex
+    rep_field = float
 
     # Assert the required representations are present in the robot configuration.
-    if "permutation_Q_js" not in robot_cfg:
+    if robot_cfg.permutation_Q_js is None or len(robot_cfg.permutation_Q_js) == 0:
         raise ConfigException(
             f"Configuration file for {robot_name} must define the field `permutation_Q_js`, "
             f"describing the joint space permutation per each non-trivial group's generator."
         )
-    if "permutation_TqQ_js" not in robot_cfg:
+    if robot_cfg.permutation_TqQ_js is None or len(robot_cfg.permutation_TqQ_js) == 0:
         raise ConfigException(
             f"Configuration file for {robot_name} must define the field `permutation_TqQ_js`, "
             f"describing the tangent joint-space permutation per each non-trivial group's generator."
@@ -211,7 +214,11 @@ def load_symmetric_system(
                 rep_TqQ_js, P, name="TqQ_js", supported_nonlinearities=rep_TqQ_js.supported_nonlinearities
             )
 
-        dimQ_js, dimTqQ_js = nq - 7, nv - 6
+        if robot_cfg.floating_base:
+            dimQ_js, dimTqQ_js = nq - 7, nv - 6
+        else:
+            dimQ_js, dimTqQ_js = nq, nv
+
         if dimQ_js != rep_Q_js.size:
             raise ConfigException(
                 f"{robot_name}'s joint-space dimension {dimQ_js} does not match representation dimension {rep_Q_js.size}"
