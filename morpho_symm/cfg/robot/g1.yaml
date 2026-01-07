@@ -1,0 +1,35 @@
+defaults:
+  - base_robot
+
+name: g1
+
+hip_height: 0.75
+# ______|___Base Pos___|___Base Ori__|______________________________QJ________________________________|
+init_q: null
+endeff_names: ['left_ankle_roll_joint', 'right_ankle_roll_joint']
+
+group_label: C2
+
+# QJ: Joint Space symmetries____________________________________
+# Joint order:
+# [0-5]:   left_hip_pitch, left_hip_roll, left_hip_yaw, left_knee, left_ankle_pitch, left_ankle_roll
+# [6-11]:  right_hip_pitch, right_hip_roll, right_hip_yaw, right_knee, right_ankle_pitch, right_ankle_roll
+# [12-14]: waist_yaw, waist_roll, waist_pitch
+# [15-21]: left_shoulder_pitch, left_shoulder_roll, left_shoulder_yaw, left_elbow, left_wrist_roll, left_wrist_pitch, left_wrist_yaw
+# [22-28]: right_shoulder_pitch, right_shoulder_roll, right_shoulder_yaw, right_elbow, right_wrist_roll, right_wrist_pitch, right_wrist_yaw
+permutation_Q_js: [[
+  6, 7, 8, 9, 10, 11,        # right_leg -> left_leg position
+  0, 1, 2, 3, 4, 5,          # left_leg -> right_leg position
+  12, 13, 14,                 # waist (yaw, roll, pitch)
+  22, 23, 24, 25, 26, 27, 28, # right_arm -> left_arm position
+  15, 16, 17, 18, 19, 20, 21  # left_arm -> right_arm position
+]]
+# Reflections are determined by joint frame predefined orientation.
+# Based on atlas pattern, adjusted for g1 joint order: [hip_pitch, hip_roll, hip_yaw, knee, ankle_pitch, ankle_roll]
+reflection_Q_js: [[
+  1, -1, -1, 1, 1, -1,       # left_leg: hip_pitch, hip_roll, hip_yaw, knee, ankle_pitch, ankle_roll
+  1, -1, -1, 1, 1, -1,       # right_leg: hip_pitch, hip_roll, hip_yaw, knee, ankle_pitch, ankle_roll
+  -1, -1, 1,                 # waist: yaw, roll, pitch
+  1, -1, -1, 1, -1, 1, -1,   # left_arm: shoulder_pitch, shoulder_roll, shoulder_yaw, elbow, wrist_roll, wrist_pitch, wrist_yaw
+  1, -1, -1, 1, -1, 1, -1    # right_arm: shoulder_pitch, shoulder_roll, shoulder_yaw, elbow, wrist_roll, wrist_pitch, wrist_yaw
+]]
