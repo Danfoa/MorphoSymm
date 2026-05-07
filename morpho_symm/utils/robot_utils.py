@@ -59,7 +59,7 @@ def get_escnn_group(group_label: str):
 
 
 def load_symmetric_system(
-    robot_cfg: Optional[DictConfig] = None,
+    robot_cfg: Optional[morpho_symm.RobotCfg] = None,
     robot_name: Optional[str] = None,
     debug=False,
     return_robot=True,
@@ -84,6 +84,7 @@ def load_symmetric_system(
         G (escnn.group.Group): Instance of the symmetry Group of the robot. The representations for Q_js, TqQ_js and
         Ed are
         added to the list of representations of the group.
+
     """
     assert robot_cfg is not None or robot_name is not None, (
         "Either a robot configuration file or a robot name must be provided."
@@ -92,6 +93,15 @@ def load_symmetric_system(
         # Load hydra configs without hydra.
         path_cfg = Path(morpho_symm.__file__).parent / "cfg" / "robot"
         robot_cfg = load_config_hierarchy(cfg_path=path_cfg / f"{robot_name}.yaml")
+    else:
+        robot_name = robot_cfg.name
+
+    if debug:
+        if "_mj" in robot_name:
+            from morpho_symm.loaders.mujoco_loader import debug_joints
+        else:
+            from morpho_symm.loaders.pinocchio_loader import debug_joints
+        debug_joints(robot_cfg)
 
     robot_name = str.lower(robot_cfg.name)
 
@@ -99,15 +109,15 @@ def load_symmetric_system(
     G = symmetry_space.fibergroup
 
     # Select the field for the representations.
-    rep_field = float if robot_cfg.rep_fields.lower() != "complex" else complex
+    rep_field = float
 
     # Assert the required representations are present in the robot configuration.
-    if "permutation_Q_js" not in robot_cfg:
+    if robot_cfg.permutation_Q_js is None or len(robot_cfg.permutation_Q_js) == 0:
         raise ConfigException(
             f"Configuration file for {robot_name} must define the field `permutation_Q_js`, "
             f"describing the joint space permutation per each non-trivial group's generator."
         )
-    if "permutation_TqQ_js" not in robot_cfg:
+    if robot_cfg.permutation_TqQ_js is None or len(robot_cfg.permutation_TqQ_js) == 0:
         raise ConfigException(
             f"Configuration file for {robot_name} must define the field `permutation_TqQ_js`, "
             f"describing the tangent joint-space permutation per each non-trivial group's generator."
@@ -169,25 +179,22 @@ def load_symmetric_system(
         log.info(f"\t {name}: dimension: {rep.size}")
 
     if return_robot or joint_space_order is not None:
-        from morpho_symm.robots.PinBulletWrapper import PinBulletWrapper
-
-        # We allow symbolic expressions (e.g. `np.pi/2`) in the `q_zero` and `init_q`.
         q_zero = (
             np.array([eval(str(s)) for s in robot_cfg.q_zero], dtype=float) if robot_cfg.q_zero is not None else None
         )
-        init_q = (
-            np.array([eval(str(s)) for s in robot_cfg.init_q], dtype=float) if robot_cfg.init_q is not None else None
-        )
-        robot = PinBulletWrapper(
-            robot_name=robot_name,
-            init_q=init_q,
-            q_zero=q_zero,
-            hip_height=robot_cfg.hip_height,
-            endeff_names=robot_cfg.endeff_names,
-            fixed_base=robot_cfg.fix_base,
-        )
+        if "_mj" in robot_name:  # Mujoco loader.
+            from morpho_symm.loaders.mujoco_loader import load_robot
 
-        default_joint_order = robot.joint_space_names
+            joint_info, robot = load_robot(robot_cfg, q_zero)
+            nq, nv = robot.nq, robot.nv
+
+        else:  # Pinocchio loader.
+            from morpho_symm.loaders.pinocchio_loader import load_robot
+
+            joint_info, robot = load_robot(robot_cfg, q_zero)
+            nq, nv = robot.model.nq, robot.model.nv
+
+        default_joint_order = list(joint_info.keys())[1:]
         if joint_space_order is not None and default_joint_order != joint_space_order:
             assert len(joint_space_order) == len(default_joint_order), (
                 f"|joint_space_order|={len(joint_space_order)} != |default_joint_order|={len(default_joint_order)}"
@@ -195,7 +202,7 @@ def load_symmetric_system(
             assert set(joint_space_order) == set(default_joint_order), (
                 f"Invalid joint order, missing joints:  {set(default_joint_order) - set(joint_space_order)}"
             )
-            log.info(f"Changing joint-space order to match the required order {joint_space_order}")
+            log.info(f"Changing joint-space order to match the requested ordering {joint_space_order}")
             # Oneline notation of the permutation from default to required joint order
             perm = np.array([default_joint_order.index(j) for j in joint_space_order])
             P = permutation_matrix(oneline_notation=perm)
@@ -207,30 +214,18 @@ def load_symmetric_system(
                 rep_TqQ_js, P, name="TqQ_js", supported_nonlinearities=rep_TqQ_js.supported_nonlinearities
             )
 
-        if debug:
-            from morpho_symm.utils.pybullet_visual_utils import (
-                change_robot_appearance,
-                configure_bullet_simulation,
-                listen_update_robot_sliders,
-                setup_debug_sliders,
-                )
-            pb = configure_bullet_simulation(gui=True, debug=debug)
-            robot.configure_bullet_simulation(pb, world=None)
-            if robot_cfg.tint_bodies:
-                change_robot_appearance(pb, robot)
-            setup_debug_sliders(pb, robot)
-            listen_update_robot_sliders(pb, robot)
+        if robot_cfg.floating_base:
+            dimQ_js, dimTqQ_js = nq - 7, nv - 6
+        else:
+            dimQ_js, dimTqQ_js = nq, nv
 
-        dimQ_js, dimTqQ_js = robot.nq - 7, robot.nv - 6
         if dimQ_js != rep_Q_js.size:
             raise ConfigException(
-                f"{robot_name}'s Pinocchio joint-space dimension {dimQ_js} does not match the joint-space representation"
-                f"`Q_js` dimension {rep_Q_js.size}"
+                f"{robot_name}'s joint-space dimension {dimQ_js} does not match representation dimension {rep_Q_js.size}"
             )
         if dimTqQ_js != rep_TqQ_js.size:
             raise ConfigException(
-                f"{robot_name}'s Pinocchio joint-space tangent dimension {dimTqQ_js} does not match the joint-space "
-                f"tangent representation `TqQ_js` dimension {rep_TqQ_js.size}"
+                f"{robot_name}'s joint-velocity-space dimension {dimTqQ_js} does not match representation dimension {rep_TqQ_js.size}"
             )
 
     # Add representations to the group.
